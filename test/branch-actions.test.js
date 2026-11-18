@@ -46,6 +46,7 @@ test('delete and rename accept real tree data nodes without contextValue', async
     extensions: { getExtension: () => undefined },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; } },
     window: {
+      registerFileDecorationProvider: () => disposable,
       createTreeView: (id, options) => { tree = options.treeDataProvider; return disposable; },
       showInformationMessage: message => messages.push(message),
       showErrorMessage: message => messages.push(message),

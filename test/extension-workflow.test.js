@@ -33,12 +33,13 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.exec(['pack-refs', '--all']);
   const commands = new Map(), providers = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
-  let tree, refreshes = 0, input, answer, choose = false;
+  let tree, decorations, refreshes = 0, input, answer, choose = false;
   const disposable = { dispose() {} };
   const mock = {
     EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
     TreeItem: class { constructor(label) { this.label = label; } },
     TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 }, ThemeIcon: class {},
+    ThemeColor: class { constructor(id) { this.id = id; } },
     Uri: { from: value => ({ query: '', ...value }), file: fsPath => ({ scheme: 'file', fsPath }) },
     ViewColumn: { Active: -1, Beside: -2 },
     RelativePattern: class { constructor(base, pattern) { patterns.push({ base, pattern }); } },
@@ -58,6 +59,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       }
     },
     window: {
+      registerFileDecorationProvider: provider => { decorations = provider; return disposable; },
       createTreeView: (id, options) => { tree = options.treeDataProvider; return { ...disposable,
         reveal: async (node, options) => { assert.equal(node.kind, 'branch'); assert.equal(options.expand, true); } }; },
       showInformationMessage: message => messages.push(message), showErrorMessage: message => messages.push(message),
@@ -227,6 +229,21 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(fileItem.label, 'new-main.txt');
     assert.equal(fileItem.contextValue, 'gb-worktree-file');
     assert.equal(fileItem.command.command, 'git-branch.openWorktreeDiff');
+    assert.equal(fileItem.description, ''); // Status is a right-aligned badge, not path text.
+    assert.equal(fileItem.resourceUri.scheme, 'git-branch-worktree-file');
+    const decoration = decorations.provideFileDecoration(fileItem.resourceUri);
+    assert.equal(decoration.badge, 'M');
+    assert.equal(decoration.color.id, 'gitDecoration.modifiedResourceForeground');
+    for (const [status, color] of [['A', 'added'], ['D', 'deleted'], ['R100', 'renamed']]) {
+      const item = tree.getTreeItem({ ...fileNode, file: { ...fileNode.file, status, newPath: 'long/path/file.txt' } });
+      assert.equal(item.description, 'long/path');
+      const badge = decorations.provideFileDecoration(item.resourceUri);
+      assert.equal(badge.badge, status[0]);
+      assert.equal(badge.color.id, `gitDecoration.${color}ResourceForeground`);
+      assert.equal(badge.propagate, false);
+    }
+    assert.equal(decorations.provideFileDecoration({ scheme: 'file', query: 'M' }), undefined);
+    assert.equal(decorations.provideFileDecoration({ scheme: 'git-branch-worktree-file', query: '__proto__' }), undefined);
     assert.equal(await tree.getParent(fileNode), worktreeBranch);
     await run('openWorktreeDiff', fileNode);
     assert.equal(diffs.at(-1)[2].scheme, 'file');

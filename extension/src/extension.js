@@ -31,6 +31,27 @@ async function configureGitExecutable(git) {
   } catch { /* fall back to 'git' on PATH */ }
 }
 
+// Dedicated resource scheme prevents built-in Git decorations (relative to HEAD)
+// from overriding our status (relative to the selected branch).
+const worktreeDecorationScheme = 'git-branch-worktree-file';
+const worktreeStatuses = {
+  M: ['Modified', 'gitDecoration.modifiedResourceForeground'],
+  A: ['Added', 'gitDecoration.addedResourceForeground'],
+  D: ['Deleted', 'gitDecoration.deletedResourceForeground'],
+  R: ['Renamed', 'gitDecoration.renamedResourceForeground'],
+  C: ['Copied', 'gitDecoration.addedResourceForeground'],
+  T: ['Type changed', 'gitDecoration.modifiedResourceForeground'],
+  U: ['Unmerged', 'gitDecoration.conflictingResourceForeground']
+};
+const worktreeDecorations = {
+  provideFileDecoration(uri) {
+    if (uri.scheme !== worktreeDecorationScheme || !Object.hasOwn(worktreeStatuses, uri.query)) return undefined;
+    const status = worktreeStatuses[uri.query];
+    if (!status) return undefined;
+    return { badge: uri.query, tooltip: status[0], color: new vscode.ThemeColor(status[1]), propagate: false };
+  }
+};
+
 // ─── Branch Tree ────────────────────────────────────────────────────────────
 
 class BranchTreeProvider {
@@ -54,9 +75,10 @@ class BranchTreeProvider {
     if (element.kind === 'worktree-file') {
       const filePath = element.file.newPath || element.file.oldPath;
       const item = new vscode.TreeItem(path.posix.basename(filePath), vscode.TreeItemCollapsibleState.None);
-      item.resourceUri = vscode.Uri.file(this.git.worktreePath(filePath));
+      item.resourceUri = vscode.Uri.from({ scheme: worktreeDecorationScheme,
+        path: '/' + filePath, query: element.file.status.slice(0, 1) });
       item.iconPath = new vscode.ThemeIcon('file');
-      item.description = `${path.posix.dirname(filePath) === '.' ? '' : path.posix.dirname(filePath) + ' · '}${element.file.status}`;
+      item.description = path.posix.dirname(filePath) === '.' ? '' : path.posix.dirname(filePath);
       item.tooltip = `${filePath}\nStatus: ${element.file.status}\n${element.result.ref} ↔ Working Tree`;
       item.contextValue = 'gb-worktree-file';
       item.command = { command: 'git-branch.openWorktreeDiff', title: 'Open Diff', arguments: [element] };
@@ -288,6 +310,7 @@ function activate(context) {
 
   context.subscriptions.push(
     branchView, branchTree,
+    vscode.window.registerFileDecorationProvider(worktreeDecorations),
     vscode.workspace.registerTextDocumentContentProvider(snapshotScheme, snapshotProvider),
 
     vscode.commands.registerCommand('git-branch.refresh', () => {
