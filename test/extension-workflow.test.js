@@ -37,7 +37,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
     TreeItem: class { constructor(label) { this.label = label; } },
     TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 }, ThemeIcon: class {},
-    Uri: { from: value => ({ query: '', ...value }) },
+    Uri: { from: value => ({ query: '', ...value }), file: fsPath => ({ scheme: 'file', fsPath }) },
     ViewColumn: { Active: -1, Beside: -2 },
     RelativePattern: class { constructor(base, pattern) { patterns.push({ base, pattern }); } },
     workspace: {
@@ -198,7 +198,19 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('compare', { ...main, current: false }); // Stale node still cannot compare current branch.
     assert.equal(panels.length, panelCount);
     assert.match(messages.at(-1), /Select a different branch/);
-    for (const id of ['checkout', 'compare', 'merge', 'rebase']) {
+    mock.workspace.textDocuments = [{ isDirty: true, uri: { scheme: 'file', fsPath: path.join(cwd, 'new-main.txt') },
+      getText: () => 'unsaved editor changes\n' }];
+    await run('worktree', roots[0].children.find(n => n.current));
+    const workingPanel = panels.at(-1);
+    assert.match(workingPanel.title, /Working Tree Diff: main/);
+    await workingPanel.message({ type: 'diff', scope: 'worktree', index: 0, generation: 0 });
+    assert.equal(diffs.at(-1)[2].scheme, 'file');
+    assert.equal(diffs.at(-1)[2].fsPath, path.join(cwd, 'new-main.txt'));
+    assert.equal(JSON.parse(diffs.at(-1)[1].query).hash, await git.resolve('HEAD'));
+    mock.workspace.textDocuments = [];
+    await workingPanel.message({ type: 'refresh' });
+    assert.equal(workingPanel.sent.at(-1).result.files.length, 0);
+    for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }
     const beforeRefresh = refreshes; await run('refresh'); assert.ok(refreshes > beforeRefresh);

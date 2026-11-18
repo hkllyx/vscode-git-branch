@@ -22,6 +22,7 @@
 | Merge into Current     | 将选中分支合并到当前分支                 |
 | Rebase Current onto... | 将当前分支变基到选中分支                 |
 | Compare with Current   | 比较选中分支与当前 HEAD 的提交快照差异   |
+| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改） |
 | Rename Branch...       | 重命名本地分支（含校验和二次确认）       |
 | Delete Branch          | 先安全删除；未合并时可确认 Force Delete |
 
@@ -40,6 +41,17 @@
 - 分支整体文件差异的左侧 = 选中分支，右侧 = 比较时的当前分支；单提交 Diff 为父提交 → 该提交
 - 工作区未提交的修改不参与比较；不修改仓库，不自动 fetch
 - 参考 IDEA 双向历史比较布局，但不包含其完整提交拓扑图、cherry-pick 等操作
+
+### Show Diff with Working Tree
+
+- 本地分支、当前分支和远程分支均可右键使用；不创建或切换 Git worktree
+- 在独立 Editor Tab 中显示可折叠的目录／文件树，支持路径筛选和 Refresh
+- 左侧为选中分支的提交快照，右侧为当前工作区实际文件；已暂存、未暂存和未忽略的新文件都纳入比较
+- 已打开且未保存的文件缓冲区也参与列表计算；列表需点击 Refresh 更新
+- 点击文件打开非预览 Diff Tab，右侧使用真实文件 URI，可显示编辑器中未保存的内容；新增／删除文件的缺失侧为空
+- Refresh 会重新读取所选分支的 tip 和文件列表；已打开的 Diff 左侧仍保持其原来的提交快照
+- 原 Compare with Current 仍只比较提交历史，两者相互独立
+- 不修改 index、不自动 stash、fetch 或保存文件；不支持完整子模块／特殊非文本对象比较
 
 ### Rename Branch
 

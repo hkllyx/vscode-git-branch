@@ -164,6 +164,69 @@ class GitOperations {
     return { left, right, ref, files };
   }
 
+  /** Safe lexical path resolution for Git-provided worktree paths. */
+  worktreePath(file) {
+    if (typeof file !== 'string' || !file || path.isAbsolute(file)) throw new Error('Invalid worktree path');
+    const absolute = path.resolve(this.cwd, file);
+    const relative = path.relative(this.cwd, absolute);
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('Worktree path is outside the repository');
+    }
+    return absolute;
+  }
+
+  /** Branch snapshot versus working files, not just the index. Dirty editor buffers can override disk. */
+  async worktreeCompare(ref, dirtyDocuments = []) {
+    const left = await this.resolve(ref);
+    const [diff, others, baseNames, indexNames] = await Promise.all([
+      this.exec(['diff', '--name-status', '-z', '--find-renames', left, '--']),
+      this.exec(['ls-files', '--others', '--exclude-standard', '-z']),
+      this.exec(['ls-tree', '-r', '--name-only', '-z', left, '--']),
+      this.exec(['ls-files', '-z'])
+    ]);
+    const base = new Set(baseNames.split('\0').filter(Boolean));
+    const untracked = new Set(others.split('\0').filter(Boolean));
+    const known = new Set([...base, ...untracked, ...indexNames.split('\0').filter(Boolean)]);
+    const byPath = new Map(parseDiff(diff).map(file => [file.newPath || file.oldPath, file]));
+    // A staged index deletion need not mean the actual working file is gone (git rm --cached).
+    for (const [name, file] of byPath) {
+      if (file.status !== 'D') continue;
+      try {
+        const disk = await fs.readFile(this.worktreePath(name));
+        const original = await this.exec(['show', `${left}:${name}`], 'buffer');
+        byPath.delete(name);
+        if (!disk.equals(original)) byPath.set(name, { status: 'M', oldPath: name, newPath: name });
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR', 'EISDIR'].includes(error.code)) throw error;
+      }
+    }
+    for (const file of untracked) {
+      this.worktreePath(file);
+      // A file deleted from the index but still on disk is untracked; compare it with the base,
+      // rather than duplicating Git's deletion/addition entries or pretending the left is empty.
+      if (base.has(file)) {
+        const disk = await fs.readFile(this.worktreePath(file));
+        const original = await this.exec(['show', `${left}:${file}`], 'buffer');
+        byPath.delete(file);
+        if (!disk.equals(original)) byPath.set(file, { status: 'M', oldPath: file, newPath: file });
+      } else if (!byPath.has(file)) {
+        byPath.set(file, { status: 'A', oldPath: null, newPath: file, untracked: true });
+      }
+    }
+    for (const doc of dirtyDocuments) {
+      if (!known.has(doc.file) || typeof doc.text !== 'string') continue;
+      this.worktreePath(doc.file);
+      const existing = byPath.get(doc.file);
+      const oldPath = existing?.oldPath || (base.has(doc.file) ? doc.file : null);
+      const original = oldPath ? await this.content(left, oldPath) : '';
+      if (oldPath && doc.text === original && !existing?.status.startsWith('R')) byPath.delete(doc.file);
+      else byPath.set(doc.file, { status: existing?.status.startsWith('R') ? existing.status : oldPath ? 'M' : 'A',
+        oldPath, newPath: doc.file, untracked: untracked.has(doc.file) });
+    }
+    return { left, right: null, ref, worktree: true, currentLabel: 'Working Tree',
+      files: [...byPath.values()].sort((a, b) => (a.newPath || a.oldPath).localeCompare(b.newPath || b.oldPath)) };
+  }
+
   /** Commits reachable only from include, with bounded, paginated output. */
   async uniqueCommits(include, exclude, skip = 0) {
     if (![include, exclude].every(hash => /^[a-f0-9]{40,64}$/.test(hash)) ||

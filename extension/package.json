@@ -26,6 +26,7 @@
       { "command": "git-branch.createAndCheckout", "title": "Create and Checkout...", "category": "Git Branch" },
       { "command": "git-branch.checkout", "title": "Checkout", "category": "Git Branch" },
       { "command": "git-branch.compare", "title": "Compare with Current", "category": "Git Branch" },
+      { "command": "git-branch.worktree", "title": "Show Diff with Working Tree", "category": "Git Branch" },
       { "command": "git-branch.rename", "title": "Rename Branch...", "category": "Git Branch" },
       { "command": "git-branch.merge", "title": "Merge into Current", "category": "Git Branch" },
       { "command": "git-branch.rebase", "title": "Rebase Current onto...", "category": "Git Branch" },
@@ -50,6 +51,7 @@
         { "command": "git-branch.merge", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@1" },
         { "command": "git-branch.rebase", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@2" },
         { "command": "git-branch.compare", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|remote)$/", "group": "3_compare@1" },
+        { "command": "git-branch.worktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)$/", "group": "3_compare@2" },
         { "command": "git-branch.rename", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-current)", "group": "4_branch@1" },
         { "command": "git-branch.delete", "when": "view == git-branch.branches && viewItem == gb-local", "group": "4_branch@2" }
       ]

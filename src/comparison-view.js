@@ -16,6 +16,7 @@ main{height:calc(100vh - 87px);min-height:400px;display:grid;grid-template-rows:
 .commit,.file{padding:2px 12px;line-height:1.4;align-items:center}
 .file span:last-child{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;overflow-wrap:normal}
 .file .status{flex-shrink:0}
+.worktree-tree{padding-top:8px}.worktree-tree summary{cursor:pointer;padding:2px 8px;line-height:1.4;overflow-wrap:anywhere}.folder-children{padding-left:14px}
 </style></head><body>
 <header><h1 id="title"></h1><small id="tips"></small><button id="toggle">Branch file differences</button></header>
 <div id="note">Immutable commit snapshots • working-tree changes excluded • merge commit changes are against first parent</div>
@@ -32,7 +33,7 @@ function comparisonClient(data) {
   const loading = new Set();
   const title = `${data.ref} ↔ ${data.currentLabel}`;
   document.getElementById('title').textContent = title;
-  document.getElementById('tips').textContent = `${data.left.slice(0, 7)} ↔ ${data.right.slice(0, 7)}`;
+  document.getElementById('tips').textContent = `${data.left.slice(0, 7)} ↔ ${data.worktree ? 'live files' : data.right.slice(0, 7)}`;
   function element(tag, text, className) {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -46,12 +47,69 @@ function comparisonClient(data) {
     rows.forEach((file, index) => {
       const button = element('button', undefined, 'file');
       const label = /^[RC]/.test(file.status) ? `${file.oldPath} → ${file.newPath}` : file.newPath || file.oldPath;
-      button.append(element('span', file.status, `status ${file.status[0]}`), element('span', label));
+      const displayLabel = scope === 'worktree' && !/^[RC]/.test(file.status)
+        ? (file.newPath || file.oldPath).split('/').at(-1) : label;
+      button.append(element('span', file.status, `status ${file.status[0]}`), element('span', displayLabel));
       button.title = `${label}\nOpen side-by-side diff`;
-      button.onclick = () => api.postMessage({ type: 'diff', scope, hash, index });
+      button.onclick = () => api.postMessage({ type: 'diff', scope, hash, index: file.originalIndex ?? index,
+        ...(scope === 'worktree' ? { generation: data.generation } : {}) });
       container.append(button);
     });
   }
+  if (data.worktree) {
+    document.getElementById('histories').style.display = 'none';
+    const area = document.getElementById('branch-files'); area.style.display = 'block';
+    document.getElementById('note').textContent = 'Selected branch snapshot ↔ live working files (staged, unstaged, untracked and unsaved editor changes). Refresh to update the file list.';
+    const refresh = document.getElementById('toggle'); refresh.textContent = 'Refresh';
+    refresh.onclick = () => { refresh.disabled = true; api.postMessage({ type: 'refresh' }); };
+    const search = element('input'); search.type = 'search'; search.placeholder = 'Filter files by path';
+    search.setAttribute('aria-label', 'Filter working tree files');
+    const count = element('div', undefined, 'footer'), tree = element('div', undefined, 'worktree-tree');
+    area.append(search, count, tree);
+    function renderTree() {
+      const query = (search.value || '').toLowerCase();
+      const rows = data.files.map((file, originalIndex) => ({ ...file, originalIndex }))
+        .filter(file => `${file.oldPath || ''} ${file.newPath || ''}`.toLowerCase().includes(query));
+      count.textContent = `${rows.length} shown / ${data.files.length} changed files • click a file to open Diff`;
+      tree.replaceChildren();
+      if (!rows.length) { tree.append(element('div', data.files.length ? 'No matching files.' : 'No file differences.', 'empty')); return; }
+      const root = { folders: new Map(), files: [] };
+      for (const file of rows) {
+        const parts = (file.newPath || file.oldPath).split('/'); parts.pop();
+        let folder = root;
+        for (const part of parts) {
+          if (!folder.folders.has(part)) folder.folders.set(part, { folders: new Map(), files: [] });
+          folder = folder.folders.get(part);
+        }
+        folder.files.push(file);
+      }
+      function renderFolder(folder, container) {
+        for (const [name, child] of folder.folders) {
+          const group = element('details'); group.open = true;
+          group.append(element('summary', name));
+          const children = element('div', undefined, 'folder-children');
+          renderFolder(child, children); group.append(children); container.append(group);
+        }
+        for (const file of folder.files) {
+          const row = element('div'); files(row, [file], 'worktree'); container.append(row);
+        }
+      }
+      renderFolder(root, tree);
+    }
+    search.oninput = renderTree; renderTree();
+    window.addEventListener('message', event => {
+      const message = event.data;
+      if (message.type === 'worktree') {
+        data = message.result; renderTree(); refresh.disabled = false;
+        document.getElementById('tips').textContent = `${data.left.slice(0, 7)} ↔ live files`;
+        document.getElementById('error').textContent = '';
+      } else if (message.type === 'error') {
+        refresh.disabled = false; document.getElementById('error').textContent = message.message;
+      }
+    });
+    return;
+  }
+
   function showDetails(side, detail) {
     if (state.selected[side] !== detail.hash) return;
     details[detail.hash] = detail;
@@ -187,4 +245,37 @@ function openComparison(vscode, context, git, result, openDiff, onActive, onClos
   return panel;
 }
 
-module.exports = { comparisonHtml, comparisonClient, openComparison };
+/** Working-tree list is refreshable; paths and snapshot hashes are taken only from host results. */
+function openWorkingTree(vscode, context, result, reload, openDiff) {
+  const panel = vscode.window.createWebviewPanel('git-branch.worktree', `Working Tree Diff: ${result.ref}`,
+    vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [], retainContextWhenHidden: true });
+  let disposed = false, refreshing = false, generation = 0;
+  result = { ...result, generation };
+  const listener = panel.webview.onDidReceiveMessage(async message => {
+    if (disposed || !message || typeof message !== 'object') return;
+    try {
+      if (message.type === 'refresh' && !refreshing) {
+        refreshing = true;
+        try {
+          const next = await reload();
+          if (disposed) return;
+          result = { ...next, generation: ++generation };
+          await panel.webview.postMessage({ type: 'worktree', result });
+        } finally { refreshing = false; }
+      } else if (message.type === 'diff' && message.scope === 'worktree') {
+        // Do not open a stale index while refresh is replacing the file list.
+        if (refreshing || message.generation !== result.generation || !Number.isSafeInteger(message.index) || message.index < 0 || !result.files[message.index]) return;
+        await openDiff({ ...result.files[message.index], left: result.left, right: null,
+          ref: `${result.ref} ${result.left.slice(0, 7)}`, rightLabel: 'Working Tree', worktree: true });
+      }
+    } catch (error) {
+      if (!disposed) await panel.webview.postMessage({ type: 'error', message: error.message });
+    }
+  });
+  const closeListener = panel.onDidDispose(() => { disposed = true; listener.dispose(); closeListener.dispose(); });
+  context.subscriptions.push(panel);
+  panel.webview.html = comparisonHtml(result);
+  return panel;
+}
+
+module.exports = { comparisonHtml, comparisonClient, openComparison, openWorkingTree };

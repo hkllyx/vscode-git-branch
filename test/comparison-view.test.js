@@ -6,7 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const vm = require('node:vm');
 const { GitOperations } = require('../src/git-operations');
-const { comparisonHtml, comparisonClient, openComparison } = require('../src/comparison-view');
+const { comparisonHtml, comparisonClient, openComparison, openWorkingTree } = require('../src/comparison-view');
 
 test('branch comparison: both directions, equal tips, root, merge and immutable commit files', async t => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'git-branch-history-'));
@@ -71,7 +71,7 @@ function domHarness(data) {
     replaceChildren(...nodes) { this.children = nodes; }
     setAttribute() {}
   }
-  const nodes = Object.fromEntries(['title', 'tips', 'histories', 'branch-files', 'toggle', 'error'].map(id => [id, new Element('div')]));
+  const nodes = Object.fromEntries(['title', 'tips', 'histories', 'branch-files', 'toggle', 'error', 'note'].map(id => [id, new Element('div')]));
   const messages = []; let receive;
   const sandbox = {
     document: { getElementById: id => nodes[id], createElement: tag => new Element(tag) },
@@ -120,6 +120,100 @@ test('comparison UI: CSP, escaped repository data, lists, filtering, details, di
   nodes.toggle.onclick(); assert.equal(nodes.histories.style.display, 'grid');
   receive({ data: { type: 'error', message: '<script>error</script>' } });
   assert.equal(nodes.error.textContent, '<script>error</script>');
+});
+
+test('working tree comparison includes disk, index, untracked and dirty editor files without changing Git state', async t => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'git-branch-working-'));
+  t.after(() => fs.rm(cwd, { recursive: true, force: true }));
+  const git = new GitOperations(cwd);
+  await git.exec(['init', '-b', 'main']);
+  await git.exec(['config', 'user.name', 'Test']); await git.exec(['config', 'user.email', 'test@example.invalid']);
+  for (const file of ['tracked.txt', 'deleted.txt', 'cached-delete.txt', 'clean.txt', 'renamed.txt']) {
+    await fs.writeFile(path.join(cwd, file), `${file}\n`);
+  }
+  await fs.writeFile(path.join(cwd, '.gitignore'), 'ignored.txt\n');
+  await git.exec(['add', '.']); await git.exec(['commit', '-m', 'base']);
+  const base = await git.resolve('HEAD');
+  await git.create('selected'); await git.checkout({ ref: 'selected' });
+  await fs.writeFile(path.join(cwd, 'branch-only.txt'), 'selected branch\n');
+  await git.exec(['add', '.']); await git.exec(['commit', '-m', 'selected branch only']);
+  const selected = await git.resolve('HEAD');
+  await git.exec(['update-ref', 'refs/remotes/origin/selected', selected]);
+  await git.checkout({ ref: 'main' });
+  await fs.writeFile(path.join(cwd, 'tracked.txt'), 'staged\n'); await git.exec(['add', 'tracked.txt']);
+  await fs.writeFile(path.join(cwd, 'tracked.txt'), 'unstaged\n');
+  await git.exec(['rm', 'deleted.txt']);
+  await git.exec(['rm', '--cached', 'cached-delete.txt']); // Same worktree content: no diff against base.
+  await git.exec(['mv', 'renamed.txt', 'moved.txt']);
+  await fs.writeFile(path.join(cwd, 'staged-add.txt'), 'staged addition\n'); await git.exec(['add', 'staged-add.txt']);
+  await fs.writeFile(path.join(cwd, '中文 new.txt'), 'untracked\n');
+  await fs.writeFile(path.join(cwd, 'ignored.txt'), 'ignored\n');
+  const index = await git.exec(['ls-files', '--stage', '-z']);
+  const status = await git.exec(['status', '--porcelain=v1', '-z']);
+  const result = await git.worktreeCompare('refs/heads/main', [
+    { file: 'clean.txt', text: 'unsaved editor content\n' },
+    { file: 'ignored.txt', text: 'ignored unsaved' }, { file: '../outside.txt', text: 'outside' }
+  ]);
+  assert.equal(result.worktree, true); assert.equal(result.left, base); assert.equal(result.right, null);
+  const files = new Map(result.files.map(file => [file.newPath || file.oldPath, file]));
+  assert.equal(files.get('tracked.txt').status, 'M'); assert.equal(files.get('clean.txt').status, 'M');
+  assert.equal(files.get('deleted.txt').newPath, null);
+  assert.equal(files.get('moved.txt').status, 'R100'); assert.equal(files.get('moved.txt').oldPath, 'renamed.txt');
+  assert.equal(files.get('staged-add.txt').oldPath, null);
+  assert.equal(files.get('中文 new.txt').untracked, true);
+  assert.ok(!files.has('ignored.txt')); assert.ok(!files.has('cached-delete.txt'));
+  assert.equal(await git.resolve('HEAD'), base);
+  assert.equal(await git.exec(['ls-files', '--stage', '-z']), index);
+  assert.equal(await git.exec(['status', '--porcelain=v1', '-z']), status);
+  assert.throws(() => git.worktreePath('../outside.txt'), /outside/);
+  assert.throws(() => git.worktreePath(cwd), /Invalid/);
+  await fs.writeFile(path.join(cwd, 'cached-delete.txt'), 'changed after index deletion\n');
+  const refreshed = await git.worktreeCompare('HEAD');
+  assert.equal(refreshed.files.find(file => file.newPath === 'cached-delete.txt').status, 'M');
+  // An unsaved buffer matching the selected snapshot overrides a different disk version.
+  const bufferMatches = await git.worktreeCompare('HEAD', [{ file: 'tracked.txt', text: 'tracked.txt\n' }]);
+  assert.ok(!bufferMatches.files.some(file => file.newPath === 'tracked.txt'));
+  const remoteResult = await git.worktreeCompare('refs/remotes/origin/selected');
+  assert.equal(remoteResult.left, selected);
+  assert.equal(remoteResult.files.find(file => file.oldPath === 'branch-only.txt').status, 'D');
+});
+
+test('working tree UI uses a collapsible file tree, filters original indexes, and refreshes', () => {
+  const result = { worktree: true, ref: 'feature', currentLabel: 'Working Tree', left: 'a'.repeat(40), right: null,
+    files: [{ status: 'M', oldPath: 'root.txt', newPath: 'root.txt' },
+      { status: 'A', oldPath: null, newPath: 'src/中文.txt' }] };
+  const { nodes, messages, receive } = domHarness(result);
+  assert.equal(nodes.histories.children.length, 0); assert.equal(nodes.histories.style.display, 'none');
+  assert.equal(nodes.toggle.textContent, 'Refresh'); assert.match(nodes.note.textContent, /unsaved/);
+  const [search, count, tree] = nodes['branch-files'].children;
+  assert.equal(tree.children[0].tag, 'details'); assert.equal(tree.children[0].open, true);
+  search.value = '中文'; search.oninput();
+  assert.match(count.textContent, /1 shown/);
+  tree.children[0].children[1].children[0].children[0].onclick();
+  assert.equal(messages.at(-1).scope, 'worktree'); assert.equal(messages.at(-1).index, 1);
+  nodes.toggle.onclick(); assert.equal(messages.at(-1).type, 'refresh'); assert.equal(nodes.toggle.disabled, true);
+  receive({ data: { type: 'worktree', result: { ...result, files: [] } } });
+  assert.equal(nodes.toggle.disabled, false); assert.match(tree.children[0].textContent, /No file differences/);
+});
+
+test('working tree panel refreshes only host data, rejects invalid indexes, and cleans up', async () => {
+  let receive, close; const sent = [], diffs = [];
+  const result = { worktree: true, ref: 'main', currentLabel: 'Working Tree', left: 'a'.repeat(40), right: null,
+    files: [{ status: 'M', oldPath: 'a.txt', newPath: 'a.txt' }] };
+  const next = { ...result, files: [{ status: 'A', oldPath: null, newPath: 'b.txt' }] };
+  const disposable = { dispose() {} };
+  const panel = { webview: { onDidReceiveMessage: fn => { receive = fn; return disposable; }, postMessage: async m => sent.push(m) },
+    onDidDispose: fn => { close = fn; return disposable; } };
+  openWorkingTree({ window: { createWebviewPanel: () => panel }, ViewColumn: { Active: -1 } },
+    { subscriptions: [] }, result, async () => next, async file => diffs.push(file));
+  await receive({ type: 'diff', scope: 'worktree', index: 0, generation: 0, newPath: '../outside.txt' });
+  assert.equal(diffs[0].newPath, 'a.txt'); assert.equal(diffs[0].worktree, true);
+  await receive({ type: 'diff', scope: 'worktree', index: -1, generation: 0 }); assert.equal(diffs.length, 1);
+  await receive({ type: 'diff', scope: 'branch', index: 0 }); assert.equal(diffs.length, 1);
+  await receive({ type: 'refresh' }); assert.deepEqual(sent.at(-1).result, { ...next, generation: 1 });
+  await receive({ type: 'diff', scope: 'worktree', index: 0, generation: 0 }); assert.equal(diffs.length, 1); // Stale list.
+  await receive({ type: 'diff', scope: 'worktree', index: 0, generation: 1 }); assert.equal(diffs.at(-1).newPath, 'b.txt');
+  close(); await receive({ type: 'diff', scope: 'worktree', index: 0, generation: 1 }); assert.equal(diffs.length, 2);
 });
 
 test('panel pagination accepts only valid messages and restores active comparison', async () => {

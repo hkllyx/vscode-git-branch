@@ -2,7 +2,7 @@
 const vscode = require('vscode');
 const path = require('node:path');
 const { GitOperations } = require('./git-operations');
-const { openComparison } = require('./comparison-view');
+const { openComparison, openWorkingTree } = require('./comparison-view');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -168,8 +168,10 @@ function activate(context) {
 
   async function openDiff(file) {
     const title = `${path.basename(file.newPath || file.oldPath)} (${file.ref} ↔ ${file.rightLabel || 'HEAD'})`;
+    const right = file.worktree && file.newPath
+      ? vscode.Uri.file(git.worktreePath(file.newPath)) : snapshotUri(file.right, file.newPath);
     await vscode.commands.executeCommand('vscode.diff',
-      snapshotUri(file.left, file.oldPath), snapshotUri(file.right, file.newPath), title,
+      snapshotUri(file.left, file.oldPath), right, title,
       { preview: false, viewColumn: vscode.ViewColumn.Active });
   }
 
@@ -256,6 +258,28 @@ function activate(context) {
           closed => { if (lastComparison === closed) lastComparison = null; });
       } catch (err) {
         vscode.window.showErrorMessage(`Compare failed: ${err.message}`);
+      }
+    }),
+
+    vscode.commands.registerCommand('git-branch.worktree', async node => {
+      if (!isBranchNode(node)) {
+        vscode.window.showInformationMessage('Right-click a branch to compare it with the working tree.');
+        return;
+      }
+      try {
+        await configureGitExecutable(git);
+        const ref = qualifiedRef(node);
+        const reload = async () => {
+          const dirtyDocuments = (vscode.workspace.textDocuments || [])
+            .filter(doc => doc.isDirty && doc.uri.scheme === 'file')
+            .map(doc => ({ file: path.relative(root, doc.uri.fsPath).split(path.sep).join('/'), text: doc.getText() }));
+          const result = await git.worktreeCompare(ref, dirtyDocuments);
+          result.ref = node.ref;
+          return result;
+        };
+        openWorkingTree(vscode, context, await reload(), reload, openDiff);
+      } catch (err) {
+        vscode.window.showErrorMessage(`Working tree comparison failed: ${err.message}`);
       }
     }),
 
