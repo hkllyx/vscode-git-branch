@@ -39,10 +39,23 @@ test('real repository: branches, compare, rename, delete, merge, rebase', async 
   // Current
   assert.equal(await git.current(), 'main');
 
-  // Create branch
+  // Create branch from a specific branch (not HEAD)
   await git.create('feature');
   const after = await git.branches();
   assert.equal(after.branches.length, 2);
+
+  // Create from a specific branch ref
+  await git.exec(['switch', 'feature']);
+  await fs.writeFile(path.join(cwd, 'feature-only.txt'), 'feature\n');
+  await git.exec(['add', '.']);
+  await git.exec(['commit', '-m', 'feature commit']);
+  await git.exec(['switch', 'main']);
+  // Create from feature while on main — new branch should point to feature's commit
+  const featureHash = await git.resolve('feature');
+  await git.create('from-feature', 'feature');
+  assert.equal(await git.resolve('from-feature'), featureHash);
+  // Current branch is still main
+  assert.equal(await git.current(), 'main');
 
   // Make changes on feature
   await git.exec(['switch', 'feature']);
@@ -60,7 +73,7 @@ test('real repository: branches, compare, rename, delete, merge, rebase', async 
   // Switch back to main and compare
   await git.exec(['switch', 'main']);
   const result = await git.compare('refs/heads/feature');
-  assert.equal(result.files.length, 4);
+  assert.equal(result.files.length, 5);
   const rename = result.files.find(f => f.status.startsWith('R'));
   assert.equal(rename.oldPath, '中文 new.txt');
   assert.equal(rename.newPath, 'old file.txt');
@@ -95,7 +108,7 @@ test('real repository: branches, compare, rename, delete, merge, rebase', async 
   // Force delete for test cleanup
   await git.exec(['branch', '-D', '--', 'feature/renamed']);
   const afterDelete = await git.branches();
-  assert.equal(afterDelete.branches.length, 1);
+  assert.equal(afterDelete.branches.length, 2); // main-renamed + from-feature
 
   // Merge
   await git.create('merge-src');

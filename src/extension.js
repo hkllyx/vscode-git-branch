@@ -204,19 +204,22 @@ function activate(context) {
       branchTree.refresh();
     }),
 
-    vscode.commands.registerCommand('git-branch.create', async () => {
+    vscode.commands.registerCommand('git-branch.create', async node => {
       try {
         await configureGitExecutable(git);
+        // If invoked from a branch context menu, create from that branch; otherwise from HEAD
+        const startPoint = node?.ref || 'HEAD';
+        const startLabel = node?.label || 'HEAD';
         const name = await vscode.window.showInputBox({
-          title: 'Create Branch',
-          prompt: 'New branch name',
+          title: `Create Branch (from ${startLabel})`,
+          prompt: `New branch name (based on ${startLabel})`,
           ignoreFocusOut: true,
           validateInput: v => git.validateName(v)
         });
         if (!name) return;
-        await git.create(name);
+        await git.create(name, startPoint);
         branchTree.refresh();
-        vscode.window.showInformationMessage(`Branch created: ${name}`);
+        vscode.window.showInformationMessage(`Branch created: ${name} (from ${startLabel})`);
       } catch (err) {
         vscode.window.showErrorMessage(`Create branch failed: ${err.message}`);
       }
