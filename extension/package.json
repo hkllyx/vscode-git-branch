@@ -34,16 +34,16 @@
       { "command": "git-branch.openDiff", "title": "Open Diff", "category": "Git Branch" },
       { "command": "git-branch.refreshWorktree", "title": "Refresh Working Tree Diff", "category": "Git Branch", "icon": "$(refresh)" },
       { "command": "git-branch.closeWorktree", "title": "Close Working Tree Diff", "category": "Git Branch", "icon": "$(close)" },
-      { "command": "git-branch.diffList", "title": "View as List", "category": "Git Branch", "icon": "$(blank)" },
-      { "command": "git-branch.diffTree", "title": "View as Tree", "category": "Git Branch", "icon": "$(blank)" },
-      { "command": "git-branch.diffSortName", "title": "Sort Changes by Name", "category": "Git Branch", "icon": "$(blank)" },
-      { "command": "git-branch.diffSortPath", "title": "Sort Changes by Path", "category": "Git Branch", "icon": "$(blank)" },
-      { "command": "git-branch.diffSortStatus", "title": "Sort Changes by Status", "category": "Git Branch", "icon": "$(blank)" },
-      { "command": "git-branch.diffList.current", "title": "View as List", "category": "Git Branch", "icon": "$(check)" },
-      { "command": "git-branch.diffTree.current", "title": "View as Tree", "category": "Git Branch", "icon": "$(check)" },
-      { "command": "git-branch.diffSortName.current", "title": "Sort Changes by Name", "category": "Git Branch", "icon": "$(check)" },
-      { "command": "git-branch.diffSortPath.current", "title": "Sort Changes by Path", "category": "Git Branch", "icon": "$(check)" },
-      { "command": "git-branch.diffSortStatus.current", "title": "Sort Changes by Status", "category": "Git Branch", "icon": "$(check)" }
+      { "command": "git-branch.diffList", "title": "\u2060\u2007 View as List", "category": "Git Branch" },
+      { "command": "git-branch.diffTree", "title": "\u2060\u2007 View as Tree", "category": "Git Branch" },
+      { "command": "git-branch.diffSortName", "title": "\u2060\u2007 Sort Changes by Name", "category": "Git Branch" },
+      { "command": "git-branch.diffSortPath", "title": "\u2060\u2007 Sort Changes by Path", "category": "Git Branch" },
+      { "command": "git-branch.diffSortStatus", "title": "\u2060\u2007 Sort Changes by Status", "category": "Git Branch" },
+      { "command": "git-branch.diffList.current", "title": "\u2713 View as List", "category": "Git Branch" },
+      { "command": "git-branch.diffTree.current", "title": "\u2713 View as Tree", "category": "Git Branch" },
+      { "command": "git-branch.diffSortName.current", "title": "\u2713 Sort Changes by Name", "category": "Git Branch" },
+      { "command": "git-branch.diffSortPath.current", "title": "\u2713 Sort Changes by Path", "category": "Git Branch" },
+      { "command": "git-branch.diffSortStatus.current", "title": "\u2713 Sort Changes by Status", "category": "Git Branch" }
     ],
     "submenus": [
       { "id": "git-branch.diffMore", "label": "View & Sort", "icon": "$(ellipsis)" }

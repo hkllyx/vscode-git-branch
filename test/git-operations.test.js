@@ -237,12 +237,14 @@ test('manifest: commands, views, menus are wired', async () => {
     assert.equal(base.group, current.group); // Same slot so the ✓ variant replaces the base in place.
     assert.ok(base.when.includes('!='));
     assert.ok(current.when.includes('=='));
-    // Native-style leading cell: the current item renders the check codicon, others the blank codicon (both fixed 1em wide), so labels align.
+    // Leading text cell: ✓ (U+2713) for the current item; a trim-protected figure space (U+2060 + U+2007) for the rest, so labels align.
     const baseCmd = manifest.contributes.commands.find(c => c.command === `git-branch.${id}`);
     const currentCmd = manifest.contributes.commands.find(c => c.command === `git-branch.${id}.current`);
-    assert.equal(baseCmd.icon, '$(blank)');
-    assert.equal(currentCmd.icon, '$(check)');
-    assert.equal(baseCmd.title, currentCmd.title); // Same label; only the leading codicon differs.
+    assert.ok(baseCmd.title.startsWith('\u2060\u2007 '));
+    assert.ok(currentCmd.title.startsWith('\u2713 '));
+    assert.equal(baseCmd.title.slice(3), currentCmd.title.slice(2)); // Same label text after the leading cell.
+    assert.equal(baseCmd.icon, undefined); // This dropdown does not render command codicons.
+    assert.equal(currentCmd.icon, undefined);
     // Both variants are menu-only; keep them out of the command palette.
     for (const variant of [id, `${id}.current`]) {
       assert.ok(manifest.contributes.menus.commandPalette.some(item => item.command === `git-branch.${variant}` && item.when === 'false'));
