@@ -64,7 +64,14 @@ test('empty repositories, same-name refs, annotation tags and non-repositories',
   await git.exec(['tag', '-a', 'annotated', '-m', 'annotation']);
   await git.create('same'); await git.exec(['tag', 'same']);
   assert.equal(await git.validateName('same'), 'A local branch with this name already exists.');
-  assert.ok((await git.tags()).some(tag => tag.name === 'same'));
+  const tags = await git.tags();
+  const commit = await git.resolve('HEAD');
+  const commitDate = (await git.exec(['show', '-s', '--format=%cI', commit])).trim();
+  for (const name of ['annotated', 'same']) {
+    const tag = tags.find(tag => tag.name === name);
+    assert.equal(tag.hash, commit); // Annotated tag tooltip refers to its commit, not the tag object.
+    assert.equal(tag.commitDate, commitDate);
+  }
   assert.equal(await git.resolve('refs/tags/annotated'), await git.resolve('HEAD'));
   for (const name of ['bad..name', 'with space', '-leading', '@{-1}', 'a.lock', ' trailing ']) {
     assert.ok(await git.validateName(name), name);

@@ -34,7 +34,7 @@ class GitOperations {
   async branches() {
     const output = await this.exec([
       'for-each-ref',
-      '--format=%(refname)%09%(objectname)%09%(symref)',
+      '--format=%(refname)%09%(objectname)%09%(symref)%09%(committerdate:iso8601-strict)%09%(upstream)',
       'refs/heads/', 'refs/remotes/'
     ]);
     let current;
@@ -43,19 +43,22 @@ class GitOperations {
       current = undefined;
     }
     const branches = output.trim().split(/\r?\n/).filter(Boolean).map(line => {
-      const [ref, hash, symbolic] = line.split('\t');
+      const [ref, hash, symbolic, commitDate = '', upstream = ''] = line.split('\t');
       const remote = ref.startsWith('refs/remotes/');
-      return { ref, hash, symbolic, remote, current: ref === current, name: ref.slice(remote ? 13 : 11) };
+      return { ref, hash, symbolic, commitDate, upstream, remote,
+        current: ref === current, name: ref.slice(remote ? 13 : 11) };
     }).filter(b => !b.symbolic);
     return { current, branches };
   }
 
   /** List tags. */
   async tags() {
-    const output = await this.exec(['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/tags/']);
+    const output = await this.exec(['for-each-ref',
+      '--format=%(refname)%09%(if)%(*objectname)%(then)%(*objectname)%(else)%(objectname)%(end)%09%(if)%(*committerdate)%(then)%(*committerdate:iso8601-strict)%(else)%(committerdate:iso8601-strict)%(end)',
+      'refs/tags/']);
     return output.trim().split(/\r?\n/).filter(Boolean).map(line => {
-      const [ref, hash] = line.split('\t');
-      return { name: ref.slice('refs/tags/'.length), hash };
+      const [ref, hash, commitDate = ''] = line.split('\t');
+      return { name: ref.slice('refs/tags/'.length), hash, commitDate };
     });
   }
 

@@ -28,6 +28,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.exec(['remote', 'add', 'origin', cwd]);
   await git.exec(['update-ref', 'refs/remotes/origin/remote/test', feature]);
   await git.exec(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/remote/test']);
+  await git.exec(['config', 'branch.main.remote', 'origin']);
+  await git.exec(['config', 'branch.main.merge', 'refs/heads/main']);
   await git.exec(['pack-refs', '--all']);
   const commands = new Map(), providers = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
@@ -100,8 +102,17 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       const item = tree.getTreeItem(node);
       assert.equal(item.label, node.label);
       assert.equal(item.description, undefined); // Branch/tag names have no trailing hash.
-      assert.equal(item.tooltip, node.ref);
+      assert.ok(item.tooltip.includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
+      assert.ok(item.tooltip.includes(`Hash: ${node.hash}`));
+      assert.ok(item.tooltip.includes(`Last commit: ${node.commitDate.replace('T', ' ')}`));
     }
+    assert.equal(main.commitDate, (await git.exec(['show', '-s', '--format=%cI', base])).trim());
+    assert.equal(remote.commitDate, (await git.exec(['show', '-s', '--format=%cI', feature])).trim());
+    assert.equal(main.upstream, 'refs/remotes/origin/main');
+    assert.match(tree.getTreeItem(main).tooltip, /Tracking branch: origin\/main/);
+    assert.match(tree.getTreeItem(selected).tooltip, /Tracking branch: Not configured/);
+    assert.match(tree.getTreeItem(remote).tooltip, /Tracking branch: Not applicable \(remote branch\)/);
+    assert.match(tree.getTreeItem(tag).tooltip, /Tracking branch: Not applicable \(tag\)/);
     await assert.rejects(git.create('feature/test'), /already exists/);
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
     input = 'from-selected'; await run('create', selected);

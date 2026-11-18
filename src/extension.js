@@ -59,7 +59,15 @@ class BranchTreeProvider {
     }
     // branch or tag leaf
     const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
-    item.tooltip = element.ref || element.label;
+    const tracking = element.kind === 'tag' ? 'Not applicable (tag)'
+      : element.remote ? 'Not applicable (remote branch)'
+      : element.upstream ? element.upstream.replace(/^refs\/(heads|remotes)\//, '') : 'Not configured';
+    item.tooltip = [
+      `${element.kind === 'tag' ? 'Tag' : 'Branch'} name: ${element.ref || element.label}`,
+      `Hash: ${element.hash || 'Unknown'}`,
+      `Last commit: ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'}`,
+      `Tracking branch: ${tracking}`
+    ].join('\n');
     if (element.kind === 'tag') {
       item.iconPath = new vscode.ThemeIcon('tag');
       item.contextValue = 'gb-tag';
@@ -93,6 +101,7 @@ class BranchTreeProvider {
       // Local
       const locals = branches.filter(b => !b.remote).map(b => ({
         kind: 'branch', label: b.name, ref: b.name, hash: b.hash,
+        commitDate: b.commitDate, upstream: b.upstream,
         current: b.current, remote: false
       }));
       const localNode = { kind: 'category', label: 'Local', expanded: true, children: locals };
@@ -105,7 +114,8 @@ class BranchTreeProvider {
         if (!groups.has(remoteName)) groups.set(remoteName, []);
         groups.get(remoteName).push({
           kind: 'branch', label: b.name.slice(remoteName.length + 1),
-          ref: b.name, hash: b.hash, current: false, remote: true
+          ref: b.name, hash: b.hash, current: false, remote: true,
+          commitDate: b.commitDate, upstream: b.upstream
         });
       }
       const remoteChildren = [...groups.entries()].map(([name, children]) => ({
@@ -115,7 +125,7 @@ class BranchTreeProvider {
 
       // Tags
       const tagChildren = tags.map(t => ({
-        kind: 'tag', label: t.name, ref: t.name, hash: t.hash
+        kind: 'tag', label: t.name, ref: t.name, hash: t.hash, commitDate: t.commitDate
       }));
       const tagNode = { kind: 'category', label: 'Tags', expanded: false, children: tagChildren };
 
