@@ -58,7 +58,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       }
     },
     window: {
-      createTreeView: (id, options) => { tree = options.treeDataProvider; return disposable; },
+      createTreeView: (id, options) => { tree = options.treeDataProvider; return { ...disposable,
+        reveal: async (node, options) => { assert.equal(node.kind, 'branch'); assert.equal(options.expand, true); } }; },
       showInformationMessage: message => messages.push(message), showErrorMessage: message => messages.push(message),
       showInputBox: async options => { inputOptions.push(options); return input; }, showWarningMessage: async () => answer,
       createWebviewPanel: (type, title, column, options) => {
@@ -217,16 +218,30 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.match(messages.at(-1), /Select a different branch/);
     mock.workspace.textDocuments = [{ isDirty: true, uri: { scheme: 'file', fsPath: path.join(cwd, 'new-main.txt') },
       getText: () => 'unsaved editor changes\n' }];
-    await run('worktree', roots[0].children.find(n => n.current));
-    const workingPanel = panels.at(-1);
-    assert.match(workingPanel.title, /Working Tree Diff: main/);
-    await workingPanel.message({ type: 'diff', scope: 'worktree', index: 0, generation: 0 });
+    const worktreeBranch = roots[0].children.find(n => n.current);
+    await run('worktree', worktreeBranch);
+    assert.equal(panels.length, panelCount); // File list stays in Source Control, not an editor tab.
+    let children = await tree.getChildren(worktreeBranch);
+    const fileNode = children.find(n => n.kind === 'worktree-file');
+    const fileItem = tree.getTreeItem(fileNode);
+    assert.equal(fileItem.label, 'new-main.txt');
+    assert.equal(fileItem.contextValue, 'gb-worktree-file');
+    assert.equal(fileItem.command.command, 'git-branch.openWorktreeDiff');
+    assert.equal(await tree.getParent(fileNode), worktreeBranch);
+    await run('openWorktreeDiff', fileNode);
     assert.equal(diffs.at(-1)[2].scheme, 'file');
     assert.equal(diffs.at(-1)[2].fsPath, path.join(cwd, 'new-main.txt'));
     assert.equal(JSON.parse(diffs.at(-1)[1].query).hash, await git.resolve('HEAD'));
     mock.workspace.textDocuments = [];
-    await workingPanel.message({ type: 'refresh' });
-    assert.equal(workingPanel.sent.at(-1).result.files.length, 0);
+    await run('refreshWorktree');
+    children = await tree.getChildren(worktreeBranch);
+    assert.equal(children.filter(n => n.kind === 'worktree-file').length, 0);
+    assert.ok(children.some(n => n.kind === 'worktree-empty'));
+    const oldDiffCount = diffs.length;
+    await run('openWorktreeDiff', fileNode); // Reject stale snapshot/file after refresh.
+    assert.equal(diffs.length, oldDiffCount);
+    await run('closeWorktree');
+    assert.deepEqual(await tree.getChildren(worktreeBranch), []);
     for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }
