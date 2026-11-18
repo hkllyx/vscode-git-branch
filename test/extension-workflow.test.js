@@ -29,26 +29,21 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.exec(['update-ref', 'refs/remotes/origin/remote/test', feature]);
   await git.exec(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/remote/test']);
   await git.exec(['pack-refs', '--all']);
-  const commands = new Map(), providers = new Map(), documents = new Map();
-  const messages = [], shown = [], diffs = [], patterns = [], inputOptions = [];
-  let tree, refreshes = 0, closeDocument, input, answer, choose = false;
+  const commands = new Map(), providers = new Map();
+  const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
+  let tree, refreshes = 0, input, answer, choose = false;
   const disposable = { dispose() {} };
   const mock = {
     EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
     TreeItem: class { constructor(label) { this.label = label; } },
     TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 }, ThemeIcon: class {},
     Uri: { from: value => ({ query: '', ...value }) },
+    ViewColumn: { Active: -1, Beside: -2 },
     RelativePattern: class { constructor(base, pattern) { patterns.push({ base, pattern }); } },
     workspace: {
       workspaceFolders: [{ uri: { fsPath: cwd } }],
       registerTextDocumentContentProvider: (scheme, provider) => { providers.set(scheme, provider); return disposable; },
-      onDidCloseTextDocument: fn => { closeDocument = fn; return disposable; },
-      createFileSystemWatcher: () => ({ ...disposable, onDidChange() {}, onDidCreate() {}, onDidDelete() {} }),
-      async openTextDocument(uri) {
-        const key = JSON.stringify(uri);
-        if (!documents.has(key)) documents.set(key, { uri, text: await providers.get(uri.scheme).provideTextDocumentContent(uri) });
-        return documents.get(key);
-      }
+      createFileSystemWatcher: () => ({ ...disposable, onDidChange() {}, onDidCreate() {}, onDidDelete() {} })
     },
     extensions: { getExtension: () => ({ isActive: true, exports: { getAPI: () => ({ git: { path: 'git' } }) } }) },
     commands: {
@@ -59,8 +54,25 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       createTreeView: (id, options) => { tree = options.treeDataProvider; return disposable; },
       showInformationMessage: message => messages.push(message), showErrorMessage: message => messages.push(message),
       showInputBox: async options => { inputOptions.push(options); return input; }, showWarningMessage: async () => answer,
-      showQuickPick: async items => choose ? items[0] : undefined,
-      showTextDocument: async (doc, options) => { shown.push(doc); assert.equal(options.preview, false); mock.window.activeTextEditor = { document: doc }; }
+      createWebviewPanel: (type, title, column, options) => {
+        assert.equal(column, -1); assert.equal(options.enableScripts, true);
+        assert.deepEqual(options.localResourceRoots, []);
+        let receive, activate, close, closed = false;
+        const panel = {
+          title, sent: [],
+          webview: {
+            html: '', onDidReceiveMessage: fn => { receive = fn; return disposable; },
+            postMessage: async message => { panel.sent.push(message); }
+          },
+          onDidChangeViewState: fn => { activate = fn; return disposable; },
+          onDidDispose: fn => { close = fn; return disposable; },
+          message: message => receive(message),
+          activate: () => activate({ webviewPanel: { active: true } }),
+          dispose: () => { if (!closed) { closed = true; close(); } }
+        };
+        panels.push(panel); return panel;
+      },
+      showQuickPick: async items => choose ? items[0] : undefined
     }
   };
   const originalLoad = Module._load;
@@ -127,27 +139,39 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('checkout', main); await run('checkout', remote); // Existing tracking branch.
     assert.equal(await git.current(), 'remote/test'); await run('checkout', main);
     await run('compare', selected);
-    const first = shown[0];
-    assert.ok(first.text.includes(feature)); assert.ok(first.text.includes(base));
-    assert.ok(first.text.includes('中文 added.txt'));
+    const first = panels[0];
+    assert.ok(first.webview.html.includes(feature)); assert.ok(first.webview.html.includes(base));
+    assert.ok(first.webview.html.includes('中文 added.txt'));
+    await first.message({ type: 'commit', side: 'selected', hash: feature });
+    const detail = first.sent.at(-1).detail;
+    assert.equal(detail.hash, feature); assert.equal(detail.left, base);
+    assert.equal(detail.files.length, 2);
+    await first.message({ type: 'diff', scope: 'commit', hash: feature, index: 0 });
+    assert.equal(JSON.parse(diffs.pop()[1].query).hash, base);
+    const sentCount = first.sent.length;
+    await first.message({ type: 'commit', side: 'selected', hash: base }); // Not in unique history.
+    await first.message({ type: 'diff', scope: 'commit', hash: base, index: 0 });
+    await first.message({ type: 'diff', scope: 'branch', index: -1 });
+    assert.equal(first.sent.length, sentCount); assert.equal(diffs.length, 0);
     await fs.writeFile(path.join(cwd, 'new-main.txt'), 'new main\n');
     await git.exec(['add', '.']); await git.exec(['commit', '-m', 'main changes']);
     const changedMain = await git.resolve('HEAD');
     await run('compare', selected);
-    const second = shown[1];
-    assert.notEqual(first.uri.query, second.uri.query);
-    assert.ok(second.text.includes(changedMain)); assert.ok(!first.text.includes(changedMain));
-    assert.equal(providers.get(first.uri.scheme).provideTextDocumentContent(first.uri), first.text);
-    mock.window.activeTextEditor = { document: first };
+    const second = panels[1];
+    assert.ok(second.webview.html.includes(changedMain)); assert.ok(!first.webview.html.includes(changedMain));
+    first.activate();
     await run('openDiff'); assert.equal(diffs.length, 0); // Picker cancellation.
     choose = true; await run('openDiff');
     assert.equal(diffs[0][0], 'vscode.diff');
     assert.equal(JSON.parse(diffs[0][1].query).hash, feature);
-    assert.equal(JSON.parse(diffs[0][2].query).hash, base); // First tab, not last comparison.
+    assert.equal(JSON.parse(diffs[0][2].query).hash, base); // Active panel, not last created comparison.
+    assert.equal(diffs[0][4].viewColumn, -2);
     const rightContent = await providers.get('git-branch-snapshot').provideTextDocumentContent(diffs[0][2]);
     assert.equal(rightContent, 'base\n');
-    closeDocument(first);
-    assert.match(providers.get(first.uri.scheme).provideTextDocumentContent(first.uri), /expired/);
+    first.dispose();
+    const beforeClose = diffs.length;
+    await first.message({ type: 'diff', scope: 'branch', index: 0 });
+    assert.equal(diffs.length, beforeClose);
     answer = undefined;
     await run('merge', selected); await run('rebase', selected);
     assert.equal(await git.resolve('HEAD'), changedMain);
@@ -162,8 +186,12 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     roots = await tree.getChildren();
     answer = 'Rebase'; await run('rebase', roots[0].children.find(n => n.ref === 'rebase-source'));
     await git.exec(['merge-base', '--is-ancestor', rebaseHead, 'HEAD']);
-    roots = await tree.getChildren(); await run('compare', roots[0].children.find(n => n.current));
-    assert.match(shown.at(-1).text, /No file differences/);
+    roots = await tree.getChildren();
+    const panelCount = panels.length;
+    await run('compare', roots[0].children.find(n => n.current));
+    await run('compare', { ...main, current: false }); // Stale node still cannot compare current branch.
+    assert.equal(panels.length, panelCount);
+    assert.match(messages.at(-1), /Select a different branch/);
     for (const id of ['checkout', 'compare', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }

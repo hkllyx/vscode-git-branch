@@ -164,6 +164,48 @@ class GitOperations {
     return { left, right, ref, files };
   }
 
+  /** Commits reachable only from include, with bounded, paginated output. */
+  async uniqueCommits(include, exclude, skip = 0) {
+    if (![include, exclude].every(hash => /^[a-f0-9]{40,64}$/.test(hash)) ||
+        !Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid comparison range');
+    const range = `${exclude}..${include}`;
+    const [output, count] = await Promise.all([
+      this.exec(['log', '--topo-order', '--no-decorate', '--no-show-signature', '-z',
+        '--format=%H%x00%an%x00%aI%x00%s', '--max-count=200', `--skip=${skip}`, range, '--']),
+      this.exec(['rev-list', '--count', range, '--'])
+    ]);
+    const tokens = output.split('\0');
+    const commits = [];
+    for (let i = 0; i + 3 < tokens.length; i += 4) {
+      commits.push({ hash: tokens[i], author: tokens[i + 1], date: tokens[i + 2], subject: tokens[i + 3] });
+    }
+    return { commits, total: Number(count.trim()) };
+  }
+
+  /** Immutable branch tips plus both directions of unique history. */
+  async branchComparison(ref) {
+    const result = await this.compare(ref);
+    const [selected, current] = await Promise.all([
+      this.uniqueCommits(result.left, result.right),
+      this.uniqueCommits(result.right, result.left)
+    ]);
+    return { ...result, selected, current };
+  }
+
+  /** A commit's changes against its first parent (root commits against empty tree). */
+  async commitDetails(hash) {
+    if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error('Invalid commit');
+    const output = await this.exec(['show', '-s', '--no-show-signature',
+      '--format=%H%x00%P%x00%an%x00%ae%x00%aI%x00%B', hash, '--']);
+    const [commit, parents, author, email, date, message] = output.split('\0');
+    const parent = parents.split(' ')[0] || null;
+    const files = parseDiff(await this.exec(parent
+      ? ['diff', '--name-status', '-z', '--find-renames', parent, commit, '--']
+      : ['diff-tree', '--root', '--no-commit-id', '-r', '--name-status', '-z', '--find-renames', commit, '--']));
+    return { hash: commit, parents: parents ? parents.split(' ') : [], author, email, date,
+      message: message.trimEnd(), left: parent, right: commit, files };
+  }
+
   /** Get file content at a commit (empty string if path is null). */
   async content(hash, path) {
     if (!path) return '';

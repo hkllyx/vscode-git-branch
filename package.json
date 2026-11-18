@@ -17,7 +17,7 @@
   "activationEvents": ["onStartupFinished"],
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check src/extension.js && node --check src/git-operations.js"
+    "check": "node --check src/extension.js && node --check src/git-operations.js && node --check src/comparison-view.js"
   },
   "contributes": {
     "commands": [
@@ -49,7 +49,7 @@
         { "command": "git-branch.createAndCheckout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)$/", "group": "1_actions@3" },
         { "command": "git-branch.merge", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@1" },
         { "command": "git-branch.rebase", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@2" },
-        { "command": "git-branch.compare", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)$/", "group": "3_compare@1" },
+        { "command": "git-branch.compare", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|remote)$/", "group": "3_compare@1" },
         { "command": "git-branch.rename", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-current)", "group": "4_branch@1" },
         { "command": "git-branch.delete", "when": "view == git-branch.branches && viewItem == gb-local", "group": "4_branch@2" }
       ]

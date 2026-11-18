@@ -2,6 +2,7 @@
 const vscode = require('vscode');
 const path = require('node:path');
 const { GitOperations } = require('./git-operations');
+const { openComparison } = require('./comparison-view');
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -127,39 +128,6 @@ class BranchTreeProvider {
   }
 }
 
-// ─── Compare Document Provider ──────────────────────────────────────────────
-
-const COMPARE_SCHEME = 'git-branch-compare';
-
-function renderComparison(result) {
-  const lines = [];
-  lines.push(`Branch Comparison: ${result.ref} → HEAD`);
-  lines.push(`Left  (selected branch): ${result.left}`);
-  lines.push(`Right (current HEAD):    ${result.right}`);
-  lines.push('');
-  if (!result.files.length) {
-    lines.push('No file differences.');
-    return lines.join('\n');
-  }
-  lines.push(`${result.files.length} file(s) changed:`);
-  lines.push('');
-  for (const f of result.files) {
-    const statusLabel = {
-      A: 'Added', D: 'Deleted', M: 'Modified',
-      R: 'Renamed', C: 'Copied', T: 'Type changed'
-    }[f.status[0]] || f.status;
-    const name = f.newPath || f.oldPath;
-    if (f.status.startsWith('R') || f.status.startsWith('C')) {
-      lines.push(`  [${statusLabel}] ${f.oldPath} → ${f.newPath}`);
-    } else {
-      lines.push(`  [${statusLabel}] ${name}`);
-    }
-  }
-  lines.push('');
-  lines.push('Use "Git Branch: Open Diff" from the command palette to view individual file diffs.');
-  return lines.join('\n');
-}
-
 // ─── Activate ───────────────────────────────────────────────────────────────
 
 function activate(context) {
@@ -173,9 +141,7 @@ function activate(context) {
   git.ready = configureGitExecutable(git);
 
   const branchTree = new BranchTreeProvider(git);
-  const comparisons = new Map();
   let lastComparison = null;
-  let comparisonSequence = 0;
 
   // Views
   const branchView = vscode.window.createTreeView('git-branch.branches', {
@@ -192,14 +158,6 @@ function activate(context) {
     }
   };
 
-  // Content provider for comparison summary document
-  const compareProvider = {
-    provideTextDocumentContent(uri) {
-      const result = comparisons.get(uri.query);
-      return result ? renderComparison(result) : 'Comparison expired. Run Compare with Current again.';
-    }
-  };
-
   function snapshotUri(hash, filePath) {
     return vscode.Uri.from({
       scheme: snapshotScheme,
@@ -208,13 +166,11 @@ function activate(context) {
     });
   }
 
-  function compareUri(result) {
-    return vscode.Uri.from({
-      scheme: COMPARE_SCHEME,
-      path: `/compare-${result.ref.replace(/[/\\]/g, '-')}.txt`,
-      // A new immutable document for every comparison; no stale VS Code document cache.
-      query: `${++comparisonSequence}:${result.left}:${result.right}`
-    });
+  async function openDiff(file) {
+    const title = `${path.basename(file.newPath || file.oldPath)} (${file.ref} ↔ ${file.rightLabel || 'HEAD'})`;
+    await vscode.commands.executeCommand('vscode.diff',
+      snapshotUri(file.left, file.oldPath), snapshotUri(file.right, file.newPath), title,
+      { preview: true, viewColumn: vscode.ViewColumn.Beside });
   }
 
   async function createBranch(node, checkout) {
@@ -256,7 +212,6 @@ function activate(context) {
   context.subscriptions.push(
     branchView, branchTree,
     vscode.workspace.registerTextDocumentContentProvider(snapshotScheme, snapshotProvider),
-    vscode.workspace.registerTextDocumentContentProvider(COMPARE_SCHEME, compareProvider),
 
     vscode.commands.registerCommand('git-branch.refresh', () => {
       branchTree.refresh();
@@ -287,18 +242,18 @@ function activate(context) {
       }
       try {
         await configureGitExecutable(git);
-        const result = await git.compare(qualifiedRef(node));
-        result.ref = node.ref;
-        lastComparison = result;
-        const uri = compareUri(result);
-        comparisons.set(uri.query, result);
-        try {
-          const doc = await vscode.workspace.openTextDocument(uri);
-          await vscode.window.showTextDocument(doc, { preview: false });
-        } catch (error) {
-          comparisons.delete(uri.query);
-          throw error;
+        const current = await git.current();
+        // Recheck repository state: a stale tree node may now be current.
+        if (!node.remote && node.ref === current) {
+          vscode.window.showInformationMessage('Select a different branch to compare with current.');
+          return;
         }
+        const result = await git.branchComparison(qualifiedRef(node));
+        result.ref = node.ref;
+        result.currentLabel = current || `HEAD (detached ${shortHash(result.right)})`;
+        openComparison(vscode, context, git, result, openDiff,
+          active => { lastComparison = active; },
+          closed => { if (lastComparison === closed) lastComparison = null; });
       } catch (err) {
         vscode.window.showErrorMessage(`Compare failed: ${err.message}`);
       }
@@ -418,9 +373,7 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.openDiff', async file => {
-      const activeUri = vscode.window.activeTextEditor?.document.uri;
-      const comparison = activeUri?.scheme === COMPARE_SCHEME
-        ? comparisons.get(activeUri.query) : lastComparison;
+      const comparison = lastComparison;
       if (!file && !comparison?.files?.length) {
         vscode.window.showInformationMessage('No diff files available. Run Compare with Current first.');
         return;
@@ -429,7 +382,7 @@ function activate(context) {
         const items = comparison.files.map(f => ({
           label: f.newPath || f.oldPath,
           description: f.status,
-          file: { ...f, left: comparison.left, right: comparison.right, ref: comparison.ref }
+          file: { ...f, left: comparison.left, right: comparison.right, ref: comparison.ref, rightLabel: comparison.currentLabel }
         }));
         const picked = await vscode.window.showQuickPick(items, {
           title: `Open Diff (${comparison.ref} ↔ HEAD)`,
@@ -440,14 +393,7 @@ function activate(context) {
       }
       if (!file) return;
       try {
-        const title = `${path.basename(file.newPath || file.oldPath)} (${file.ref} ↔ HEAD)`;
-        await vscode.commands.executeCommand(
-          'vscode.diff',
-          snapshotUri(file.left, file.oldPath),
-          snapshotUri(file.right, file.newPath),
-          title,
-          { preview: true }
-        );
+        await openDiff(file);
       } catch (err) {
         vscode.window.showErrorMessage(`Open diff failed: ${err.message}`);
       }
@@ -455,12 +401,7 @@ function activate(context) {
   );
 
   let disposed = false;
-  context.subscriptions.push({ dispose() { disposed = true; comparisons.clear(); lastComparison = null; } });
-  if (vscode.workspace.onDidCloseTextDocument) {
-    context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => {
-      if (document.uri.scheme === COMPARE_SCHEME) comparisons.delete(document.uri.query);
-    }));
-  }
+  context.subscriptions.push({ dispose() { disposed = true; lastComparison = null; } });
   // Resolve actual Git directories: .git may be a file in worktrees, and refs may be packed.
   return (async () => {
     try {

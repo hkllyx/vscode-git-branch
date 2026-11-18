@@ -11,7 +11,7 @@ if (!xml.includes(`Version="${manifest.version}" Publisher="${manifest.publisher
   throw new Error('VSIX manifest publisher/version differs from package.json');
 }
 // Refresh the tracked staging copy from authoritative source on every build.
-for (const relative of ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js']) {
+for (const relative of ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js', 'src/comparison-view.js']) {
   const destination = path.join(base, 'extension', relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(path.join(base, relative), destination);
@@ -23,7 +23,8 @@ const mappings = [
   ['package.json', 'extension/package.json'],
   ['README.md', 'extension/README.md'],
   ['src/extension.js', 'extension/src/extension.js'],
-  ['src/git-operations.js', 'extension/src/git-operations.js']
+  ['src/git-operations.js', 'extension/src/git-operations.js'],
+  ['src/comparison-view.js', 'extension/src/comparison-view.js']
 ];
 // Use Windows .NET ZIP support without installing dependencies or leaving temp directories.
 const entries = mappings.map(([source, entry]) =>
