@@ -231,9 +231,11 @@ function activate(context) {
     vscode.commands.registerCommand('git-branch.create', async node => {
       try {
         await configureGitExecutable(git);
-        // If invoked from a branch context menu, create from that branch; otherwise from HEAD
-        const startPoint = node?.ref ? qualifiedRef(node) : 'HEAD';
-        const startLabel = node?.label || 'HEAD';
+        // A category/view argument is not a selected branch. Fall back to current HEAD.
+        const specified = isBranchNode(node) || (node?.kind === 'tag' && !!node.ref);
+        const current = specified ? undefined : await git.current();
+        const startPoint = specified ? qualifiedRef(node) : 'HEAD';
+        const startLabel = specified ? node.ref : (current || 'HEAD (detached)');
         const name = await vscode.window.showInputBox({
           title: `Create Branch (from ${startLabel})`,
           prompt: `New branch name (based on ${startLabel})`,

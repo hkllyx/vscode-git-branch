@@ -43,7 +43,7 @@
       ],
       "view/item/context": [
         { "command": "git-branch.checkout", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "1_actions@1" },
-        { "command": "git-branch.create", "when": "view == git-branch.branches", "group": "1_actions@2" },
+        { "command": "git-branch.create", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)$/", "group": "1_actions@2" },
         { "command": "git-branch.merge", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@1" },
         { "command": "git-branch.rebase", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@2" },
         { "command": "git-branch.compare", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)$/", "group": "3_compare@1" },

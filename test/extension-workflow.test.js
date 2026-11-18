@@ -30,7 +30,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.exec(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/remote/test']);
   await git.exec(['pack-refs', '--all']);
   const commands = new Map(), providers = new Map(), documents = new Map();
-  const messages = [], shown = [], diffs = [], patterns = [];
+  const messages = [], shown = [], diffs = [], patterns = [], inputOptions = [];
   let tree, refreshes = 0, closeDocument, input, answer, choose = false;
   const disposable = { dispose() {} };
   const mock = {
@@ -58,7 +58,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     window: {
       createTreeView: (id, options) => { tree = options.treeDataProvider; return disposable; },
       showInformationMessage: message => messages.push(message), showErrorMessage: message => messages.push(message),
-      showInputBox: async () => input, showWarningMessage: async () => answer,
+      showInputBox: async options => { inputOptions.push(options); return input; }, showWarningMessage: async () => answer,
       showQuickPick: async items => choose ? items[0] : undefined,
       showTextDocument: async (doc, options) => { shown.push(doc); assert.equal(options.preview, false); mock.window.activeTextEditor = { document: doc }; }
     }
@@ -89,6 +89,13 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(await git.resolve('refs/heads/from-tag'), base);
     input = 'from-head'; await run('create');
     assert.equal(await git.resolve('refs/heads/from-head'), base);
+    assert.equal(inputOptions.at(-1).title, 'Create Branch (from main)');
+    input = 'from-group'; await run('create', roots[0]);
+    assert.equal(await git.resolve('refs/heads/from-group'), base);
+    assert.equal(inputOptions.at(-1).title, 'Create Branch (from main)');
+    input = 'from-remote-group'; await run('create', roots[1].children[0]);
+    assert.equal(await git.resolve('refs/heads/from-remote-group'), base);
+    assert.equal(inputOptions.at(-1).prompt, 'New branch name (based on main)');
     assert.equal(await git.current(), 'main');
     input = undefined; await run('create', selected); // Input cancellation.
     await run('checkout', selected); assert.equal(await git.current(), 'feature/test');

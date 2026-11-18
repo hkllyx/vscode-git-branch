@@ -208,6 +208,10 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
   assert.ok(!views.some(v => v.id === 'git-branch.comparison'));
   assert.ok(cmds.includes('git-branch.openDiff'));
+  const createMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.create');
+  const menuPattern = new RegExp(createMenu.when.split(' =~ /')[1].slice(0, -1));
+  for (const value of ['gb-local', 'gb-current', 'gb-remote', 'gb-tag']) assert.ok(menuPattern.test(value));
+  for (const value of ['gb-category', 'gb-remote-group']) assert.ok(!menuPattern.test(value));
 
   // No HEAD node in tree (star icon highlights current)
   const bundle = await fs.readFile(path.join(__dirname, '../src/extension.js'), 'utf8');
