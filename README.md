@@ -15,17 +15,17 @@
 
 ### 右键菜单
 
-| 命令                   | 说明                                     |
-| ---------------------- | ---------------------------------------- |
-| Checkout               | 切换到该分支（远程分支自动创建跟踪分支） |
-| Create                 | 有指定分支／标签时从它创建；没有则默认当前分支，不切换 |
-| Create and Checkout    | 使用相同起点创建新分支，并检出新分支     |
-| Merge into Current     | 将选中分支合并到当前分支                 |
-| Rebase Current onto Target | 将当前分支变基到选中分支                 |
-| Compare with Current   | 比较选中分支与当前 HEAD 的提交快照差异   |
-| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改） |
-| Rename                 | 重命名本地分支（含校验和二次确认）       |
-| Delete                 | 先安全删除；未合并时可确认 Force Delete |
+| 命令                        | 说明                                                   |
+| --------------------------- | ------------------------------------------------------ |
+| Checkout                    | 切换到该分支（远程分支自动创建跟踪分支）               |
+| Create                      | 有指定分支／标签时从它创建；没有则默认当前分支，不切换 |
+| Create and Checkout         | 使用相同起点创建新分支，并检出新分支                   |
+| Merge into Current          | 将选中分支合并到当前分支                               |
+| Rebase Current onto Target  | 将当前分支变基到选中分支                               |
+| Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异                 |
+| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）         |
+| Rename                      | 重命名本地分支（含校验和二次确认）                     |
+| Delete                      | 先安全删除；未合并时可确认 Force Delete                |
 
 ### Compare with Current
 
@@ -47,7 +47,7 @@
 
 - 本地分支、当前分支和远程分支均可右键使用；不创建或切换 Git worktree
 - 直接在左侧 **Branches** 栏展开选中分支的差异文件列表，不再打开文件列表 Editor Tab；使用原生紧凑树行，左侧显示文件图标、名称和目录，最右侧像 Changes 一样显示彩色状态标识（M 修改、A 新增、D 删除、R 重命名等），不混入路径文字；状态以选中分支与工作区的比较结果为准
-- 正在比较的分支名后显示文件数量；分支行右侧提供刷新和关闭图标，悬浮分别显示 Refresh Working Tree Diff、Close Working Tree Diff；列表不再放置操作行，同一时间展示一个分支的工作区差异
+- 正在比较的分支名后显示 `Working Tree Diff · N files`，明确这是与工作区比较的差异文件数量；分支行右侧提供刷新和关闭图标，悬浮分别显示 Refresh Working Tree Diff、Close Working Tree Diff；列表不再放置操作行，同一时间展示一个分支的工作区差异列表，切换列表不会自动关闭其他分支已打开的 Diff Tab
 - 左侧为选中分支的提交快照，右侧为当前工作区实际文件；已暂存、未暂存和未忽略的新文件都纳入比较
 - 已打开且未保存的文件缓冲区也参与列表计算；列表需点击 Refresh 更新
 - 点击文件打开非预览 Diff Tab，右侧使用真实文件 URI，可显示编辑器中未保存的内容；新增／删除文件的缺失侧为空

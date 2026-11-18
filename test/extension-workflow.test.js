@@ -234,7 +234,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(panels.length, panelCount); // File list stays in Source Control, not an editor tab.
     let children = await tree.getChildren(worktreeBranch);
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-current-worktree');
-    assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
+    assert.equal(tree.getTreeItem(worktreeBranch).description, 'Working Tree Diff · 1 file');
+    assert.match(tree.getTreeItem(worktreeBranch).tooltip, /Working Tree Diff: 1 changed file/);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
     const menus = require('../package.json').contributes.menus['view/item/context'];
     for (const id of ['refreshWorktree', 'closeWorktree']) {

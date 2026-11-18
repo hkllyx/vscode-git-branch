@@ -131,7 +131,8 @@ class BranchTreeProvider {
     if (showingWorktree) {
       item.contextValue += '-worktree';
       const count = this.workingTree.result.files.length;
-      item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
+      item.description = `Working Tree Diff · ${count} ${count === 1 ? 'file' : 'files'}`;
+      item.tooltip += `\nWorking Tree Diff: ${count} changed ${count === 1 ? 'file' : 'files'} (selected branch ↔ working tree)`;
     }
     return item;
   }
