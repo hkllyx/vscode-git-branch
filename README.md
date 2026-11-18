@@ -9,8 +9,10 @@
 - **Local** — 本地分支列表，当前分支以 ⭐ 星标突出显示
 - **Remote** — 远程分支，按远程名（origin 等）分组
 - **Tags** — 标签列表
+- **Diff** — 工作区比较会话，与 Local、Remote、Tags 同级；各比较分支可独立展开文件
 
 每个分支／标签项只显示图标和名称，不在名称后显示 hash。
+Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显示创建按钮和「…」更多菜单；Create / Create and Checkout 通过分支右键或命令面板使用。
 悬浮提示显示名称、完整 hash、最后提交时间（含时区偏移）和追踪分支；未配置追踪时明确标注。远程分支／标签的追踪项显示不适用，附注标签的 hash 和时间取其对应提交。
 
 ### 右键菜单
@@ -46,11 +48,12 @@
 ### Show Diff with Working Tree
 
 - 本地分支、当前分支和远程分支均可右键使用；不创建或切换 Git worktree
-- 底部面板新增 **Branch Diff** 标签页（与 Terminal、Problems 同一区域），显示各分支的工作区差异文件列表；左侧 **Branches** 只保留分支管理，不再被文件列表占满。执行 Show Diff with Working Tree 自动显示该面板并展开对应分支。使用原生紧凑树行，左侧显示文件图标、名称和目录，最右侧像 Changes 一样显示彩色状态标识（M 修改、A 新增、D 删除、R 重命名等），不混入路径文字；状态以选中分支与工作区的比较结果为准
+- 文件列表位于 **Branches → Diff → 比较分支**，Diff 与 Local、Remote、Tags 同级，不新增 Source Control 视图或底部面板。执行 Show Diff with Working Tree 自动显示 Branches 并展开对应比较。使用原生紧凑树行，左侧显示文件图标、名称和目录，最右侧像 Changes 一样显示彩色状态标识（M 修改、A 新增、D 删除、R 重命名等），不混入路径文字；状态以选中分支与工作区的比较结果为准
+- 右键 Diff 分组或比较分支，使用 **View & Sort**：View as List / View as Tree，Sort Changes by Name / Path / Status。默认列表、按路径排序；选择保存在当前工作区。树形模式按目录展开、目录优先，文件使用所选排序；仅改变展示，不修改 Git 文件
 - 正在比较的分支名后显示 `Working Tree Diff · N files`，明确这是与工作区比较的差异文件数量；分支行右侧提供刷新和关闭图标，悬浮分别显示 Refresh Working Tree Diff、Close Working Tree Diff；列表不再放置操作行。支持多个本地／远程分支同时展开差异列表，各分支独立刷新和关闭，不替换其他分支的列表或关闭其他分支的 Diff Tab
 - 左侧为选中分支的提交快照，右侧为当前工作区实际文件；已暂存、未暂存和未忽略的新文件都纳入比较
 - 已打开且未保存的文件缓冲区也参与列表计算；列表需点击 Refresh 更新
-- 点击文件仍在主编辑区打开非预览的原生 Diff Tab，底部面板只展示文件列表；右侧使用真实文件 URI，可显示编辑器中未保存的内容；新增／删除文件的缺失侧为空
+- 点击文件仍在主编辑区打开非预览的原生 Diff Tab，Diff 分组只展示文件列表；右侧使用真实文件 URI，可显示编辑器中未保存的内容；新增／删除文件的缺失侧为空
 - Refresh 会重新读取所选分支的 tip 和文件列表；已打开的 Diff 左侧仍保持其原来的提交快照
 - 关闭工作区差异列表时，同时关闭该分支本次比较打开的 Diff Tab（含刷新前的快照、其他编辑器组中的标签）；不关闭普通文件、其他分支或 Compare with Current 的标签。未保存修改仍由 VS Code 提示确认，不强制丢弃
 - 原 Compare with Current 仍只比较提交历史，两者相互独立
@@ -71,7 +74,7 @@ code --install-extension hkllyx.git-branch-1.0.0.vsix
 
 或在 VS Code 中：`Ctrl+Shift+P` → `Install from VSIX...`
 
-覆盖安装后执行 **Developer: Reload Window**。底部 Branch Diff 容器使用合法的无点号 ID，并更新视图 ID，避免旧版容器注册失败后回退到 Explorer 的位置被沿用；无需重置整个工作区布局。此前打开的比较需要重新执行。
+覆盖安装后执行 **Developer: Reload Window**。工作区差异已移到 Branches 内的 Diff 分组，旧底部 Branch Diff 面板不再注册；此前打开的比较需要重新执行。
 
 ## 要求
 

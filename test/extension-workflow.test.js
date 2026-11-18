@@ -54,7 +54,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     commands: {
       registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
       executeCommand: async (...args) => {
-        if (args[0] === 'git-branch.panelWorktreeDiff.focus') { panelFocuses++; return; }
+        if (args[0] === 'setContext') return;
+        if (args[0] === 'git-branch.branches.focus') { panelFocuses++; return; }
         assert.equal(args[0], 'vscode.diff');
         assert.equal(args[4].preview, false); // Pin each file diff; do not replace preview tabs.
         assert.equal(args[4].viewColumn, -1); // Same editor group, not a new split group.
@@ -71,10 +72,10 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       } },
       registerFileDecorationProvider: provider => { decorations = provider; return disposable; },
       createTreeView: (id, options) => {
-        if (id === 'git-branch.branches') tree = options.treeDataProvider;
-        else { assert.equal(id, 'git-branch.panelWorktreeDiff'); diffTree = options.treeDataProvider; }
+        assert.equal(id, 'git-branch.branches');
+        tree = options.treeDataProvider;
         return { ...disposable, reveal: async (node, options) => {
-          assert.equal(id, 'git-branch.panelWorktreeDiff');
+          assert.equal(node.diffSession, true);
           assert.equal(node.kind, 'branch'); assert.equal(options.expand, true);
         } };
       },
@@ -109,13 +110,14 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     for (const { command } of require('../package.json').contributes.commands) assert.ok(commands.has(command));
     assert.ok(patterns.some(p => p.pattern.includes('packed-refs')));
     let roots = await tree.getChildren();
-    assert.deepEqual(roots.map(r => r.label), ['Local', 'Remote', 'Tags']);
+    assert.deepEqual(roots.map(r => r.label), ['Local', 'Remote', 'Tags', 'Diff']);
     assert.equal(roots[1].children[0].children.length, 1); // Hide symbolic origin/HEAD.
     const main = roots[0].children.find(n => n.ref === 'main');
-    const selected = roots[0].children.find(n => n.ref === 'feature/test');
+    let selected = roots[0].children.find(n => n.ref === 'feature/test');
     assert.equal(tree.getTreeItem(main).contextValue, 'gb-current');
     assert.equal(tree.getTreeItem(selected).contextValue, 'gb-local');
-    const remote = roots[1].children[0].children[0], tag = roots[2].children[0];
+    let remote = roots[1].children[0].children[0];
+    const tag = roots[2].children[0];
     assert.equal(tag.ref, 'feature/test');
     for (const node of [main, selected, remote, tag]) {
       const item = tree.getTreeItem(node);
@@ -236,16 +238,19 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.match(messages.at(-1), /Select a different branch/);
     mock.workspace.textDocuments = [{ isDirty: true, uri: { scheme: 'file', fsPath: path.join(cwd, 'new-main.txt') },
       getText: () => 'unsaved editor changes\n' }];
-    const worktreeBranch = roots[0].children.find(n => n.current);
+    let worktreeBranch = roots[0].children.find(n => n.current);
     await run('worktree', worktreeBranch);
-    assert.equal(panels.length, panelCount); // File list is in the bottom panel, not an editor tab.
+    assert.equal(panels.length, panelCount);
     assert.ok(panelFocuses > 0);
-    assert.deepEqual(await tree.getChildren(worktreeBranch), []); // SCM does not duplicate diff files.
+    assert.deepEqual(await tree.getChildren(worktreeBranch), []);
     assert.equal(tree.getTreeItem(worktreeBranch).description, undefined);
-    assert.deepEqual(await diffTree.getChildren(), [worktreeBranch]);
-    assert.equal(await diffTree.getParent(worktreeBranch), undefined);
     const scmTree = tree;
-    tree = diffTree; // Remaining interaction checks exercise the panel's provider.
+    const diffGroup = (await tree.getChildren()).find(n => n.diffGroup);
+    assert.equal(diffGroup.label, 'Diff');
+    assert.equal(tree.getTreeItem(diffGroup).contextValue, 'gb-diff-group');
+    diffTree = { getChildren: () => scmTree.getChildren(diffGroup) };
+    worktreeBranch = (await diffTree.getChildren())[0];
+    assert.equal(await tree.getParent(worktreeBranch), diffGroup);
     let children = await tree.getChildren(worktreeBranch);
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-current-worktree');
     assert.equal(tree.getTreeItem(worktreeBranch).description, 'Working Tree Diff · 1 file');
@@ -255,7 +260,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     for (const id of ['refreshWorktree', 'closeWorktree']) {
       const menu = menus.find(m => m.command === `git-branch.${id}`);
       assert.match(menu.group, /^inline@/);
-      assert.match(menu.when, /view == git-branch.panelWorktreeDiff/);
+      assert.match(menu.when, /view == git-branch.branches/);
       const pattern = new RegExp(menu.when.split(' =~ /')[1].slice(0, -1));
       for (const kind of ['local', 'current', 'remote']) {
         assert.ok(pattern.test(`gb-${kind}-worktree`));
@@ -291,8 +296,11 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     // Multiple lists and requests coexist, including local/remote branches with equal tips.
     await Promise.all([run('worktree', selected), run('worktree', remote)]);
     assert.equal((await diffTree.getChildren()).length, 3);
-    assert.equal(tree.getTreeItem(remote).label, remote.ref); // Remote name is not lost at panel root.
     assert.deepEqual(await scmTree.getChildren(selected), []);
+    const sessions = await diffTree.getChildren();
+    selected = sessions.find(n => n.ref === selected.ref && !n.remote);
+    remote = sessions.find(n => n.ref === remote.ref && n.remote);
+    assert.equal(tree.getTreeItem(remote).label, remote.ref);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.match(tree.getTreeItem(branch).contextValue, /-worktree$/);
       assert.match(tree.getTreeItem(branch).description, /Working Tree Diff/);
@@ -343,6 +351,28 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(JSON.parse(diffs.at(-1)[1].query).hash, feature);
     await run('closeWorktree', selected);
     assert.ok(closedTabs.includes(selectedTab));
+    const synthetic = { ref: selected.ref, files: [
+      { status: 'M', newPath: 'src/z.ts' }, { status: 'A', newPath: 'src/a.ts' },
+      { status: 'D', oldPath: 'lib/b.ts' }, { status: 'M', newPath: 'root.ts' }
+    ] };
+    tree.setWorkingTree(selected, synthetic);
+    await run('diffSortName');
+    assert.deepEqual((await tree.getChildren(selected)).map(n => n.file.newPath || n.file.oldPath), ['src/a.ts', 'lib/b.ts', 'root.ts', 'src/z.ts']);
+    await run('diffSortStatus');
+    assert.deepEqual((await tree.getChildren(selected)).map(n => n.file.status), ['A', 'D', 'M', 'M']);
+    await run('diffSortPath');
+    assert.equal((await tree.getChildren(selected))[0].file.oldPath, 'lib/b.ts');
+    await run('diffTree');
+    const folders = await tree.getChildren(selected);
+    assert.deepEqual(folders.map(n => n.label || n.file.newPath), ['lib', 'src', 'root.ts']);
+    const nested = await tree.getChildren(folders[1]);
+    assert.equal(await tree.getParent(nested[0]), folders[1]);
+    assert.equal(tree.getTreeItem(nested[0]).description, '');
+    assert.equal(tree.getTreeItem(folders[1]).contextValue, 'gb-worktree-folder');
+    await run('diffList');
+    assert.equal((await tree.getChildren(selected)).length, 4);
+    assert.equal(tree.getTreeItem((await tree.getChildren(selected))[1]).description, '');
+    tree.clearWorkingTree('refs/heads/' + selected.ref);
     for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }

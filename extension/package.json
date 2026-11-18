@@ -33,33 +33,34 @@
       { "command": "git-branch.delete", "title": "Delete", "category": "Git Branch" },
       { "command": "git-branch.openDiff", "title": "Open Diff", "category": "Git Branch" },
       { "command": "git-branch.refreshWorktree", "title": "Refresh Working Tree Diff", "category": "Git Branch", "icon": "$(refresh)" },
-      { "command": "git-branch.closeWorktree", "title": "Close Working Tree Diff", "category": "Git Branch", "icon": "$(close)" }
+      { "command": "git-branch.closeWorktree", "title": "Close Working Tree Diff", "category": "Git Branch", "icon": "$(close)" },
+      { "command": "git-branch.diffList", "title": "View as List", "category": "Git Branch" },
+      { "command": "git-branch.diffTree", "title": "View as Tree", "category": "Git Branch" },
+      { "command": "git-branch.diffSortName", "title": "Sort Changes by Name", "category": "Git Branch" },
+      { "command": "git-branch.diffSortPath", "title": "Sort Changes by Path", "category": "Git Branch" },
+      { "command": "git-branch.diffSortStatus", "title": "Sort Changes by Status", "category": "Git Branch" }
     ],
-    "viewsContainers": {
-      "panel": [
-        { "id": "git-branch-diff-panel", "title": "Branch Diff", "icon": "media/branch-diff.svg" }
-      ]
-    },
+    "submenus": [{ "id": "git-branch.diffViewSort", "label": "View & Sort" }],
     "views": {
       "scm": [
         { "id": "git-branch.branches", "name": "Branches" }
-      ],
-      "git-branch-diff-panel": [
-        { "id": "git-branch.panelWorktreeDiff", "name": "Working Tree Diff" }
       ]
     },
-    "viewsWelcome": [
-      { "view": "git-branch.panelWorktreeDiff", "contents": "No branch comparisons open.\nRight-click a branch in Source Control → Branches and choose Show Diff with Working Tree." }
-    ],
     "menus": {
       "view/title": [
-        { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" },
-        { "command": "git-branch.create", "when": "view == git-branch.branches", "group": "navigation@2" },
-        { "command": "git-branch.createAndCheckout", "when": "view == git-branch.branches", "group": "1_create@1" }
+        { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" }
+      ],
+      "git-branch.diffViewSort": [
+        { "command": "git-branch.diffList", "group": "1_view@1" },
+        { "command": "git-branch.diffTree", "group": "1_view@2" },
+        { "command": "git-branch.diffSortName", "group": "2_sort@1" },
+        { "command": "git-branch.diffSortPath", "group": "2_sort@2" },
+        { "command": "git-branch.diffSortStatus", "group": "2_sort@3" }
       ],
       "view/item/context": [
-        { "command": "git-branch.refreshWorktree", "when": "view == git-branch.panelWorktreeDiff && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@1" },
-        { "command": "git-branch.closeWorktree", "when": "view == git-branch.panelWorktreeDiff && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@2" },
+        { "submenu": "git-branch.diffViewSort", "when": "view == git-branch.branches && (viewItem == gb-diff-group || viewItem =~ /^gb-(local|current|remote)-worktree$/)", "group": "0_view@1" },
+        { "command": "git-branch.refreshWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@1" },
+        { "command": "git-branch.closeWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@2" },
         { "command": "git-branch.checkout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|remote)(-worktree)?$/", "group": "1_actions@1" },
         { "command": "git-branch.create", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)(-worktree)?$/", "group": "1_actions@2" },
         { "command": "git-branch.createAndCheckout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)(-worktree)?$/", "group": "1_actions@3" },

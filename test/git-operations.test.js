@@ -215,18 +215,17 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.ok(cmds.includes('git-branch.refresh'));
 
   const views = manifest.contributes.views.scm;
-  const container = manifest.contributes.viewsContainers.panel.find(c => c.id === 'git-branch-diff-panel');
-  assert.equal(container.title, 'Branch Diff');
-  // Match VS Code's actual container-ID validation, not merely presence in our JSON.
-  for (const containers of Object.values(manifest.contributes.viewsContainers)) {
-    for (const entry of containers) assert.match(entry.id, /^[a-z0-9_-]+$/i);
-  }
-  await fs.access(path.join(__dirname, '..', container.icon));
-  assert.ok(manifest.contributes.views[container.id].some(v => v.id === 'git-branch.panelWorktreeDiff'));
-  assert.ok(!Object.values(manifest.contributes.views).flat().some(v => v.id === 'git-branch.worktreeDiff'));
+  assert.equal(manifest.contributes.viewsContainers, undefined);
+  assert.deepEqual(Object.keys(manifest.contributes.views), ['scm']);
+  assert.equal(views.length, 1);
+  const sortMenu = manifest.contributes.menus['git-branch.diffViewSort'];
+  assert.equal(sortMenu.length, 5);
+  for (const item of sortMenu) assert.ok(cmds.includes(item.command));
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
   assert.ok(!views.some(v => v.id === 'git-branch.comparison'));
   assert.ok(cmds.includes('git-branch.openDiff'));
+  const titleMenu = manifest.contributes.menus['view/title'];
+  assert.deepEqual(titleMenu.map(item => item.command), ['git-branch.refresh']);
   const createMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.create');
   const menuPattern = new RegExp(createMenu.when.split(' =~ /')[1].slice(0, -1));
   for (const value of ['gb-local', 'gb-current', 'gb-remote', 'gb-tag']) assert.ok(menuPattern.test(value));

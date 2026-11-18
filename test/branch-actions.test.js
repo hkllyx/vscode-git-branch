@@ -44,7 +44,7 @@ test('delete and rename accept real tree data nodes without contextValue', async
       createFileSystemWatcher: () => ({ ...disposable, onDidChange() {}, onDidCreate() {}, onDidDelete() {} })
     },
     extensions: { getExtension: () => undefined },
-    commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; } },
+    commands: { executeCommand: async () => {}, registerCommand: (id, fn) => { commands.set(id, fn); return disposable; } },
     window: {
       registerFileDecorationProvider: () => disposable,
       createTreeView: (id, options) => { if (id === 'git-branch.branches') tree = options.treeDataProvider; return disposable; },
