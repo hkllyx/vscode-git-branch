@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Language="en-US" Id="git-branch" Version="0.1.1" Publisher="hkllyx" />
+    <Identity Language="en-US" Id="git-branch" Version="1.0.0" Publisher="hkllyx" />
     <DisplayName>Git Branch</DisplayName>
     <Description xml:space="preserve">Branch management in Source Control: checkout, create, compare, rename, merge, rebase and delete branches.</Description>
     <Tags>git,branch,scm,source control,compare,rename,checkout,merge,rebase,delete</Tags>

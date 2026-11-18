@@ -45,7 +45,7 @@
 ## 安装
 
 ```
-code --install-extension hkllyx.git-branch-0.1.1.vsix
+code --install-extension hkllyx.git-branch-1.0.0.vsix
 ```
 
 或在 VS Code 中：`Ctrl+Shift+P` → `Install from VSIX...`

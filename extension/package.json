@@ -2,7 +2,7 @@
   "name": "git-branch",
   "displayName": "Git Branch",
   "description": "Branch management in Source Control: checkout, create, compare, rename, merge, rebase and delete branches.",
-  "version": "0.1.1",
+  "version": "1.0.0",
   "publisher": "hkllyx",
   "license": "MIT",
   "engines": { "vscode": "^1.85.0" },
