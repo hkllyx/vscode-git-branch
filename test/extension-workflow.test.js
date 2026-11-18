@@ -1,0 +1,146 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const Module = require('node:module');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
+const { GitOperations } = require('../src/git-operations');
+
+test('all editor commands: selected refs, cached Compare tabs, active-tab diff and lifecycle', async t => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'git-branch-workflow-'));
+  t.after(() => fs.rm(cwd, { recursive: true, force: true }));
+  const git = new GitOperations(cwd);
+  await git.exec(['init', '-b', 'main']);
+  await git.exec(['config', 'user.email', 'test@example.invalid']);
+  await git.exec(['config', 'user.name', 'Test']);
+  await fs.writeFile(path.join(cwd, 'file.txt'), 'base\n');
+  await git.exec(['add', '.']); await git.exec(['commit', '-m', 'base']);
+  const base = await git.resolve('HEAD');
+  await git.create('feature/test'); await git.checkout({ ref: 'feature/test' });
+  await fs.writeFile(path.join(cwd, 'file.txt'), 'feature\n');
+  await fs.writeFile(path.join(cwd, '中文 added.txt'), 'added\n');
+  await git.exec(['add', '.']); await git.exec(['commit', '-m', 'feature']);
+  const feature = await git.resolve('HEAD');
+  await git.checkout({ ref: 'main' });
+  // Branch and tag share a name but point at different commits.
+  await git.exec(['tag', 'feature/test', base]);
+  await git.exec(['remote', 'add', 'origin', cwd]);
+  await git.exec(['update-ref', 'refs/remotes/origin/remote/test', feature]);
+  await git.exec(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/remote/test']);
+  await git.exec(['pack-refs', '--all']);
+  const commands = new Map(), providers = new Map(), documents = new Map();
+  const messages = [], shown = [], diffs = [], patterns = [];
+  let tree, refreshes = 0, closeDocument, input, answer, choose = false;
+  const disposable = { dispose() {} };
+  const mock = {
+    EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
+    TreeItem: class { constructor(label) { this.label = label; } },
+    TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 }, ThemeIcon: class {},
+    Uri: { from: value => ({ query: '', ...value }) },
+    RelativePattern: class { constructor(base, pattern) { patterns.push({ base, pattern }); } },
+    workspace: {
+      workspaceFolders: [{ uri: { fsPath: cwd } }],
+      registerTextDocumentContentProvider: (scheme, provider) => { providers.set(scheme, provider); return disposable; },
+      onDidCloseTextDocument: fn => { closeDocument = fn; return disposable; },
+      createFileSystemWatcher: () => ({ ...disposable, onDidChange() {}, onDidCreate() {}, onDidDelete() {} }),
+      async openTextDocument(uri) {
+        const key = JSON.stringify(uri);
+        if (!documents.has(key)) documents.set(key, { uri, text: await providers.get(uri.scheme).provideTextDocumentContent(uri) });
+        return documents.get(key);
+      }
+    },
+    extensions: { getExtension: () => ({ isActive: true, exports: { getAPI: () => ({ git: { path: 'git' } }) } }) },
+    commands: {
+      registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
+      executeCommand: async (...args) => { diffs.push(args); }
+    },
+    window: {
+      createTreeView: (id, options) => { tree = options.treeDataProvider; return disposable; },
+      showInformationMessage: message => messages.push(message), showErrorMessage: message => messages.push(message),
+      showInputBox: async () => input, showWarningMessage: async () => answer,
+      showQuickPick: async items => choose ? items[0] : undefined,
+      showTextDocument: async (doc, options) => { shown.push(doc); assert.equal(options.preview, false); mock.window.activeTextEditor = { document: doc }; }
+    }
+  };
+  const originalLoad = Module._load;
+  Module._load = function (request, ...args) { return request === 'vscode' ? mock : originalLoad.call(this, request, ...args); };
+  const context = { subscriptions: [] };
+  try {
+    await require('../src/extension').activate(context);
+    for (const { command } of require('../package.json').contributes.commands) assert.ok(commands.has(command));
+    assert.ok(patterns.some(p => p.pattern.includes('packed-refs')));
+    let roots = await tree.getChildren();
+    assert.deepEqual(roots.map(r => r.label), ['Local', 'Remote', 'Tags']);
+    assert.equal(roots[1].children[0].children.length, 1); // Hide symbolic origin/HEAD.
+    const main = roots[0].children.find(n => n.ref === 'main');
+    const selected = roots[0].children.find(n => n.ref === 'feature/test');
+    assert.equal(tree.getTreeItem(main).contextValue, 'gb-current');
+    assert.equal(tree.getTreeItem(selected).contextValue, 'gb-local');
+    const remote = roots[1].children[0].children[0], tag = roots[2].children[0];
+    assert.equal(tag.ref, 'feature/test');
+    await assert.rejects(git.create('feature/test'), /already exists/);
+    const run = (id, node) => commands.get(`git-branch.${id}`)(node);
+    input = 'from-selected'; await run('create', selected);
+    assert.equal(await git.resolve('refs/heads/from-selected'), feature);
+    input = 'from-remote'; await run('create', remote);
+    assert.equal(await git.resolve('refs/heads/from-remote'), feature);
+    input = 'from-tag'; await run('create', tag);
+    assert.equal(await git.resolve('refs/heads/from-tag'), base);
+    input = 'from-head'; await run('create');
+    assert.equal(await git.resolve('refs/heads/from-head'), base);
+    assert.equal(await git.current(), 'main');
+    input = undefined; await run('create', selected); // Input cancellation.
+    await run('checkout', selected); assert.equal(await git.current(), 'feature/test');
+    await run('checkout', main); assert.equal(await git.current(), 'main');
+    await run('checkout', remote); assert.equal(await git.current(), 'remote/test');
+    await run('checkout', main); await run('checkout', remote); // Existing tracking branch.
+    assert.equal(await git.current(), 'remote/test'); await run('checkout', main);
+    await run('compare', selected);
+    const first = shown[0];
+    assert.ok(first.text.includes(feature)); assert.ok(first.text.includes(base));
+    assert.ok(first.text.includes('中文 added.txt'));
+    await fs.writeFile(path.join(cwd, 'new-main.txt'), 'new main\n');
+    await git.exec(['add', '.']); await git.exec(['commit', '-m', 'main changes']);
+    const changedMain = await git.resolve('HEAD');
+    await run('compare', selected);
+    const second = shown[1];
+    assert.notEqual(first.uri.query, second.uri.query);
+    assert.ok(second.text.includes(changedMain)); assert.ok(!first.text.includes(changedMain));
+    assert.equal(providers.get(first.uri.scheme).provideTextDocumentContent(first.uri), first.text);
+    mock.window.activeTextEditor = { document: first };
+    await run('openDiff'); assert.equal(diffs.length, 0); // Picker cancellation.
+    choose = true; await run('openDiff');
+    assert.equal(diffs[0][0], 'vscode.diff');
+    assert.equal(JSON.parse(diffs[0][1].query).hash, feature);
+    assert.equal(JSON.parse(diffs[0][2].query).hash, base); // First tab, not last comparison.
+    const rightContent = await providers.get('git-branch-snapshot').provideTextDocumentContent(diffs[0][2]);
+    assert.equal(rightContent, 'base\n');
+    closeDocument(first);
+    assert.match(providers.get(first.uri.scheme).provideTextDocumentContent(first.uri), /expired/);
+    answer = undefined;
+    await run('merge', selected); await run('rebase', selected);
+    assert.equal(await git.resolve('HEAD'), changedMain);
+    answer = 'Merge'; await run('merge', selected);
+    await git.exec(['merge-base', '--is-ancestor', feature, 'HEAD']);
+    // Rebase target differs from the same-name tag: use fully qualified local branch.
+    await git.create('rebase-source', base); await git.checkout({ ref: 'rebase-source' });
+    await fs.writeFile(path.join(cwd, 'rebase-only.txt'), 'rebase\n');
+    await git.exec(['add', '.']); await git.exec(['commit', '-m', 'rebase source']);
+    const rebaseHead = await git.resolve('HEAD'); await git.checkout({ ref: 'main' });
+    await git.exec(['tag', 'rebase-source', base]);
+    roots = await tree.getChildren();
+    answer = 'Rebase'; await run('rebase', roots[0].children.find(n => n.ref === 'rebase-source'));
+    await git.exec(['merge-base', '--is-ancestor', rebaseHead, 'HEAD']);
+    roots = await tree.getChildren(); await run('compare', roots[0].children.find(n => n.current));
+    assert.match(shown.at(-1).text, /No file differences/);
+    for (const id of ['checkout', 'compare', 'merge', 'rebase']) {
+      await run(id, tag); await run(id, undefined);
+    }
+    const beforeRefresh = refreshes; await run('refresh'); assert.ok(refreshes > beforeRefresh);
+    assert.ok(!messages.some(m => /failed:/i.test(m)), messages.join('\n'));
+  } finally {
+    for (const item of context.subscriptions) item.dispose();
+    Module._load = originalLoad;
+  }
+});

@@ -50,7 +50,7 @@ test('delete and rename accept real tree data nodes without contextValue', async
   const originalLoad = Module._load;
   Module._load = function (request, ...args) { return request === 'vscode' ? mock : originalLoad.call(this, request, ...args); };
   try {
-    require('../src/extension').activate({ subscriptions: [] });
+    await require('../src/extension').activate({ subscriptions: [] });
     const roots = await tree.getChildren();
     const locals = roots[0].children;
     const local = name => locals.find(node => node.ref === name);

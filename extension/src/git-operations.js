@@ -2,6 +2,8 @@
 const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const run = promisify(execFile);
+const fs = require('node:fs/promises');
+const path = require('node:path');
 
 class GitOperations {
   constructor(cwd, executable = 'git') {
@@ -10,14 +12,22 @@ class GitOperations {
   }
 
   async exec(args, encoding = 'utf8') {
-    const { stdout } = await run(this.executable, args, {
-      cwd: this.cwd,
-      encoding,
-      maxBuffer: 32 * 1024 * 1024,
-      timeout: 30000,
-      windowsHide: true
-    });
-    return stdout;
+    await this.ready;
+    try {
+      const { stdout } = await run(this.executable, args, {
+        cwd: this.cwd,
+        encoding,
+        maxBuffer: 32 * 1024 * 1024,
+        timeout: 30000,
+        windowsHide: true
+      });
+      return stdout;
+    } catch (error) {
+      // Git merge writes conflict details to stdout, not necessarily stderr.
+      const output = error.stdout?.toString().trim();
+      if (output) error.message += `\n${output.slice(0, 4000)}`;
+      throw error;
+    }
   }
 
   /** List local + remote branches with full ref, hash, current flag. */
@@ -28,7 +38,10 @@ class GitOperations {
       'refs/heads/', 'refs/remotes/'
     ]);
     let current;
-    try { current = (await this.exec(['symbolic-ref', '--quiet', 'HEAD'])).trim(); } catch { current = undefined; }
+    try { current = (await this.exec(['symbolic-ref', '--quiet', 'HEAD'])).trim(); } catch (error) {
+      if (error.code !== 1) throw error;
+      current = undefined;
+    }
     const branches = output.trim().split(/\r?\n/).filter(Boolean).map(line => {
       const [ref, hash, symbolic] = line.split('\t');
       const remote = ref.startsWith('refs/remotes/');
@@ -39,10 +52,10 @@ class GitOperations {
 
   /** List tags. */
   async tags() {
-    const output = await this.exec(['for-each-ref', '--format=%(refname:short)%09%(objectname)', 'refs/tags/']);
+    const output = await this.exec(['for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/tags/']);
     return output.trim().split(/\r?\n/).filter(Boolean).map(line => {
-      const [name, hash] = line.split('\t');
-      return { name, hash };
+      const [ref, hash] = line.split('\t');
+      return { name: ref.slice('refs/tags/'.length), hash };
     });
   }
 
@@ -51,7 +64,10 @@ class GitOperations {
     try {
       const out = (await this.exec(['symbolic-ref', '--quiet', 'HEAD'])).trim();
       return out.replace(/^refs\/heads\//, '');
-    } catch { return undefined; }
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      return undefined;
+    }
   }
 
   /** Create a branch at start point. */
@@ -71,7 +87,15 @@ class GitOperations {
     if (branch.remote) {
       const qualified = ref.startsWith('refs/remotes/') ? ref : `refs/remotes/${ref}`;
       await this.exec(['show-ref', '--verify', qualified]);
-      await this.exec(['switch', '--track', '--', qualified]);
+      const locals = await this.exec(['for-each-ref', '--format=%(refname)%09%(upstream)', 'refs/heads/']);
+      const tracking = locals.split(/\r?\n/).filter(Boolean).map(line => line.split('\t'))
+        .filter(([, upstream]) => upstream === qualified);
+      if (tracking.length > 1) throw new Error('Multiple local branches track this remote. Check out the desired Local branch.');
+      if (tracking.length === 1) {
+        await this.exec(['switch', '--', tracking[0][0].slice('refs/heads/'.length)]);
+      } else {
+        await this.exec(['switch', '--track', '--', qualified]);
+      }
     } else {
       const name = ref.replace(/^refs\/heads\//, '');
       await this.exec(['show-ref', '--verify', `refs/heads/${name}`]);
@@ -95,6 +119,17 @@ class GitOperations {
   /** Merge or rebase ref into current. */
   async integrate(operation, ref) {
     if (!['merge', 'rebase'].includes(operation)) throw new Error('Unsupported operation');
+    if (!(await this.current())) throw new Error('Check out a local branch before merging or rebasing (HEAD is detached).');
+    for (const state of ['MERGE_HEAD', 'rebase-merge', 'rebase-apply']) {
+      const statePath = (await this.exec(['rev-parse', '--git-path', state])).trim();
+      try {
+        await fs.access(path.resolve(this.cwd, statePath));
+      } catch (error) {
+        if (error.code === 'ENOENT') continue;
+        throw error;
+      }
+      throw new Error('A merge or rebase is already in progress. Resolve/continue or abort it first.');
+    }
     if ((await this.exec(['status', '--porcelain'])).trim()) {
       throw new Error('Commit or stash working-tree changes before merging or rebasing.');
     }
@@ -137,8 +172,8 @@ class GitOperations {
     if (!name || name !== name.trim()) return 'Enter a branch name without leading/trailing spaces.';
     try { await this.exec(['check-ref-format', '--branch', name]); } catch { return 'Invalid Git branch name.'; }
     if (name.startsWith('-') || name.includes('@{')) return 'Use a literal branch name.';
-    const existing = await this.exec(['for-each-ref', '--format=%(refname:short)', 'refs/heads/']);
-    if (existing.split(/\r?\n/).includes(name)) return 'A local branch with this name already exists.';
+    const existing = await this.exec(['for-each-ref', '--format=%(refname)', 'refs/heads/']);
+    if (existing.split(/\r?\n/).includes(`refs/heads/${name}`)) return 'A local branch with this name already exists.';
     return undefined;
   }
 }

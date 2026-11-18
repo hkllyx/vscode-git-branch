@@ -9,6 +9,17 @@ function shortHash(hash) {
   return hash ? hash.slice(0, 7) : '';
 }
 
+function isBranchNode(node) {
+  return node?.kind === 'branch' && typeof node.ref === 'string' && !!node.ref &&
+    typeof node.remote === 'boolean';
+}
+
+function qualifiedRef(node) {
+  if (node?.kind === 'tag') return `refs/tags/${node.ref}`;
+  if (!isBranchNode(node)) throw new Error('Right-click a branch to perform this operation.');
+  return `${node.remote ? 'refs/remotes/' : 'refs/heads/'}${node.ref}`;
+}
+
 async function configureGitExecutable(git) {
   try {
     const ext = vscode.extensions.getExtension('vscode.git');
@@ -29,6 +40,7 @@ class BranchTreeProvider {
   }
 
   refresh() { this._onDidChange.fire(); }
+  dispose() { this._onDidChange.dispose(); }
 
   getTreeItem(element) {
     if (element.kind === 'category') {
@@ -158,9 +170,12 @@ function activate(context) {
   }
   const root = workspaceFolder.uri.fsPath;
   const git = new GitOperations(root);
+  git.ready = configureGitExecutable(git);
 
   const branchTree = new BranchTreeProvider(git);
+  const comparisons = new Map();
   let lastComparison = null;
+  let comparisonSequence = 0;
 
   // Views
   const branchView = vscode.window.createTreeView('git-branch.branches', {
@@ -179,8 +194,9 @@ function activate(context) {
 
   // Content provider for comparison summary document
   const compareProvider = {
-    provideTextDocumentContent() {
-      return lastComparison ? renderComparison(lastComparison) : 'No comparison available.';
+    provideTextDocumentContent(uri) {
+      const result = comparisons.get(uri.query);
+      return result ? renderComparison(result) : 'Comparison expired. Run Compare with Current again.';
     }
   };
 
@@ -192,17 +208,19 @@ function activate(context) {
     });
   }
 
-  function compareUri(ref) {
+  function compareUri(result) {
     return vscode.Uri.from({
       scheme: COMPARE_SCHEME,
-      path: `/compare-${ref.replace(/[/\\]/g, '-')}.txt`
+      path: `/compare-${result.ref.replace(/[/\\]/g, '-')}.txt`,
+      // A new immutable document for every comparison; no stale VS Code document cache.
+      query: `${++comparisonSequence}:${result.left}:${result.right}`
     });
   }
 
   // ── Commands ──
 
   context.subscriptions.push(
-    branchView,
+    branchView, branchTree,
     vscode.workspace.registerTextDocumentContentProvider(snapshotScheme, snapshotProvider),
     vscode.workspace.registerTextDocumentContentProvider(COMPARE_SCHEME, compareProvider),
 
@@ -214,7 +232,7 @@ function activate(context) {
       try {
         await configureGitExecutable(git);
         // If invoked from a branch context menu, create from that branch; otherwise from HEAD
-        const startPoint = node?.ref || 'HEAD';
+        const startPoint = node?.ref ? qualifiedRef(node) : 'HEAD';
         const startLabel = node?.label || 'HEAD';
         const name = await vscode.window.showInputBox({
           title: `Create Branch (from ${startLabel})`,
@@ -232,7 +250,10 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.checkout', async node => {
-      if (!node?.ref) return;
+      if (!isBranchNode(node)) {
+        vscode.window.showInformationMessage('Right-click a branch to check it out.');
+        return;
+      }
       try {
         await configureGitExecutable(git);
         await git.checkout(node);
@@ -244,16 +265,24 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.compare', async node => {
-      if (!node?.ref) return;
+      if (!isBranchNode(node)) {
+        vscode.window.showInformationMessage('Right-click a branch to compare it with current HEAD.');
+        return;
+      }
       try {
         await configureGitExecutable(git);
-        const qualified = node.remote ? `refs/remotes/${node.ref}` : `refs/heads/${node.ref}`;
-        const result = await git.compare(qualified);
+        const result = await git.compare(qualifiedRef(node));
         result.ref = node.ref;
         lastComparison = result;
-        const uri = compareUri(node.ref);
-        const doc = await vscode.workspace.openTextDocument(uri);
-        await vscode.window.showTextDocument(doc, { preview: false });
+        const uri = compareUri(result);
+        comparisons.set(uri.query, result);
+        try {
+          const doc = await vscode.workspace.openTextDocument(uri);
+          await vscode.window.showTextDocument(doc, { preview: false });
+        } catch (error) {
+          comparisons.delete(uri.query);
+          throw error;
+        }
       } catch (err) {
         vscode.window.showErrorMessage(`Compare failed: ${err.message}`);
       }
@@ -289,10 +318,13 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.merge', async node => {
-      if (!node?.ref) return;
+      if (!isBranchNode(node)) {
+        vscode.window.showInformationMessage('Right-click a branch to merge it into current.');
+        return;
+      }
       try {
         await configureGitExecutable(git);
-        const qualified = node.remote ? `refs/remotes/${node.ref}` : node.ref;
+        const qualified = qualifiedRef(node);
         const confirmation = await vscode.window.showWarningMessage(
           `Merge '${node.label}' into current branch?`,
           { modal: true }, 'Merge'
@@ -302,15 +334,19 @@ function activate(context) {
         branchTree.refresh();
         vscode.window.showInformationMessage(`Merged '${node.label}' into current branch.`);
       } catch (err) {
-        vscode.window.showErrorMessage(`Merge failed: ${err.message}`);
+        branchTree.refresh();
+        vscode.window.showErrorMessage(`Merge failed: ${err.message}\nIf Git reports conflicts, resolve and continue or abort the merge; no automatic rollback was performed.`);
       }
     }),
 
     vscode.commands.registerCommand('git-branch.rebase', async node => {
-      if (!node?.ref) return;
+      if (!isBranchNode(node)) {
+        vscode.window.showInformationMessage('Right-click a branch to rebase current onto it.');
+        return;
+      }
       try {
         await configureGitExecutable(git);
-        const qualified = node.remote ? `refs/remotes/${node.ref}` : node.ref;
+        const qualified = qualifiedRef(node);
         const confirmation = await vscode.window.showWarningMessage(
           `Rebase current branch onto '${node.label}'?`,
           { modal: true }, 'Rebase'
@@ -320,7 +356,8 @@ function activate(context) {
         branchTree.refresh();
         vscode.window.showInformationMessage(`Rebased current branch onto '${node.label}'.`);
       } catch (err) {
-        vscode.window.showErrorMessage(`Rebase failed: ${err.message}`);
+        branchTree.refresh();
+        vscode.window.showErrorMessage(`Rebase failed: ${err.message}\nIf Git reports conflicts, resolve and continue or abort the rebase; no automatic rollback was performed.`);
       }
     }),
 
@@ -350,14 +387,21 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.openDiff', async file => {
-      if (!file && lastComparison?.files?.length) {
-        const items = lastComparison.files.map(f => ({
+      const activeUri = vscode.window.activeTextEditor?.document.uri;
+      const comparison = activeUri?.scheme === COMPARE_SCHEME
+        ? comparisons.get(activeUri.query) : lastComparison;
+      if (!file && !comparison?.files?.length) {
+        vscode.window.showInformationMessage('No diff files available. Run Compare with Current first.');
+        return;
+      }
+      if (!file && comparison?.files?.length) {
+        const items = comparison.files.map(f => ({
           label: f.newPath || f.oldPath,
           description: f.status,
-          file: { ...f, left: lastComparison.left, right: lastComparison.right, ref: lastComparison.ref }
+          file: { ...f, left: comparison.left, right: comparison.right, ref: comparison.ref }
         }));
         const picked = await vscode.window.showQuickPick(items, {
-          title: `Open Diff (${lastComparison.ref} ↔ HEAD)`,
+          title: `Open Diff (${comparison.ref} ↔ HEAD)`,
           placeHolder: 'Select a file to diff'
         });
         if (!picked) return;
@@ -379,16 +423,30 @@ function activate(context) {
     })
   );
 
-  // Watch for Git changes to auto-refresh
-  try {
-    const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(root, '.git/{HEAD,refs/**,index}')
-    );
-    watcher.onDidChange(() => branchTree.refresh());
-    watcher.onDidCreate(() => branchTree.refresh());
-    watcher.onDidDelete(() => branchTree.refresh());
-    context.subscriptions.push(watcher);
-  } catch { /* watcher is optional */ }
+  let disposed = false;
+  context.subscriptions.push({ dispose() { disposed = true; comparisons.clear(); lastComparison = null; } });
+  if (vscode.workspace.onDidCloseTextDocument) {
+    context.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => {
+      if (document.uri.scheme === COMPARE_SCHEME) comparisons.delete(document.uri.query);
+    }));
+  }
+  // Resolve actual Git directories: .git may be a file in worktrees, and refs may be packed.
+  return (async () => {
+    try {
+      const gitDir = (await git.exec(['rev-parse', '--absolute-git-dir'])).trim();
+      const commonDir = path.resolve(root, (await git.exec(['rev-parse', '--git-common-dir'])).trim());
+      if (disposed) return;
+      for (const directory of new Set([gitDir, commonDir])) {
+        const watcher = vscode.workspace.createFileSystemWatcher(
+          new vscode.RelativePattern(directory, '{HEAD,refs/**,packed-refs,index,config}')
+        );
+        watcher.onDidChange(() => branchTree.refresh());
+        watcher.onDidCreate(() => branchTree.refresh());
+        watcher.onDidDelete(() => branchTree.refresh());
+        context.subscriptions.push(watcher);
+      }
+    } catch { /* Non-repository workspaces still offer manual refresh. */ }
+  })();
 }
 
 function deactivate() {}

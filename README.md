@@ -17,7 +17,7 @@
 | 命令                   | 说明                                     |
 | ---------------------- | ---------------------------------------- |
 | Checkout               | 切换到该分支（远程分支自动创建跟踪分支） |
-| Create Branch...       | 从 HEAD 创建新分支                       |
+| Create Branch...       | 右键从选中分支／标签创建；标题栏从 HEAD 创建 |
 | Merge into Current     | 将选中分支合并到当前分支                 |
 | Rebase Current onto... | 将当前分支变基到选中分支                 |
 | Compare with Current   | 比较选中分支与当前 HEAD 的提交快照差异   |
@@ -29,6 +29,9 @@
 - 不依赖任何不存在的命令，直接调用 `git diff` 比较两个提交
 - 结果直接在 **Editor Tab** 中打开，列出所有差异文件（支持重命名检测、中文路径）
 - 通过命令面板 `Git Branch: Open Diff` 可选择文件打开 VS Code 内置左右 diff 视图
+- 每次比较打开独立、固定提交快照的 Tab，重复比较不会复用旧内容
+- 在某个 Compare Tab 中执行 Open Diff 时，使用该 Tab 对应的结果，不会串到其他比较
+- 关闭 Compare 文档会释放其结果；插件重载后需要重新执行比较
 - 左侧 = 选中分支的提交，右侧 = 当前 HEAD 的提交
 - 工作区未提交的修改不参与比较
 
@@ -42,7 +45,7 @@
 ## 安装
 
 ```
-code --install-extension hkllyx.git-branch-0.1.0.vsix
+code --install-extension hkllyx.git-branch-0.1.1.vsix
 ```
 
 或在 VS Code 中：`Ctrl+Shift+P` → `Install from VSIX...`
@@ -50,7 +53,7 @@ code --install-extension hkllyx.git-branch-0.1.0.vsix
 ## 要求
 
 - VS Code 1.85+
-- Git 2.0+（需在 PATH 中可用）
+- Git（需支持 `git switch` 和 `git rev-parse --end-of-options`；本次回归验证版本为 2.47.1.windows.1）
 - 依赖内置 `vscode.git` 扩展（用于获取 Git 可执行路径）
 
 ## 安全
@@ -65,4 +68,17 @@ code --install-extension hkllyx.git-branch-0.1.0.vsix
 - 使用第一个工作区文件夹作为 Git 仓库根目录
 - 二进制文件显示提示文本，不支持图片 diff
 - 文本按 UTF-8 显示
-- Git 命令 30 秒超时，单次输出上限 32 MiB
+- 已存在本地跟踪分支时，远程 Checkout 会复用；多个本地分支跟踪同一远程时要求在 Local 中自行选择
+- 不提供远程分支删除、强制删除、自动推送、自动 stash 或冲突自动解决
+- Merge／Rebase 要求本地分支、干净工作区且没有正在进行的合并／变基；冲突时保留 Git 状态，需手动解决并继续或中止
+- Git 命令 30 秒超时，单次输出上限 32 MiB；Git hooks 或超大仓库可能超出限制
+
+## 开发与检查
+
+```powershell
+npm test
+npm run check
+node package-vsix.js
+```
+
+无第三方构建依赖。打包脚本使用 Windows PowerShell／.NET ZIP，每次从根目录源码同步生成 `extension/` 和 VSIX，避免打入旧副本。检查范围与未覆盖项见 `AUDIT.md`。
