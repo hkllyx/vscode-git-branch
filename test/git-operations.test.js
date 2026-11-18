@@ -237,8 +237,16 @@ test('manifest: commands, views, menus are wired', async () => {
     assert.equal(base.group, current.group); // Same slot so the ✓ variant replaces the base in place.
     assert.ok(base.when.includes('!='));
     assert.ok(current.when.includes('=='));
-    // ✓ variants are menu-only; keep them out of the command palette.
-    assert.ok(manifest.contributes.menus.commandPalette.some(item => item.command === `git-branch.${id}.current` && item.when === 'false'));
+    // Aligned leading cell: ✓ for the current item, a blank braille cell (U+2800, survives the menu label .trim()) for the rest.
+    const baseTitle = manifest.contributes.commands.find(c => c.command === `git-branch.${id}`).title;
+    const currentTitle = manifest.contributes.commands.find(c => c.command === `git-branch.${id}.current`).title;
+    assert.ok(baseTitle.startsWith('\u2800 '));
+    assert.ok(currentTitle.startsWith('\u2713 '));
+    assert.equal(baseTitle.slice(2), currentTitle.slice(2)); // Same label text after the leading cell.
+    // Both variants are menu-only; keep them out of the command palette.
+    for (const variant of [id, `${id}.current`]) {
+      assert.ok(manifest.contributes.menus.commandPalette.some(item => item.command === `git-branch.${variant}` && item.when === 'false'));
+    }
   }
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
   assert.ok(!views.some(v => v.id === 'git-branch.comparison'));
