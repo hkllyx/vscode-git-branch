@@ -195,6 +195,15 @@ test('checkout accepts actual tree nodes and rejects missing refs before executi
 test('manifest: commands, views, menus are wired', async () => {
   const manifest = require('../package.json');
   const cmds = manifest.contributes.commands.map(c => c.command);
+  for (const item of manifest.contributes.commands) {
+    assert.ok(!item.title.includes('...') && !item.title.includes('…'));
+    assert.ok(!/\bBranches?\b/i.test(item.title));
+  }
+  const title = id => manifest.contributes.commands.find(c => c.command === `git-branch.${id}`).title;
+  assert.equal(title('create'), 'Create');
+  assert.equal(title('rename'), 'Rename');
+  assert.equal(title('delete'), 'Delete');
+  assert.equal(title('createAndCheckout'), 'Create and Checkout');
   assert.ok(cmds.includes('git-branch.compare'));
   assert.ok(cmds.includes('git-branch.rename'));
   assert.ok(cmds.includes('git-branch.checkout'));

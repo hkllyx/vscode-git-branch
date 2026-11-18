@@ -21,16 +21,16 @@
   },
   "contributes": {
     "commands": [
-      { "command": "git-branch.refresh", "title": "Refresh Branches", "category": "Git Branch", "icon": "$(refresh)" },
-      { "command": "git-branch.create", "title": "Create Branch...", "category": "Git Branch", "icon": "$(add)" },
-      { "command": "git-branch.createAndCheckout", "title": "Create and Checkout...", "category": "Git Branch" },
+      { "command": "git-branch.refresh", "title": "Refresh", "category": "Git Branch", "icon": "$(refresh)" },
+      { "command": "git-branch.create", "title": "Create", "category": "Git Branch", "icon": "$(add)" },
+      { "command": "git-branch.createAndCheckout", "title": "Create and Checkout", "category": "Git Branch" },
       { "command": "git-branch.checkout", "title": "Checkout", "category": "Git Branch" },
       { "command": "git-branch.compare", "title": "Compare with Current", "category": "Git Branch" },
       { "command": "git-branch.worktree", "title": "Show Diff with Working Tree", "category": "Git Branch" },
-      { "command": "git-branch.rename", "title": "Rename Branch...", "category": "Git Branch" },
+      { "command": "git-branch.rename", "title": "Rename", "category": "Git Branch" },
       { "command": "git-branch.merge", "title": "Merge into Current", "category": "Git Branch" },
-      { "command": "git-branch.rebase", "title": "Rebase Current onto...", "category": "Git Branch" },
-      { "command": "git-branch.delete", "title": "Delete Branch", "category": "Git Branch" },
+      { "command": "git-branch.rebase", "title": "Rebase Current onto", "category": "Git Branch" },
+      { "command": "git-branch.delete", "title": "Delete", "category": "Git Branch" },
       { "command": "git-branch.openDiff", "title": "Open Diff", "category": "Git Branch" }
     ],
     "views": {

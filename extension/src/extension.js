@@ -59,7 +59,6 @@ class BranchTreeProvider {
     }
     // branch or tag leaf
     const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
-    item.description = shortHash(element.hash);
     item.tooltip = element.ref || element.label;
     if (element.kind === 'tag') {
       item.iconPath = new vscode.ThemeIcon('tag');

@@ -96,6 +96,12 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(tree.getTreeItem(selected).contextValue, 'gb-local');
     const remote = roots[1].children[0].children[0], tag = roots[2].children[0];
     assert.equal(tag.ref, 'feature/test');
+    for (const node of [main, selected, remote, tag]) {
+      const item = tree.getTreeItem(node);
+      assert.equal(item.label, node.label);
+      assert.equal(item.description, undefined); // Branch/tag names have no trailing hash.
+      assert.equal(item.tooltip, node.ref);
+    }
     await assert.rejects(git.create('feature/test'), /already exists/);
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
     input = 'from-selected'; await run('create', selected);
