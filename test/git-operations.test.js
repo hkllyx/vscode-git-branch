@@ -204,6 +204,7 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.equal(title('rename'), 'Rename');
   assert.equal(title('delete'), 'Delete');
   assert.equal(title('createAndCheckout'), 'Create and Checkout');
+  assert.equal(title('rebase'), 'Rebase Current onto Target');
   assert.ok(cmds.includes('git-branch.compare'));
   assert.ok(cmds.includes('git-branch.rename'));
   assert.ok(cmds.includes('git-branch.checkout'));

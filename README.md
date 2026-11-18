@@ -21,7 +21,7 @@
 | Create                 | 有指定分支／标签时从它创建；没有则默认当前分支，不切换 |
 | Create and Checkout    | 使用相同起点创建新分支，并检出新分支     |
 | Merge into Current     | 将选中分支合并到当前分支                 |
-| Rebase Current onto    | 将当前分支变基到选中分支                 |
+| Rebase Current onto Target | 将当前分支变基到选中分支                 |
 | Compare with Current   | 比较选中分支与当前 HEAD 的提交快照差异   |
 | Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改） |
 | Rename                 | 重命名本地分支（含校验和二次确认）       |

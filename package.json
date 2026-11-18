@@ -29,7 +29,7 @@
       { "command": "git-branch.worktree", "title": "Show Diff with Working Tree", "category": "Git Branch" },
       { "command": "git-branch.rename", "title": "Rename", "category": "Git Branch" },
       { "command": "git-branch.merge", "title": "Merge into Current", "category": "Git Branch" },
-      { "command": "git-branch.rebase", "title": "Rebase Current onto", "category": "Git Branch" },
+      { "command": "git-branch.rebase", "title": "Rebase Current onto Target", "category": "Git Branch" },
       { "command": "git-branch.delete", "title": "Delete", "category": "Git Branch" },
       { "command": "git-branch.openDiff", "title": "Open Diff", "category": "Git Branch" }
     ],
