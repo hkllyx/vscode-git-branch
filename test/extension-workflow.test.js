@@ -33,6 +33,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.exec(['pack-refs', '--all']);
   const commands = new Map(), providers = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
+  const tabGroups = [{ tabs: [] }, { tabs: [] }], closedTabs = [];
   let tree, decorations, refreshes = 0, input, answer, choose = false;
   const disposable = { dispose() {} };
   const mock = {
@@ -42,6 +43,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     ThemeColor: class { constructor(id) { this.id = id; } },
     Uri: { from: value => ({ query: '', ...value }), file: fsPath => ({ scheme: 'file', fsPath }) },
     ViewColumn: { Active: -1, Beside: -2 },
+    TabInputTextDiff: class { constructor(original, modified) { this.original = original; this.modified = modified; } },
     RelativePattern: class { constructor(base, pattern) { patterns.push({ base, pattern }); } },
     workspace: {
       workspaceFolders: [{ uri: { fsPath: cwd } }],
@@ -56,9 +58,16 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
         assert.equal(args[4].preview, false); // Pin each file diff; do not replace preview tabs.
         assert.equal(args[4].viewColumn, -1); // Same editor group, not a new split group.
         diffs.push(args);
+        tabGroups[0].tabs.push({ input: new mock.TabInputTextDiff(args[1], args[2]) });
       }
     },
     window: {
+      tabGroups: { all: tabGroups, close: async (tabs, preserveFocus) => {
+        assert.equal(preserveFocus, true);
+        closedTabs.push(...tabs);
+        for (const group of tabGroups) group.tabs = group.tabs.filter(tab => !tabs.includes(tab));
+        return true;
+      } },
       registerFileDecorationProvider: provider => { decorations = provider; return disposable; },
       createTreeView: (id, options) => { tree = options.treeDataProvider; return { ...disposable,
         reveal: async (node, options) => { assert.equal(node.kind, 'branch'); assert.equal(options.expand, true); } }; },
@@ -270,7 +279,19 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     const oldDiffCount = diffs.length;
     await run('openWorktreeDiff', fileNode); // Reject stale snapshot/file after refresh.
     assert.equal(diffs.length, oldDiffCount);
+    const sessionTab = tabGroups[0].tabs.at(-1);
+    // A moved/duplicated diff in another editor group must also close.
+    const secondGroupTab = { input: sessionTab.input };
+    tabGroups[1].tabs.push(secondGroupTab);
+    const normalTab = { input: { uri: mock.Uri.file(path.join(cwd, 'new-main.txt')) } };
+    tabGroups[1].tabs.push(normalTab);
+    const unrelatedDiff = tabGroups[0].tabs[0]; // Compare with Current tab.
     await run('closeWorktree');
+    assert.ok(closedTabs.includes(sessionTab));
+    assert.ok(closedTabs.includes(secondGroupTab));
+    assert.ok(!closedTabs.includes(normalTab));
+    assert.ok(!closedTabs.includes(unrelatedDiff));
+    assert.ok(tabGroups[1].tabs.includes(normalTab));
     assert.deepEqual(await tree.getChildren(worktreeBranch), []);
     for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);

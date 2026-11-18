@@ -1,6 +1,7 @@
 'use strict';
 const vscode = require('vscode');
 const path = require('node:path');
+const { randomUUID } = require('node:crypto');
 const { GitOperations } = require('./git-operations');
 const { openComparison } = require('./comparison-view');
 
@@ -222,6 +223,18 @@ function activate(context) {
   const branchTree = new BranchTreeProvider(git);
   let lastComparison = null;
   let worktreeRequest = 0;
+  const worktreeSessions = new Map();
+
+  async function closeSessionTabs(session) {
+    const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs).filter(tab => {
+      if (!(tab.input instanceof vscode.TabInputTextDiff) || tab.input.original.scheme !== snapshotScheme) return false;
+      try { return JSON.parse(tab.input.original.query).worktreeSession === session.id; }
+      catch { return false; }
+    });
+    // Target exact comparison tabs across groups. VS Code keeps its normal unsaved-change prompts.
+    if (tabs.length) return vscode.window.tabGroups.close(tabs, true);
+    return true;
+  }
 
   async function showWorkingTree(node) {
     const request = ++worktreeRequest;
@@ -232,6 +245,8 @@ function activate(context) {
     const result = await git.worktreeCompare(qualifiedRef(node), dirtyDocuments);
     if (request !== worktreeRequest) return;
     result.ref = node.ref;
+    const key = qualifiedRef(node);
+    if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });
     branchTree.setWorkingTree(node, result);
     await branchView.reveal(node, { expand: true, select: true, focus: false });
   }
@@ -251,21 +266,24 @@ function activate(context) {
     }
   };
 
-  function snapshotUri(hash, filePath) {
+  function snapshotUri(hash, filePath, session) {
     return vscode.Uri.from({
       scheme: snapshotScheme,
       path: '/' + (filePath || 'empty'),
-      query: JSON.stringify({ hash, file: filePath })
+      query: JSON.stringify({ hash, file: filePath, ...(session ? { worktreeSession: session.id } : {}) })
     });
   }
 
-  async function openDiff(file) {
+  async function openDiff(file, session) {
+    if (session?.closed) return;
     const title = `${path.basename(file.newPath || file.oldPath)} (${file.ref} ↔ ${file.rightLabel || 'HEAD'})`;
     const right = file.worktree && file.newPath
-      ? vscode.Uri.file(git.worktreePath(file.newPath)) : snapshotUri(file.right, file.newPath);
+      ? vscode.Uri.file(git.worktreePath(file.newPath)) : snapshotUri(file.right, file.newPath, session);
     await vscode.commands.executeCommand('vscode.diff',
-      snapshotUri(file.left, file.oldPath), right, title,
+      snapshotUri(file.left, file.oldPath, session), right, title,
       { preview: false, viewColumn: vscode.ViewColumn.Active });
+    // Closing while vscode.diff was pending must not leave a late-opening tab behind.
+    if (session?.closed) await closeSessionTabs(session);
   }
 
   async function createBranch(node, checkout) {
@@ -372,10 +390,18 @@ function activate(context) {
       try { await showWorkingTree(branchTree.workingTree.node); }
       catch (err) { vscode.window.showErrorMessage(`Working tree comparison failed: ${err.message}`); }
     }),
-    vscode.commands.registerCommand('git-branch.closeWorktree', node => {
-      if (node && (!isBranchNode(node) || qualifiedRef(node) !== branchTree.workingTree?.key)) return;
+    vscode.commands.registerCommand('git-branch.closeWorktree', async node => {
+      const active = branchTree.workingTree;
+      if (node && (!isBranchNode(node) || qualifiedRef(node) !== active?.key)) return;
       ++worktreeRequest;
       branchTree.clearWorkingTree();
+      const session = active && worktreeSessions.get(active.key);
+      if (!session) return;
+      session.closed = true;
+      worktreeSessions.delete(active.key);
+      try {
+        if (!await closeSessionTabs(session)) vscode.window.showInformationMessage('Some comparison tabs remain open because closing was cancelled.');
+      } catch (err) { vscode.window.showErrorMessage(`Close comparison tabs failed: ${err.message}`); }
     }),
     vscode.commands.registerCommand('git-branch.openWorktreeDiff', async element => {
       const active = branchTree.workingTree;
@@ -383,7 +409,7 @@ function activate(context) {
       if (element?.kind !== 'worktree-file' || element.result !== active?.result || !active.result.files.includes(element.file)) return;
       try {
         await openDiff({ ...element.file, left: active.result.left, right: null,
-          ref: active.result.ref, rightLabel: 'Working Tree', worktree: true });
+            ref: active.result.ref, rightLabel: 'Working Tree', worktree: true }, worktreeSessions.get(active.key));
       } catch (err) { vscode.window.showErrorMessage(`Open diff failed: ${err.message}`); }
     }),
 
