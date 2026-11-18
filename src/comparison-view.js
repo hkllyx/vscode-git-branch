@@ -196,6 +196,7 @@ function comparisonClient(data) {
 function openComparison(vscode, context, git, result, openDiff, onActive, onClose) {
   const panel = vscode.window.createWebviewPanel('git-branch.compare', `Compare: ${result.ref} ↔ ${result.currentLabel}`,
     vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [], retainContextWhenHidden: true });
+  panel.iconPath = new vscode.ThemeIcon('git-compare');
   const cache = new Map();
   const loading = new Set();
   let disposed = false;
@@ -249,6 +250,7 @@ function openComparison(vscode, context, git, result, openDiff, onActive, onClos
 function openWorkingTree(vscode, context, result, reload, openDiff) {
   const panel = vscode.window.createWebviewPanel('git-branch.worktree', `Working Tree Diff: ${result.ref}`,
     vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [], retainContextWhenHidden: true });
+  panel.iconPath = new vscode.ThemeIcon('git-compare');
   let disposed = false, refreshing = false, generation = 0;
   result = { ...result, generation };
   const listener = panel.webview.onDidReceiveMessage(async message => {

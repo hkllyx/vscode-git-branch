@@ -258,16 +258,16 @@ test('manifest: commands, views, menus are wired', async () => {
   const createMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.create');
   const menuPattern = new RegExp(createMenu.when.split(' =~ /')[1].slice(0, -1));
   for (const value of ['gb-local', 'gb-current', 'gb-remote', 'gb-tag']) assert.ok(menuPattern.test(value));
-  for (const value of ['gb-category', 'gb-remote-group']) assert.ok(!menuPattern.test(value));
+  for (const value of ['gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!menuPattern.test(value));
   const compareMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.compare');
   const comparePattern = new RegExp(compareMenu.when.split(' =~ /')[1].slice(0, -1));
   for (const value of ['gb-local', 'gb-remote']) assert.ok(comparePattern.test(value));
-  for (const value of ['gb-current', 'gb-tag', 'gb-category', 'gb-remote-group']) assert.ok(!comparePattern.test(value));
+  for (const value of ['gb-current', 'gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!comparePattern.test(value));
   assert.ok(cmds.includes('git-branch.worktree'));
   const worktreeMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.worktree');
   const worktreePattern = new RegExp(worktreeMenu.when.split(' =~ /')[1].slice(0, -1));
   for (const value of ['gb-local', 'gb-current', 'gb-remote']) assert.ok(worktreePattern.test(value));
-  for (const value of ['gb-tag', 'gb-category', 'gb-remote-group']) assert.ok(!worktreePattern.test(value));
+  for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!worktreePattern.test(value));
 
   // No HEAD node in tree (star icon highlights current)
   const bundle = await fs.readFile(path.join(__dirname, '../src/extension.js'), 'utf8');

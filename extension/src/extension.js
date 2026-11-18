@@ -185,9 +185,12 @@ class BranchTreeProvider {
       item.contextValue = 'gb-local';
     }
     if (showingWorktree) {
-      item.contextValue += '-worktree';
       const count = showingWorktree.result.files.length;
-      item.description = `Working Tree Diff · ${count} ${count === 1 ? 'file' : 'files'}`;
+      // Comparison session, not a branch: compare-style label/icon and no branch context menu.
+      item.label = `${item.label} ↔ Working Tree`;
+      item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
+      item.iconPath = new vscode.ThemeIcon('git-compare');
+      item.contextValue = 'gb-diff-session';
       item.tooltip += `\nWorking Tree Diff: ${count} changed ${count === 1 ? 'file' : 'files'} (selected branch ↔ working tree)`;
     }
     return item;

@@ -204,8 +204,9 @@ test('working tree panel refreshes only host data, rejects invalid indexes, and 
   const disposable = { dispose() {} };
   const panel = { webview: { onDidReceiveMessage: fn => { receive = fn; return disposable; }, postMessage: async m => sent.push(m) },
     onDidDispose: fn => { close = fn; return disposable; } };
-  openWorkingTree({ window: { createWebviewPanel: () => panel }, ViewColumn: { Active: -1 } },
+  openWorkingTree({ window: { createWebviewPanel: () => panel }, ViewColumn: { Active: -1 }, ThemeIcon: class { constructor(id) { this.id = id; } } },
     { subscriptions: [] }, result, async () => next, async file => diffs.push(file));
+  assert.equal(panel.iconPath.id, 'git-compare');
   await receive({ type: 'diff', scope: 'worktree', index: 0, generation: 0, newPath: '../outside.txt' });
   assert.equal(diffs[0].newPath, 'a.txt'); assert.equal(diffs[0].worktree, true);
   await receive({ type: 'diff', scope: 'worktree', index: -1, generation: 0 }); assert.equal(diffs.length, 1);
@@ -229,8 +230,9 @@ test('panel pagination accepts only valid messages and restores active compariso
     dispose: () => { if (!disposed) { disposed = true; closed(); } }
   };
   const git = { uniqueCommits: async (...args) => { calls.push(args); return { commits: [{ hash: extra }], total: 2 }; } };
-  openComparison({ window: { createWebviewPanel: () => panel }, ViewColumn: { Active: -1 } },
+  openComparison({ window: { createWebviewPanel: () => panel }, ViewColumn: { Active: -1 }, ThemeIcon: class { constructor(id) { this.id = id; } } },
     { subscriptions: [] }, git, result, () => assert.fail('invalid diff'), r => { active = r; }, () => { active = null; });
+  assert.equal(panel.iconPath.id, 'git-compare');
   await receive({ type: 'more', side: '__proto__' }); assert.equal(calls.length, 0);
   await receive({ type: 'more', side: 'selected' });
   assert.deepEqual(calls[0], [left, right, 1]); assert.equal(result.selected.commits.length, 2);

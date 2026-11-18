@@ -39,7 +39,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   const mock = {
     EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
     TreeItem: class { constructor(label) { this.label = label; } },
-    TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 }, ThemeIcon: class {},
+    TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 }, ThemeIcon: class { constructor(id) { this.id = id; } },
     ThemeColor: class { constructor(id) { this.id = id; } },
     Uri: { from: value => ({ query: '', ...value }), file: fsPath => ({ scheme: 'file', fsPath }) },
     ViewColumn: { Active: -1, Beside: -2 },
@@ -253,8 +253,10 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     worktreeBranch = (await diffTree.getChildren())[0];
     assert.equal(await tree.getParent(worktreeBranch), diffGroup);
     let children = await tree.getChildren(worktreeBranch);
-    assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-current-worktree');
-    assert.equal(tree.getTreeItem(worktreeBranch).description, 'Working Tree Diff · 1 file');
+    assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session');
+    assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
+    assert.equal(tree.getTreeItem(worktreeBranch).iconPath.id, 'git-compare');
+    assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
     assert.match(tree.getTreeItem(worktreeBranch).tooltip, /Working Tree Diff: 1 changed file/);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
     const menus = require('../package.json').contributes.menus['view/item/context'];
@@ -262,11 +264,12 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       const menu = menus.find(m => m.command === `git-branch.${id}`);
       assert.match(menu.group, /^inline@/);
       assert.match(menu.when, /view == git-branch.branches/);
+      assert.ok(menu.when.includes('viewItem == gb-diff-session'));
+    }
+    // Comparison sessions must not match any branch action menu.
+    for (const menu of menus.filter(m => m.command && m.when.includes(' =~ /'))) {
       const pattern = new RegExp(menu.when.split(' =~ /')[1].slice(0, -1));
-      for (const kind of ['local', 'current', 'remote']) {
-        assert.ok(pattern.test(`gb-${kind}-worktree`));
-        assert.ok(!pattern.test(`gb-${kind}`));
-      }
+      assert.ok(!pattern.test('gb-diff-session'));
     }
     const fileNode = children.find(n => n.kind === 'worktree-file');
     const fileItem = tree.getTreeItem(fileNode);
@@ -301,10 +304,12 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     const sessions = await diffTree.getChildren();
     selected = sessions.find(n => n.ref === selected.ref && !n.remote);
     remote = sessions.find(n => n.ref === remote.ref && n.remote);
-    assert.equal(tree.getTreeItem(remote).label, remote.ref);
+    assert.equal(tree.getTreeItem(remote).label, `${remote.ref} ↔ Working Tree`);
     for (const branch of [worktreeBranch, selected, remote]) {
-      assert.match(tree.getTreeItem(branch).contextValue, /-worktree$/);
-      assert.match(tree.getTreeItem(branch).description, /Working Tree Diff/);
+      assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session');
+      assert.equal(tree.getTreeItem(branch).iconPath.id, 'git-compare');
+      assert.match(tree.getTreeItem(branch).label, / ↔ Working Tree$/);
+      assert.match(tree.getTreeItem(branch).description, /^\d+ files?$/);
     }
     const selectedFile = (await tree.getChildren(selected)).find(n => n.kind === 'worktree-file');
     const remoteFile = (await tree.getChildren(remote)).find(n => n.kind === 'worktree-file');
