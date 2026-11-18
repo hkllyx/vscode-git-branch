@@ -91,6 +91,11 @@ test('comparison UI: CSP, escaped repository data, lists, filtering, details, di
   };
   const html = comparisonHtml(data);
   assert.match(html, /default-src 'none'/); assert.match(html, /script-src 'nonce-/);
+  const compactRows = html.match(/\.commit,\.file\{([^}]+)\}/)[1];
+  assert.match(compactRows, /padding:2px 12px/);
+  assert.match(compactRows, /line-height:1\.4(?:;|$)/);
+  assert.ok(!/(?:^|;)(?:height|min-height|max-height|font-size):/.test(compactRows));
+  assert.match(html, /\.file span:last-child\{[^}]*text-overflow:ellipsis;white-space:nowrap/);
   assert.ok(!html.includes('</script><script>evil()'));
   assert.ok(!html.includes('<img onerror'));
   const { nodes, messages, receive } = domHarness(data);
@@ -105,6 +110,7 @@ test('comparison UI: CSP, escaped repository data, lists, filtering, details, di
     hash, author: 'Alice', email: 'a@example.invalid', date: '2026-11-18', parents: [right], message: 'body', files: data.files
   } } });
   const inspector = nodes.histories.children[0].children[1];
+  assert.equal(inspector.children[1].children[0].title, 'a.txt\nOpen side-by-side diff');
   inspector.children[1].children[0].onclick();
   assert.equal(messages.at(-1).scope, 'commit'); assert.equal(messages.at(-1).index, 0);
   assert.match(inspector.children[2].textContent, /body/);
