@@ -98,6 +98,29 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(inputOptions.at(-1).prompt, 'New branch name (based on main)');
     assert.equal(await git.current(), 'main');
     input = undefined; await run('create', selected); // Input cancellation.
+    await run('createAndCheckout', selected);
+    assert.equal(await git.current(), 'main');
+    for (const [suffix, node, hash] of [
+      ['selected', selected, feature], ['remote', remote, feature], ['tag', tag, base],
+      ['head', undefined, base], ['group', roots[0], base]
+    ]) {
+      input = `checkout-${suffix}`;
+      await run('createAndCheckout', node);
+      assert.equal(await git.current(), input);
+      assert.equal(await git.resolve('HEAD'), hash);
+      await run('checkout', main);
+    }
+    // A rejected checkout must preserve the created branch and report the partial success.
+    await fs.writeFile(path.join(cwd, 'file.txt'), 'uncommitted\n');
+    input = 'checkout-blocked'; await run('createAndCheckout', selected);
+    assert.equal(await git.current(), 'main');
+    assert.equal(await git.resolve('refs/heads/checkout-blocked'), feature);
+    assert.match(messages.pop(), /was created, but checkout failed:/);
+    await git.exec(['restore', '--', 'file.txt']);
+    // Duplicate creation must not switch to an existing branch.
+    input = 'feature/test'; await run('createAndCheckout', selected);
+    assert.equal(await git.current(), 'main');
+    assert.match(messages.pop(), /Create branch failed:/);
     await run('checkout', selected); assert.equal(await git.current(), 'feature/test');
     await run('checkout', main); assert.equal(await git.current(), 'main');
     await run('checkout', remote); assert.equal(await git.current(), 'remote/test');

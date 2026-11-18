@@ -217,6 +217,40 @@ function activate(context) {
     });
   }
 
+  async function createBranch(node, checkout) {
+    try {
+      await configureGitExecutable(git);
+      // Group/title arguments do not specify a branch; default to current HEAD.
+      const specified = isBranchNode(node) || (node?.kind === 'tag' && !!node.ref);
+      const current = specified ? undefined : await git.current();
+      const startPoint = specified ? qualifiedRef(node) : 'HEAD';
+      const startLabel = specified ? node.ref : (current || 'HEAD (detached)');
+      const name = await vscode.window.showInputBox({
+        title: `${checkout ? 'Create and Checkout' : 'Create Branch'} (from ${startLabel})`,
+        prompt: `New branch name (based on ${startLabel})`,
+        ignoreFocusOut: true,
+        validateInput: v => git.validateName(v)
+      });
+      if (!name) return;
+      await git.create(name, startPoint);
+      branchTree.refresh();
+      if (!checkout) {
+        vscode.window.showInformationMessage(`Branch created: ${name} (from ${startLabel})`);
+        return;
+      }
+      try {
+        await git.checkout({ ref: name, remote: false });
+        branchTree.refresh();
+        vscode.window.showInformationMessage(`Branch created and checked out: ${name} (from ${startLabel})`);
+      } catch (err) {
+        branchTree.refresh();
+        vscode.window.showErrorMessage(`Branch '${name}' was created, but checkout failed: ${err.message}`);
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Create branch failed: ${err.message}`);
+    }
+  }
+
   // ── Commands ──
 
   context.subscriptions.push(
@@ -228,28 +262,8 @@ function activate(context) {
       branchTree.refresh();
     }),
 
-    vscode.commands.registerCommand('git-branch.create', async node => {
-      try {
-        await configureGitExecutable(git);
-        // A category/view argument is not a selected branch. Fall back to current HEAD.
-        const specified = isBranchNode(node) || (node?.kind === 'tag' && !!node.ref);
-        const current = specified ? undefined : await git.current();
-        const startPoint = specified ? qualifiedRef(node) : 'HEAD';
-        const startLabel = specified ? node.ref : (current || 'HEAD (detached)');
-        const name = await vscode.window.showInputBox({
-          title: `Create Branch (from ${startLabel})`,
-          prompt: `New branch name (based on ${startLabel})`,
-          ignoreFocusOut: true,
-          validateInput: v => git.validateName(v)
-        });
-        if (!name) return;
-        await git.create(name, startPoint);
-        branchTree.refresh();
-        vscode.window.showInformationMessage(`Branch created: ${name} (from ${startLabel})`);
-      } catch (err) {
-        vscode.window.showErrorMessage(`Create branch failed: ${err.message}`);
-      }
-    }),
+    vscode.commands.registerCommand('git-branch.create', node => createBranch(node, false)),
+    vscode.commands.registerCommand('git-branch.createAndCheckout', node => createBranch(node, true)),
 
     vscode.commands.registerCommand('git-branch.checkout', async node => {
       if (!isBranchNode(node)) {

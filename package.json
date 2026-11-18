@@ -23,6 +23,7 @@
     "commands": [
       { "command": "git-branch.refresh", "title": "Refresh Branches", "category": "Git Branch", "icon": "$(refresh)" },
       { "command": "git-branch.create", "title": "Create Branch...", "category": "Git Branch", "icon": "$(add)" },
+      { "command": "git-branch.createAndCheckout", "title": "Create and Checkout...", "category": "Git Branch" },
       { "command": "git-branch.checkout", "title": "Checkout", "category": "Git Branch" },
       { "command": "git-branch.compare", "title": "Compare with Current", "category": "Git Branch" },
       { "command": "git-branch.rename", "title": "Rename Branch...", "category": "Git Branch" },
@@ -39,11 +40,13 @@
     "menus": {
       "view/title": [
         { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" },
-        { "command": "git-branch.create", "when": "view == git-branch.branches", "group": "navigation@2" }
+        { "command": "git-branch.create", "when": "view == git-branch.branches", "group": "navigation@2" },
+        { "command": "git-branch.createAndCheckout", "when": "view == git-branch.branches", "group": "1_create@1" }
       ],
       "view/item/context": [
         { "command": "git-branch.checkout", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "1_actions@1" },
         { "command": "git-branch.create", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)$/", "group": "1_actions@2" },
+        { "command": "git-branch.createAndCheckout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)$/", "group": "1_actions@3" },
         { "command": "git-branch.merge", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@1" },
         { "command": "git-branch.rebase", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "2_merge@2" },
         { "command": "git-branch.compare", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)$/", "group": "3_compare@1" },
