@@ -54,7 +54,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     commands: {
       registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
       executeCommand: async (...args) => {
-        if (args[0] === 'git-branch.worktreeDiff.focus') { panelFocuses++; return; }
+        if (args[0] === 'git-branch.panelWorktreeDiff.focus') { panelFocuses++; return; }
         assert.equal(args[0], 'vscode.diff');
         assert.equal(args[4].preview, false); // Pin each file diff; do not replace preview tabs.
         assert.equal(args[4].viewColumn, -1); // Same editor group, not a new split group.
@@ -72,9 +72,9 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       registerFileDecorationProvider: provider => { decorations = provider; return disposable; },
       createTreeView: (id, options) => {
         if (id === 'git-branch.branches') tree = options.treeDataProvider;
-        else { assert.equal(id, 'git-branch.worktreeDiff'); diffTree = options.treeDataProvider; }
+        else { assert.equal(id, 'git-branch.panelWorktreeDiff'); diffTree = options.treeDataProvider; }
         return { ...disposable, reveal: async (node, options) => {
-          assert.equal(id, 'git-branch.worktreeDiff');
+          assert.equal(id, 'git-branch.panelWorktreeDiff');
           assert.equal(node.kind, 'branch'); assert.equal(options.expand, true);
         } };
       },
@@ -255,7 +255,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     for (const id of ['refreshWorktree', 'closeWorktree']) {
       const menu = menus.find(m => m.command === `git-branch.${id}`);
       assert.match(menu.group, /^inline@/);
-      assert.match(menu.when, /view == git-branch.worktreeDiff/);
+      assert.match(menu.when, /view == git-branch.panelWorktreeDiff/);
       const pattern = new RegExp(menu.when.split(' =~ /')[1].slice(0, -1));
       for (const kind of ['local', 'current', 'remote']) {
         assert.ok(pattern.test(`gb-${kind}-worktree`));

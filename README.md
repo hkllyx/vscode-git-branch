@@ -71,6 +71,8 @@ code --install-extension hkllyx.git-branch-1.0.0.vsix
 
 或在 VS Code 中：`Ctrl+Shift+P` → `Install from VSIX...`
 
+覆盖安装后执行 **Developer: Reload Window**。底部 Branch Diff 容器使用合法的无点号 ID，并更新视图 ID，避免旧版容器注册失败后回退到 Explorer 的位置被沿用；无需重置整个工作区布局。此前打开的比较需要重新执行。
+
 ## 要求
 
 - VS Code 1.85+

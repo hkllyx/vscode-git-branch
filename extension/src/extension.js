@@ -265,7 +265,7 @@ function activate(context) {
     result.ref = node.ref;
     if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });
     branchTree.setWorkingTree(node, result);
-    await vscode.commands.executeCommand('git-branch.worktreeDiff.focus');
+    await vscode.commands.executeCommand('git-branch.panelWorktreeDiff.focus');
     await diffView.reveal(node, { expand: true, select: true, focus: false });
   }
 
@@ -281,7 +281,8 @@ function activate(context) {
     getChildren: element => branchTree.getChildren(element, true),
     getParent: element => isBranchNode(element) ? undefined : branchTree.getParent(element)
   };
-  const diffView = vscode.window.createTreeView('git-branch.worktreeDiff', {
+  // New view ID avoids inheriting the old invalid container's Explorer fallback layout.
+  const diffView = vscode.window.createTreeView('git-branch.panelWorktreeDiff', {
     treeDataProvider: diffTree,
     showCollapseAll: true
   });
