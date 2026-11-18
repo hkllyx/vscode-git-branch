@@ -260,7 +260,7 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.rename', async node => {
-      if (!node || !['gb-local', 'gb-current'].includes(node.contextValue)) {
+      if (node?.kind !== 'branch' || node.remote !== false || !node.ref) {
         vscode.window.showInformationMessage('Right-click a local branch to rename it.');
         return;
       }
@@ -325,20 +325,25 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.delete', async node => {
-      if (!node || node.contextValue !== 'gb-local') {
+      if (node?.kind !== 'branch' || node.remote !== false || !node.ref) {
         vscode.window.showInformationMessage('Only local branches can be deleted here.');
         return;
       }
       try {
         await configureGitExecutable(git);
+        if (await git.current() === node.ref) {
+          vscode.window.showInformationMessage('Cannot delete the current branch. Check out another branch first.');
+          return;
+        }
+        await git.exec(['show-ref', '--verify', `refs/heads/${node.ref}`]);
         const confirmation = await vscode.window.showWarningMessage(
-          `Delete local branch '${node.label}'? (safe delete, refuses if not merged)`,
+          `Delete local branch '${node.ref}'? (safe delete, refuses if not merged)`,
           { modal: true }, 'Delete'
         );
         if (confirmation !== 'Delete') return;
-        await git.remove(node.label);
+        await git.remove(node.ref);
         branchTree.refresh();
-        vscode.window.showInformationMessage(`Branch deleted: ${node.label}`);
+        vscode.window.showInformationMessage(`Branch deleted: ${node.ref}`);
       } catch (err) {
         vscode.window.showErrorMessage(`Delete failed: ${err.message}`);
       }
