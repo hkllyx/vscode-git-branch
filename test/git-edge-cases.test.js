@@ -34,8 +34,9 @@ test('conflicts and dirty changes are preserved; current branch and detached HEA
   await fs.writeFile(path.join(cwd, 'conflict.txt'), 'main\n');
   await git.exec(['add', '.']); await git.exec(['commit', '-m', 'main']);
   const main = await git.resolve('HEAD');
-  await assert.rejects(git.remove('main'), /cannot delete branch/i);
-  await assert.rejects(git.remove('other'), /not fully merged/);
+  await assert.rejects(git.remove('main'), error => /cannot delete branch/i.test(error.message) && error.unmergedBranch === false);
+  await assert.rejects(git.remove('main', true), error => /cannot delete branch/i.test(error.message) && error.unmergedBranch === false);
+  await assert.rejects(git.remove('other'), error => /not fully merged/.test(error.message) && error.unmergedBranch === true);
   await assert.rejects(git.integrate('merge', 'refs/heads/other'), /conflict/i);
   assert.match(await fs.readFile(path.join(cwd, 'conflict.txt'), 'utf8'), /<<<<<<< HEAD/);
   await assert.rejects(git.integrate('merge', 'refs/heads/other'), /already in progress/);
@@ -90,6 +91,7 @@ test('Git worktrees and packed refs retain branch identity and safe operation', 
   const linked = new GitOperations(worktree);
   assert.equal(await linked.current(), 'linked');
   await assert.rejects(linked.checkout({ ref: 'main' }), /already used by worktree|already checked out/i);
+  await assert.rejects(linked.remove('main', true), error => /cannot delete branch/i.test(error.message) && error.unmergedBranch === false);
   await git.exec(['pack-refs', '--all']);
   await linked.create('from-linked', 'refs/heads/main');
   assert.equal(await linked.resolve('refs/heads/from-linked'), await git.resolve('HEAD'));

@@ -111,9 +111,15 @@ class GitOperations {
     await this.exec(['branch', '-m', '--', oldName, newName]);
   }
 
-  /** Delete a local branch (safe, refuses if not merged). */
-  async remove(name) {
-    await this.exec(['branch', '-d', '--', name]);
+  /** Safe deletion by default; force must be explicitly confirmed by the caller. */
+  async remove(name, force = false) {
+    try {
+      await this.exec(['branch', force === true ? '-D' : '-d', '--', name]);
+    } catch (error) {
+      // Only an unmerged refusal may offer Force Delete, never arbitrary Git failures.
+      error.unmergedBranch = force !== true && /not fully merged/i.test(error.stderr?.toString() || error.message);
+      throw error;
+    }
   }
 
   /** Merge or rebase ref into current. */

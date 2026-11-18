@@ -22,7 +22,7 @@
 | Rebase Current onto... | 将当前分支变基到选中分支                 |
 | Compare with Current   | 比较选中分支与当前 HEAD 的提交快照差异   |
 | Rename Branch...       | 重命名本地分支（含校验和二次确认）       |
-| Delete Branch          | 安全删除本地分支（未合并时拒绝）         |
+| Delete Branch          | 先安全删除；未合并时可确认 Force Delete |
 
 ### Compare with Current
 
@@ -60,7 +60,8 @@ code --install-extension hkllyx.git-branch-1.0.0.vsix
 
 - 所有 Git 命令通过 `execFile` 执行，无 shell 拼接
 - 不在不可信工作区运行
-- 删除使用安全模式（`-d`），未合并分支拒绝删除
+- 删除先使用安全模式（`-d`）；只有未合并拒绝才提供风险弹窗，明确确认 **Force Delete** 后执行 `-D`，取消则保留分支
+- 当前分支、其他 worktree 中正在使用的分支和远程分支不会被此流程强制删除
 - 重命名不强制覆盖、不操作远程
 
 ## 局限
@@ -69,7 +70,7 @@ code --install-extension hkllyx.git-branch-1.0.0.vsix
 - 二进制文件显示提示文本，不支持图片 diff
 - 文本按 UTF-8 显示
 - 已存在本地跟踪分支时，远程 Checkout 会复用；多个本地分支跟踪同一远程时要求在 Local 中自行选择
-- 不提供远程分支删除、强制删除、自动推送、自动 stash 或冲突自动解决
+- 不提供远程分支删除、自动推送、自动 stash 或冲突自动解决
 - Merge／Rebase 要求本地分支、干净工作区且没有正在进行的合并／变基；冲突时保留 Git 状态，需手动解决并继续或中止
 - Git 命令 30 秒超时，单次输出上限 32 MiB；Git hooks 或超大仓库可能超出限制
 

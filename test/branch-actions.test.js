@@ -18,12 +18,18 @@ test('delete and rename accept real tree data nodes without contextValue', async
   await git.create('to-delete');
   await git.create('to-rename');
   await git.create('cancel-delete');
+  await git.create('force-delete');
+  await git.checkout({ ref: 'force-delete' });
+  await git.exec(['commit', '--allow-empty', '-m', 'unmerged commit']);
+  await git.create('cancel-force');
+  await git.checkout({ ref: 'main' });
   await git.exec(['tag', 'v1']);
   await git.exec(['update-ref', 'refs/remotes/origin/remote', await git.resolve('HEAD')]);
   const commands = new Map();
-  const messages = [];
+  const messages = [], dialogs = [];
   let tree;
   let confirmed = 'Delete';
+  let queuedConfirmations = [];
   let newName;
   const disposable = { dispose() {} };
   const mock = {
@@ -43,7 +49,10 @@ test('delete and rename accept real tree data nodes without contextValue', async
       createTreeView: (id, options) => { tree = options.treeDataProvider; return disposable; },
       showInformationMessage: message => messages.push(message),
       showErrorMessage: message => messages.push(message),
-      showWarningMessage: async () => confirmed,
+      showWarningMessage: async (message, options, ...actions) => {
+        dialogs.push({ message, options, actions });
+        return queuedConfirmations.length ? queuedConfirmations.shift() : confirmed;
+      },
       showInputBox: async () => newName
     }
   };
@@ -58,6 +67,16 @@ test('delete and rename accept real tree data nodes without contextValue', async
     assert.equal(tree.getTreeItem(local('to-delete')).contextValue, 'gb-local');
     await commands.get('git-branch.delete')(local('to-delete'));
     await assert.rejects(git.resolve('refs/heads/to-delete'));
+    assert.ok(!dialogs.some(dialog => dialog.actions.includes('Force Delete')));
+    queuedConfirmations = ['Delete', undefined];
+    await commands.get('git-branch.delete')(local('cancel-force'));
+    assert.ok(await git.resolve('refs/heads/cancel-force'));
+    assert.equal(dialogs.at(-1).actions[0], 'Force Delete');
+    assert.equal(dialogs.at(-1).options.modal, true);
+    queuedConfirmations = ['Delete', 'Force Delete'];
+    await commands.get('git-branch.delete')(local('force-delete'));
+    await assert.rejects(git.resolve('refs/heads/force-delete'));
+    assert.equal(await git.current(), 'main');
     await commands.get('git-branch.delete')(local('main'));
     assert.equal(await git.current(), 'main');
     assert.ok(messages.some(message => message.includes('Cannot delete the current branch')));

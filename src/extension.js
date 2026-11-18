@@ -374,13 +374,28 @@ function activate(context) {
           vscode.window.showInformationMessage('Cannot delete the current branch. Check out another branch first.');
           return;
         }
-        await git.exec(['show-ref', '--verify', `refs/heads/${node.ref}`]);
+        const originalHash = await git.resolve(`refs/heads/${node.ref}`);
         const confirmation = await vscode.window.showWarningMessage(
-          `Delete local branch '${node.ref}'? (safe delete, refuses if not merged)`,
-          { modal: true }, 'Delete'
+          `Delete local branch '${node.ref}'?`,
+          { modal: true, detail: 'Safe deletion is attempted first. Unmerged branches require a separate Force Delete confirmation.' }, 'Delete'
         );
         if (confirmation !== 'Delete') return;
-        await git.remove(node.ref);
+        try {
+          await git.remove(node.ref);
+        } catch (error) {
+          if (!error.unmergedBranch) throw error;
+          const force = await vscode.window.showWarningMessage(
+            `Branch '${node.ref}' is not fully merged. Force delete it?`,
+            { modal: true, detail: 'Commits only reachable through this branch may become inaccessible. This removes the local branch only; remote branches are unchanged.' },
+            'Force Delete'
+          );
+          if (force !== 'Force Delete') return;
+          if (await git.resolve(`refs/heads/${node.ref}`) !== originalHash) {
+            throw new Error('Branch changed while confirmation was open. Retry deletion after reviewing it.');
+          }
+          // Git still refuses the current branch or a branch checked out in another worktree.
+          await git.remove(node.ref, true);
+        }
         branchTree.refresh();
         vscode.window.showInformationMessage(`Branch deleted: ${node.ref}`);
       } catch (err) {
