@@ -218,9 +218,14 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.equal(manifest.contributes.viewsContainers, undefined);
   assert.deepEqual(Object.keys(manifest.contributes.views), ['scm']);
   assert.equal(views.length, 1);
-  const sortMenu = manifest.contributes.menus['git-branch.diffViewSort'];
-  assert.equal(sortMenu.length, 5);
-  for (const item of sortMenu) assert.ok(cmds.includes(item.command));
+  assert.equal(manifest.contributes.submenus, undefined);
+  const moreMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.diffMore');
+  assert.match(moreMenu.group, /^inline@/);
+  assert.match(moreMenu.when, /viewItem == gb-diff-group/);
+  for (const id of ['diffList', 'diffTree', 'diffSortName', 'diffSortPath', 'diffSortStatus']) {
+    assert.ok(cmds.includes(`git-branch.${id}`));
+    assert.ok(!manifest.contributes.menus['view/item/context'].some(item => item.command === `git-branch.${id}`));
+  }
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
   assert.ok(!views.some(v => v.id === 'git-branch.comparison'));
   assert.ok(cmds.includes('git-branch.openDiff'));

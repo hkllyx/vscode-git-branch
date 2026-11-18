@@ -38,9 +38,9 @@
       { "command": "git-branch.diffTree", "title": "View as Tree", "category": "Git Branch" },
       { "command": "git-branch.diffSortName", "title": "Sort Changes by Name", "category": "Git Branch" },
       { "command": "git-branch.diffSortPath", "title": "Sort Changes by Path", "category": "Git Branch" },
-      { "command": "git-branch.diffSortStatus", "title": "Sort Changes by Status", "category": "Git Branch" }
+      { "command": "git-branch.diffSortStatus", "title": "Sort Changes by Status", "category": "Git Branch" },
+      { "command": "git-branch.diffMore", "title": "View & Sort", "category": "Git Branch", "icon": "$(ellipsis)" }
     ],
-    "submenus": [{ "id": "git-branch.diffViewSort", "label": "View & Sort" }],
     "views": {
       "scm": [
         { "id": "git-branch.branches", "name": "Branches" }
@@ -50,15 +50,8 @@
       "view/title": [
         { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" }
       ],
-      "git-branch.diffViewSort": [
-        { "command": "git-branch.diffList", "group": "1_view@1" },
-        { "command": "git-branch.diffTree", "group": "1_view@2" },
-        { "command": "git-branch.diffSortName", "group": "2_sort@1" },
-        { "command": "git-branch.diffSortPath", "group": "2_sort@2" },
-        { "command": "git-branch.diffSortStatus", "group": "2_sort@3" }
-      ],
       "view/item/context": [
-        { "submenu": "git-branch.diffViewSort", "when": "view == git-branch.branches && (viewItem == gb-diff-group || viewItem =~ /^gb-(local|current|remote)-worktree$/)", "group": "0_view@1" },
+        { "command": "git-branch.diffMore", "when": "view == git-branch.branches && viewItem == gb-diff-group", "group": "inline@1" },
         { "command": "git-branch.refreshWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@1" },
         { "command": "git-branch.closeWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@2" },
         { "command": "git-branch.checkout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|remote)(-worktree)?$/", "group": "1_actions@1" },

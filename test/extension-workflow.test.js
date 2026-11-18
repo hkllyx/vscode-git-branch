@@ -54,8 +54,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     commands: {
       registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
       executeCommand: async (...args) => {
-        if (args[0] === 'setContext') return;
         if (args[0] === 'git-branch.branches.focus') { panelFocuses++; return; }
+        if (commands.has(args[0])) return commands.get(args[0])(...args.slice(1));
         assert.equal(args[0], 'vscode.diff');
         assert.equal(args[4].preview, false); // Pin each file diff; do not replace preview tabs.
         assert.equal(args[4].viewColumn, -1); // Same editor group, not a new split group.
@@ -110,7 +110,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     for (const { command } of require('../package.json').contributes.commands) assert.ok(commands.has(command));
     assert.ok(patterns.some(p => p.pattern.includes('packed-refs')));
     let roots = await tree.getChildren();
-    assert.deepEqual(roots.map(r => r.label), ['Local', 'Remote', 'Tags', 'Diff']);
+    assert.deepEqual(roots.map(r => r.label), ['Local', 'Remote', 'Tags']); // Diff hidden until a comparison opens.
     assert.equal(roots[1].children[0].children.length, 1); // Hide symbolic origin/HEAD.
     const main = roots[0].children.find(n => n.ref === 'main');
     let selected = roots[0].children.find(n => n.ref === 'feature/test');
@@ -362,6 +362,16 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.deepEqual((await tree.getChildren(selected)).map(n => n.file.status), ['A', 'D', 'M', 'M']);
     await run('diffSortPath');
     assert.equal((await tree.getChildren(selected))[0].file.oldPath, 'lib/b.ts');
+    let quickItems;
+    const originalPick = mock.window.showQuickPick;
+    mock.window.showQuickPick = async items => { quickItems = items; return items.find(i => i.label?.includes('View as Tree')); };
+    await run('diffMore');
+    assert.equal(tree.diffLayout, 'tree');
+    assert.ok(quickItems.some(i => i.kind === -1)); // Separator between view and sort options.
+    assert.ok(quickItems.find(i => i.label.includes('Sort Changes by Path')).label.startsWith('$(check)'));
+    mock.window.showQuickPick = async items => items.find(i => i.label?.includes('View as Tree'));
+    await run('diffMore'); // Current choice is check-marked.
+    mock.window.showQuickPick = originalPick;
     await run('diffTree');
     const folders = await tree.getChildren(selected);
     assert.deepEqual(folders.map(n => n.label || n.file.newPath), ['lib', 'src', 'root.ts']);
@@ -373,6 +383,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal((await tree.getChildren(selected)).length, 4);
     assert.equal(tree.getTreeItem((await tree.getChildren(selected))[1]).description, '');
     tree.clearWorkingTree('refs/heads/' + selected.ref);
+    assert.ok(!(await tree.getChildren()).some(n => n.diffGroup)); // Diff group hides when no comparisons remain.
     for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }
