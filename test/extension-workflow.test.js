@@ -272,28 +272,59 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(diffs.at(-1)[2].scheme, 'file');
     assert.equal(diffs.at(-1)[2].fsPath, path.join(cwd, 'new-main.txt'));
     assert.equal(JSON.parse(diffs.at(-1)[1].query).hash, await git.resolve('HEAD'));
+    const sessionTab = tabGroups[0].tabs.at(-1);
+    // Multiple lists and requests coexist, including local/remote branches with equal tips.
+    await Promise.all([run('worktree', selected), run('worktree', remote)]);
+    for (const branch of [worktreeBranch, selected, remote]) {
+      assert.match(tree.getTreeItem(branch).contextValue, /-worktree$/);
+      assert.match(tree.getTreeItem(branch).description, /Working Tree Diff/);
+    }
+    const selectedFile = (await tree.getChildren(selected)).find(n => n.kind === 'worktree-file');
+    const remoteFile = (await tree.getChildren(remote)).find(n => n.kind === 'worktree-file');
+    assert.ok(selectedFile && remoteFile);
+    assert.equal(await tree.getParent(selectedFile), selected);
+    assert.equal(await tree.getParent(remoteFile), remote);
+    assert.notEqual(tree.getTreeItem(selectedFile).id, tree.getTreeItem(remoteFile).id);
+    await run('openWorktreeDiff', selectedFile);
+    const selectedTab = tabGroups[0].tabs.at(-1);
+    await run('openWorktreeDiff', remoteFile);
+    const remoteTab = tabGroups[0].tabs.at(-1);
+    assert.notEqual(JSON.parse(selectedTab.input.original.query).worktreeSession,
+      JSON.parse(remoteTab.input.original.query).worktreeSession);
+    assert.equal(closedTabs.length, 0);
+    await run('openWorktreeDiff', fileNode); // Original branch still clickable after other lists open.
+    assert.equal(JSON.parse(diffs.at(-1)[1].query).hash, await git.resolve('HEAD'));
     mock.workspace.textDocuments = [];
-    await run('refreshWorktree');
+    await run('refreshWorktree', worktreeBranch);
     children = await tree.getChildren(worktreeBranch);
     assert.equal(children.filter(n => n.kind === 'worktree-file').length, 0);
     assert.ok(children.some(n => n.kind === 'worktree-empty'));
     const oldDiffCount = diffs.length;
     await run('openWorktreeDiff', fileNode); // Reject stale snapshot/file after refresh.
     assert.equal(diffs.length, oldDiffCount);
-    const sessionTab = tabGroups[0].tabs.at(-1);
     // A moved/duplicated diff in another editor group must also close.
     const secondGroupTab = { input: sessionTab.input };
     tabGroups[1].tabs.push(secondGroupTab);
     const normalTab = { input: { uri: mock.Uri.file(path.join(cwd, 'new-main.txt')) } };
     tabGroups[1].tabs.push(normalTab);
     const unrelatedDiff = tabGroups[0].tabs[0]; // Compare with Current tab.
-    await run('closeWorktree');
+    await run('closeWorktree', worktreeBranch);
     assert.ok(closedTabs.includes(sessionTab));
     assert.ok(closedTabs.includes(secondGroupTab));
     assert.ok(!closedTabs.includes(normalTab));
     assert.ok(!closedTabs.includes(unrelatedDiff));
     assert.ok(tabGroups[1].tabs.includes(normalTab));
     assert.deepEqual(await tree.getChildren(worktreeBranch), []);
+    assert.ok(!closedTabs.includes(selectedTab));
+    assert.ok(!closedTabs.includes(remoteTab));
+    assert.ok((await tree.getChildren(remote)).some(n => n.file === remoteFile.file));
+    await run('closeWorktree', remote);
+    assert.ok(closedTabs.includes(remoteTab));
+    assert.ok(!closedTabs.includes(selectedTab));
+    await run('openWorktreeDiff', selectedFile);
+    assert.equal(JSON.parse(diffs.at(-1)[1].query).hash, feature);
+    await run('closeWorktree', selected);
+    assert.ok(closedTabs.includes(selectedTab));
     for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }

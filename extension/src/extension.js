@@ -58,6 +58,8 @@ const worktreeDecorations = {
 class BranchTreeProvider {
   constructor(git) {
     this.git = git;
+    this.workingTrees = new Map();
+    this.lastWorkingTreeKey = null;
     this._onDidChange = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChange.event;
   }
@@ -66,16 +68,28 @@ class BranchTreeProvider {
   dispose() { this._onDidChange.dispose(); }
 
   setWorkingTree(node, result) {
-    this.workingTree = { key: qualifiedRef(node), node, result };
+    const key = qualifiedRef(node);
+    this.workingTrees.set(key, { key, node, result });
+    this.lastWorkingTreeKey = key;
     this.refresh();
   }
 
-  clearWorkingTree() { this.workingTree = null; this.refresh(); }
+  workingTreeFor(node) {
+    if (node && !isBranchNode(node)) return undefined;
+    return this.workingTrees.get(node ? qualifiedRef(node) : this.lastWorkingTreeKey);
+  }
+
+  clearWorkingTree(key) {
+    this.workingTrees.delete(key);
+    if (this.lastWorkingTreeKey === key) this.lastWorkingTreeKey = [...this.workingTrees.keys()].at(-1) || null;
+    this.refresh();
+  }
 
   getTreeItem(element) {
     if (element.kind === 'worktree-file') {
       const filePath = element.file.newPath || element.file.oldPath;
       const item = new vscode.TreeItem(path.posix.basename(filePath), vscode.TreeItemCollapsibleState.None);
+      item.id = `worktree:${element.key}:${filePath}`;
       item.resourceUri = vscode.Uri.from({ scheme: worktreeDecorationScheme,
         path: '/' + filePath, query: element.file.status.slice(0, 1) });
       item.iconPath = new vscode.ThemeIcon('file');
@@ -101,8 +115,8 @@ class BranchTreeProvider {
       item.iconPath = new vscode.ThemeIcon('cloud');
       return item;
     }
-    // Only the selected branch expands to its working-tree differences.
-    const showingWorktree = isBranchNode(element) && this.workingTree?.key === qualifiedRef(element);
+    // Each compared branch independently expands to its working-tree differences.
+    const showingWorktree = isBranchNode(element) && this.workingTreeFor(element);
     const item = new vscode.TreeItem(element.label, showingWorktree
       ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
     item.id = `${element.kind}:${element.remote ? 'remote' : 'local'}:${element.ref}`;
@@ -130,7 +144,7 @@ class BranchTreeProvider {
     }
     if (showingWorktree) {
       item.contextValue += '-worktree';
-      const count = this.workingTree.result.files.length;
+      const count = showingWorktree.result.files.length;
       item.description = `Working Tree Diff · ${count} ${count === 1 ? 'file' : 'files'}`;
       item.tooltip += `\nWorking Tree Diff: ${count} changed ${count === 1 ? 'file' : 'files'} (selected branch ↔ working tree)`;
     }
@@ -141,18 +155,19 @@ class BranchTreeProvider {
     if (!element) return this.getRootNodes();
     if (element.kind === 'category') return element.children || [];
     if (element.kind === 'remote-group') return element.children || [];
-    if (isBranchNode(element) && this.workingTree?.key === qualifiedRef(element)) {
-      const { result } = this.workingTree;
+    const comparison = isBranchNode(element) && this.workingTreeFor(element);
+    if (comparison) {
+      const { result, key } = comparison;
       return [
-        ...result.files.map(file => ({ kind: 'worktree-file', file, result })),
-        ...(!result.files.length ? [{ kind: 'worktree-empty' }] : [])
+        ...result.files.map(file => ({ kind: 'worktree-file', file, result, key })),
+        ...(!result.files.length ? [{ kind: 'worktree-empty', key }] : [])
       ];
     }
     return [];
   }
 
   async getParent(element) {
-    if (element.kind?.startsWith('worktree-')) return this.workingTree?.node;
+    if (element.kind?.startsWith('worktree-')) return this.workingTrees.get(element.key)?.node;
     const roots = await this.getRootNodes();
     for (const root of roots) {
       for (const child of root.children) {
@@ -223,7 +238,7 @@ function activate(context) {
 
   const branchTree = new BranchTreeProvider(git);
   let lastComparison = null;
-  let worktreeRequest = 0;
+  const worktreeRequests = new Map();
   const worktreeSessions = new Map();
 
   async function closeSessionTabs(session) {
@@ -238,15 +253,16 @@ function activate(context) {
   }
 
   async function showWorkingTree(node) {
-    const request = ++worktreeRequest;
+    const key = qualifiedRef(node);
+    const request = Symbol();
+    worktreeRequests.set(key, request);
     await configureGitExecutable(git);
     const dirtyDocuments = (vscode.workspace.textDocuments || [])
       .filter(doc => doc.isDirty && doc.uri.scheme === 'file')
       .map(doc => ({ file: path.relative(root, doc.uri.fsPath).split(path.sep).join('/'), text: doc.getText() }));
-    const result = await git.worktreeCompare(qualifiedRef(node), dirtyDocuments);
-    if (request !== worktreeRequest) return;
+    const result = await git.worktreeCompare(key, dirtyDocuments);
+    if (worktreeRequests.get(key) !== request) return;
     result.ref = node.ref;
-    const key = qualifiedRef(node);
     if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });
     branchTree.setWorkingTree(node, result);
     await branchView.reveal(node, { expand: true, select: true, focus: false });
@@ -387,25 +403,28 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.refreshWorktree', async node => {
-      if (!branchTree.workingTree || (node && (!isBranchNode(node) || qualifiedRef(node) !== branchTree.workingTree.key))) return;
-      try { await showWorkingTree(branchTree.workingTree.node); }
+      const active = branchTree.workingTreeFor(node);
+      if (!active) return;
+      try { await showWorkingTree(active.node); }
       catch (err) { vscode.window.showErrorMessage(`Working tree comparison failed: ${err.message}`); }
     }),
     vscode.commands.registerCommand('git-branch.closeWorktree', async node => {
-      const active = branchTree.workingTree;
-      if (node && (!isBranchNode(node) || qualifiedRef(node) !== active?.key)) return;
-      ++worktreeRequest;
-      branchTree.clearWorkingTree();
-      const session = active && worktreeSessions.get(active.key);
+      const active = branchTree.workingTreeFor(node);
+      if (node && !isBranchNode(node)) return;
+      const key = active?.key || (node ? qualifiedRef(node) : branchTree.lastWorkingTreeKey);
+      if (!key) return;
+      worktreeRequests.delete(key);
+      branchTree.clearWorkingTree(key);
+      const session = worktreeSessions.get(key);
       if (!session) return;
       session.closed = true;
-      worktreeSessions.delete(active.key);
+      worktreeSessions.delete(key);
       try {
         if (!await closeSessionTabs(session)) vscode.window.showInformationMessage('Some comparison tabs remain open because closing was cancelled.');
       } catch (err) { vscode.window.showErrorMessage(`Close comparison tabs failed: ${err.message}`); }
     }),
     vscode.commands.registerCommand('git-branch.openWorktreeDiff', async element => {
-      const active = branchTree.workingTree;
+      const active = branchTree.workingTrees.get(element?.key);
       // Only accept files from the current host-generated list, never stale tree nodes.
       if (element?.kind !== 'worktree-file' || element.result !== active?.result || !active.result.files.includes(element.file)) return;
       try {
@@ -556,7 +575,10 @@ function activate(context) {
   );
 
   let disposed = false;
-  context.subscriptions.push({ dispose() { disposed = true; lastComparison = null; ++worktreeRequest; branchTree.workingTree = null; } });
+  context.subscriptions.push({ dispose() {
+    disposed = true; lastComparison = null;
+    worktreeRequests.clear(); branchTree.workingTrees.clear(); worktreeSessions.clear();
+  } });
   // Resolve actual Git directories: .git may be a file in worktrees, and refs may be packed.
   return (async () => {
     try {
