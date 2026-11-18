@@ -215,6 +215,10 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.ok(cmds.includes('git-branch.refresh'));
 
   const views = manifest.contributes.views.scm;
+  const container = manifest.contributes.viewsContainers.panel.find(c => c.id === 'git-branch.diff-panel');
+  assert.equal(container.title, 'Branch Diff');
+  await fs.access(path.join(__dirname, '..', container.icon));
+  assert.ok(manifest.contributes.views[container.id].some(v => v.id === 'git-branch.worktreeDiff'));
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
   assert.ok(!views.some(v => v.id === 'git-branch.comparison'));
   assert.ok(cmds.includes('git-branch.openDiff'));

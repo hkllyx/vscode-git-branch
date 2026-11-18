@@ -35,11 +35,22 @@
       { "command": "git-branch.refreshWorktree", "title": "Refresh Working Tree Diff", "category": "Git Branch", "icon": "$(refresh)" },
       { "command": "git-branch.closeWorktree", "title": "Close Working Tree Diff", "category": "Git Branch", "icon": "$(close)" }
     ],
+    "viewsContainers": {
+      "panel": [
+        { "id": "git-branch.diff-panel", "title": "Branch Diff", "icon": "media/branch-diff.svg" }
+      ]
+    },
     "views": {
       "scm": [
         { "id": "git-branch.branches", "name": "Branches" }
+      ],
+      "git-branch.diff-panel": [
+        { "id": "git-branch.worktreeDiff", "name": "Working Tree Diff" }
       ]
     },
+    "viewsWelcome": [
+      { "view": "git-branch.worktreeDiff", "contents": "No branch comparisons open.\nRight-click a branch in Source Control → Branches and choose Show Diff with Working Tree." }
+    ],
     "menus": {
       "view/title": [
         { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" },
@@ -47,8 +58,8 @@
         { "command": "git-branch.createAndCheckout", "when": "view == git-branch.branches", "group": "1_create@1" }
       ],
       "view/item/context": [
-        { "command": "git-branch.refreshWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@1" },
-        { "command": "git-branch.closeWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@2" },
+        { "command": "git-branch.refreshWorktree", "when": "view == git-branch.worktreeDiff && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@1" },
+        { "command": "git-branch.closeWorktree", "when": "view == git-branch.worktreeDiff && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@2" },
         { "command": "git-branch.checkout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|remote)(-worktree)?$/", "group": "1_actions@1" },
         { "command": "git-branch.create", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)(-worktree)?$/", "group": "1_actions@2" },
         { "command": "git-branch.createAndCheckout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote|tag)(-worktree)?$/", "group": "1_actions@3" },

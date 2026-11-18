@@ -34,7 +34,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   const commands = new Map(), providers = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
   const tabGroups = [{ tabs: [] }, { tabs: [] }], closedTabs = [];
-  let tree, decorations, refreshes = 0, input, answer, choose = false;
+  let tree, diffTree, decorations, panelFocuses = 0, refreshes = 0, input, answer, choose = false;
   const disposable = { dispose() {} };
   const mock = {
     EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
@@ -54,6 +54,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     commands: {
       registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
       executeCommand: async (...args) => {
+        if (args[0] === 'git-branch.worktreeDiff.focus') { panelFocuses++; return; }
         assert.equal(args[0], 'vscode.diff');
         assert.equal(args[4].preview, false); // Pin each file diff; do not replace preview tabs.
         assert.equal(args[4].viewColumn, -1); // Same editor group, not a new split group.
@@ -69,8 +70,14 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
         return true;
       } },
       registerFileDecorationProvider: provider => { decorations = provider; return disposable; },
-      createTreeView: (id, options) => { tree = options.treeDataProvider; return { ...disposable,
-        reveal: async (node, options) => { assert.equal(node.kind, 'branch'); assert.equal(options.expand, true); } }; },
+      createTreeView: (id, options) => {
+        if (id === 'git-branch.branches') tree = options.treeDataProvider;
+        else { assert.equal(id, 'git-branch.worktreeDiff'); diffTree = options.treeDataProvider; }
+        return { ...disposable, reveal: async (node, options) => {
+          assert.equal(id, 'git-branch.worktreeDiff');
+          assert.equal(node.kind, 'branch'); assert.equal(options.expand, true);
+        } };
+      },
       showInformationMessage: message => messages.push(message), showErrorMessage: message => messages.push(message),
       showInputBox: async options => { inputOptions.push(options); return input; }, showWarningMessage: async () => answer,
       createWebviewPanel: (type, title, column, options) => {
@@ -231,7 +238,14 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       getText: () => 'unsaved editor changes\n' }];
     const worktreeBranch = roots[0].children.find(n => n.current);
     await run('worktree', worktreeBranch);
-    assert.equal(panels.length, panelCount); // File list stays in Source Control, not an editor tab.
+    assert.equal(panels.length, panelCount); // File list is in the bottom panel, not an editor tab.
+    assert.ok(panelFocuses > 0);
+    assert.deepEqual(await tree.getChildren(worktreeBranch), []); // SCM does not duplicate diff files.
+    assert.equal(tree.getTreeItem(worktreeBranch).description, undefined);
+    assert.deepEqual(await diffTree.getChildren(), [worktreeBranch]);
+    assert.equal(await diffTree.getParent(worktreeBranch), undefined);
+    const scmTree = tree;
+    tree = diffTree; // Remaining interaction checks exercise the panel's provider.
     let children = await tree.getChildren(worktreeBranch);
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-current-worktree');
     assert.equal(tree.getTreeItem(worktreeBranch).description, 'Working Tree Diff · 1 file');
@@ -241,6 +255,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     for (const id of ['refreshWorktree', 'closeWorktree']) {
       const menu = menus.find(m => m.command === `git-branch.${id}`);
       assert.match(menu.group, /^inline@/);
+      assert.match(menu.when, /view == git-branch.worktreeDiff/);
       const pattern = new RegExp(menu.when.split(' =~ /')[1].slice(0, -1));
       for (const kind of ['local', 'current', 'remote']) {
         assert.ok(pattern.test(`gb-${kind}-worktree`));
@@ -275,6 +290,9 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     const sessionTab = tabGroups[0].tabs.at(-1);
     // Multiple lists and requests coexist, including local/remote branches with equal tips.
     await Promise.all([run('worktree', selected), run('worktree', remote)]);
+    assert.equal((await diffTree.getChildren()).length, 3);
+    assert.equal(tree.getTreeItem(remote).label, remote.ref); // Remote name is not lost at panel root.
+    assert.deepEqual(await scmTree.getChildren(selected), []);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.match(tree.getTreeItem(branch).contextValue, /-worktree$/);
       assert.match(tree.getTreeItem(branch).description, /Working Tree Diff/);
