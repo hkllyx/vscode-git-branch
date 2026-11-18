@@ -1,0 +1,158 @@
+'use strict';
+const { execFile } = require('node:child_process');
+const { promisify } = require('node:util');
+const run = promisify(execFile);
+
+class GitOperations {
+  constructor(cwd, executable = 'git') {
+    this.cwd = cwd;
+    this.executable = executable;
+  }
+
+  async exec(args, encoding = 'utf8') {
+    const { stdout } = await run(this.executable, args, {
+      cwd: this.cwd,
+      encoding,
+      maxBuffer: 32 * 1024 * 1024,
+      timeout: 30000,
+      windowsHide: true
+    });
+    return stdout;
+  }
+
+  /** List local + remote branches with full ref, hash, current flag. */
+  async branches() {
+    const output = await this.exec([
+      'for-each-ref',
+      '--format=%(refname)%09%(objectname)%09%(symref)',
+      'refs/heads/', 'refs/remotes/'
+    ]);
+    let current;
+    try { current = (await this.exec(['symbolic-ref', '--quiet', 'HEAD'])).trim(); } catch { current = undefined; }
+    const branches = output.trim().split(/\r?\n/).filter(Boolean).map(line => {
+      const [ref, hash, symbolic] = line.split('\t');
+      const remote = ref.startsWith('refs/remotes/');
+      return { ref, hash, symbolic, remote, current: ref === current, name: ref.slice(remote ? 13 : 11) };
+    }).filter(b => !b.symbolic);
+    return { current, branches };
+  }
+
+  /** List tags. */
+  async tags() {
+    const output = await this.exec(['for-each-ref', '--format=%(refname:short)%09%(objectname)', 'refs/tags/']);
+    return output.trim().split(/\r?\n/).filter(Boolean).map(line => {
+      const [name, hash] = line.split('\t');
+      return { name, hash };
+    });
+  }
+
+  /** Get current branch name (or undefined when detached). */
+  async current() {
+    try {
+      const out = (await this.exec(['symbolic-ref', '--quiet', 'HEAD'])).trim();
+      return out.replace(/^refs\/heads\//, '');
+    } catch { return undefined; }
+  }
+
+  /** Create a branch at start point. */
+  async create(name, start = 'HEAD') {
+    const invalid = await this.validateName(name);
+    if (invalid) throw new Error(invalid);
+    const hash = await this.resolve(start);
+    await this.exec(['branch', '--', name, hash]);
+  }
+
+  /** Checkout a branch (local by name, remote by tracking). */
+  async checkout(branch) {
+    if (branch.remote) {
+      await this.exec(['switch', '--track', '--', branch.ref]);
+    } else {
+      await this.exec(['switch', '--', branch.name]);
+    }
+  }
+
+  /** Rename a local branch. */
+  async rename(oldName, newName) {
+    const invalid = await this.validateName(newName);
+    if (invalid) throw new Error(invalid);
+    await this.exec(['show-ref', '--verify', `refs/heads/${oldName}`]);
+    await this.exec(['branch', '-m', '--', oldName, newName]);
+  }
+
+  /** Delete a local branch (safe, refuses if not merged). */
+  async remove(name) {
+    await this.exec(['branch', '-d', '--', name]);
+  }
+
+  /** Merge or rebase ref into current. */
+  async integrate(operation, ref) {
+    if (!['merge', 'rebase'].includes(operation)) throw new Error('Unsupported operation');
+    if ((await this.exec(['status', '--porcelain'])).trim()) {
+      throw new Error('Commit or stash working-tree changes before merging or rebasing.');
+    }
+    const hash = await this.resolve(ref);
+    if (operation === 'merge') {
+      await this.exec(['merge', '--no-edit', '--', hash]);
+    } else {
+      await this.exec(['rebase', '--', hash]);
+    }
+  }
+
+  /** Resolve ref to full commit hash. */
+  async resolve(ref) {
+    return (await this.exec(['rev-parse', '--verify', '--end-of-options', `${ref}^{commit}`])).trim();
+  }
+
+  /** Compare ref with HEAD: returns { left, right, ref, files }. */
+  async compare(ref) {
+    const [left, right] = await Promise.all([
+      this.resolve(ref),
+      this.resolve('HEAD')
+    ]);
+    const files = parseDiff(await this.exec([
+      'diff', '--name-status', '-z', '--find-renames', left, right, '--'
+    ]));
+    return { left, right, ref, files };
+  }
+
+  /** Get file content at a commit (empty string if path is null). */
+  async content(hash, path) {
+    if (!path) return '';
+    if (!/^[a-f0-9]{40,64}$/.test(hash)) throw new Error('Invalid snapshot commit');
+    const data = await this.exec(['show', `${hash}:${path}`], 'buffer');
+    if (data.includes(0)) return '[Binary file: textual comparison is not available]';
+    return data.toString('utf8');
+  }
+
+  /** Validate a branch name; returns error message or undefined. */
+  async validateName(name) {
+    if (!name || name !== name.trim()) return 'Enter a branch name without leading/trailing spaces.';
+    try { await this.exec(['check-ref-format', '--branch', name]); } catch { return 'Invalid Git branch name.'; }
+    if (name.startsWith('-') || name.includes('@{')) return 'Use a literal branch name.';
+    const existing = await this.exec(['for-each-ref', '--format=%(refname:short)', 'refs/heads/']);
+    if (existing.split(/\r?\n/).includes(name)) return 'A local branch with this name already exists.';
+    return undefined;
+  }
+}
+
+/** Parse NUL-delimited git diff --name-status -z output. */
+function parseDiff(output) {
+  const tokens = output.split('\0');
+  const files = [];
+  for (let i = 0; i < tokens.length && tokens[i];) {
+    const status = tokens[i++];
+    const oldPath = tokens[i++];
+    if (oldPath === undefined) throw new Error('Malformed Git diff output');
+    const renamed = /^[RC]/.test(status);
+    const newPath = renamed ? tokens[i++] : oldPath;
+    if (newPath === undefined) throw new Error('Malformed Git rename output');
+    files.push({
+      status,
+      oldPath: status === 'A' ? null : oldPath,
+      newPath: status === 'D' ? null : newPath
+    });
+  }
+  return files;
+}
+
+module.exports = { GitOperations, parseDiff };
