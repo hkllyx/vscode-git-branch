@@ -62,12 +62,20 @@ class GitOperations {
     await this.exec(['branch', '--', name, hash]);
   }
 
-  /** Checkout a branch (local by name, remote by tracking). */
+  /** Checkout accepts tree nodes (ref) and repository branch records (ref/name). */
   async checkout(branch) {
+    const ref = branch?.ref || branch?.name;
+    if (typeof ref !== 'string' || !ref.trim() || ref.startsWith('-')) {
+      throw new Error('Select a valid branch to check out.');
+    }
     if (branch.remote) {
-      await this.exec(['switch', '--track', '--', branch.ref]);
+      const qualified = ref.startsWith('refs/remotes/') ? ref : `refs/remotes/${ref}`;
+      await this.exec(['show-ref', '--verify', qualified]);
+      await this.exec(['switch', '--track', '--', qualified]);
     } else {
-      await this.exec(['switch', '--', branch.name]);
+      const name = ref.replace(/^refs\/heads\//, '');
+      await this.exec(['show-ref', '--verify', `refs/heads/${name}`]);
+      await this.exec(['switch', '--', name]);
     }
   }
 

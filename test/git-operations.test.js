@@ -144,6 +144,43 @@ test('real repository: branches, compare, rename, delete, merge, rebase', async 
   await assert.rejects(git.integrate('merge', 'refs/heads/main-renamed'));
 });
 
+test('checkout accepts actual tree nodes and rejects missing refs before executing Git', async t => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'git-branch-checkout-'));
+  t.after(() => fs.rm(cwd, { recursive: true, force: true }));
+  const git = new GitOperations(cwd);
+  await git.exec(['init', '-b', 'main']);
+  await git.exec(['config', 'user.email', 'test@example.invalid']);
+  await git.exec(['config', 'user.name', 'Test']);
+  await git.exec(['commit', '--allow-empty', '-m', 'initial']);
+  await git.create('feature/local');
+  // Shape emitted by BranchTreeProvider: there is no `name` field.
+  await git.checkout({ kind: 'branch', label: 'feature/local', ref: 'feature/local', remote: false });
+  assert.equal(await git.current(), 'feature/local');
+  await git.checkout({ ref: 'refs/heads/main', remote: false });
+  assert.equal(await git.current(), 'main');
+  await git.checkout({ name: 'feature/local', remote: false });
+  assert.equal(await git.current(), 'feature/local');
+  await git.exec(['remote', 'add', 'origin', cwd]);
+  await git.exec(['config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']);
+  const hash = await git.resolve('HEAD');
+  await git.exec(['update-ref', 'refs/remotes/origin/feature/remote', hash]);
+  await git.checkout({ kind: 'branch', label: 'feature/remote', ref: 'origin/feature/remote', remote: true });
+  assert.equal(await git.current(), 'feature/remote');
+  assert.equal((await git.exec(['config', 'branch.feature/remote.remote'])).trim(), 'origin');
+  await git.exec(['update-ref', 'refs/remotes/origin/full-ref', hash]);
+  await git.checkout({ ref: 'refs/remotes/origin/full-ref', remote: true });
+  assert.equal(await git.current(), 'full-ref');
+  await assert.rejects(git.checkout({ ref: 'missing', remote: false }));
+  assert.equal(await git.current(), 'full-ref');
+  const invalid = new GitOperations(cwd);
+  let executed = false;
+  invalid.exec = async () => { executed = true; };
+  for (const node of [undefined, {}, { ref: '' }, { ref: '-bad' }]) {
+    await assert.rejects(invalid.checkout(node), /valid branch/);
+  }
+  assert.equal(executed, false);
+});
+
 test('manifest: commands, views, menus are wired', async () => {
   const manifest = require('../package.json');
   const cmds = manifest.contributes.commands.map(c => c.command);
