@@ -48,7 +48,12 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     extensions: { getExtension: () => ({ isActive: true, exports: { getAPI: () => ({ git: { path: 'git' } }) } }) },
     commands: {
       registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
-      executeCommand: async (...args) => { diffs.push(args); }
+      executeCommand: async (...args) => {
+        assert.equal(args[0], 'vscode.diff');
+        assert.equal(args[4].preview, false); // Pin each file diff; do not replace preview tabs.
+        assert.equal(args[4].viewColumn, -1); // Same editor group, not a new split group.
+        diffs.push(args);
+      }
     },
     window: {
       createTreeView: (id, options) => { tree = options.treeDataProvider; return disposable; },
@@ -165,7 +170,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(diffs[0][0], 'vscode.diff');
     assert.equal(JSON.parse(diffs[0][1].query).hash, feature);
     assert.equal(JSON.parse(diffs[0][2].query).hash, base); // Active panel, not last created comparison.
-    assert.equal(diffs[0][4].viewColumn, -2);
+    assert.equal(diffs[0][4].viewColumn, -1);
+    assert.equal(diffs[0][4].preview, false);
     const rightContent = await providers.get('git-branch-snapshot').provideTextDocumentContent(diffs[0][2]);
     assert.equal(rightContent, 'base\n');
     first.dispose();

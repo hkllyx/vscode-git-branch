@@ -170,7 +170,7 @@ function activate(context) {
     const title = `${path.basename(file.newPath || file.oldPath)} (${file.ref} ↔ ${file.rightLabel || 'HEAD'})`;
     await vscode.commands.executeCommand('vscode.diff',
       snapshotUri(file.left, file.oldPath), snapshotUri(file.right, file.newPath), title,
-      { preview: true, viewColumn: vscode.ViewColumn.Beside });
+      { preview: false, viewColumn: vscode.ViewColumn.Active });
   }
 
   async function createBranch(node, checkout) {
