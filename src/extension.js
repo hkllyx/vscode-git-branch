@@ -288,6 +288,12 @@ function activate(context) {
     const saved = context.workspaceState?.get(`git-branch.${property}`);
     if (values.includes(saved)) branchTree[property] = saved;
   }
+  // Drive the ⋯ submenu's ✓ current-item entries via when-clause context keys.
+  const syncDiffContextKeys = () => {
+    vscode.commands.executeCommand('setContext', 'git-branch.diffLayout', branchTree.diffLayout);
+    vscode.commands.executeCommand('setContext', 'git-branch.diffSort', branchTree.diffSort);
+  };
+  syncDiffContextKeys();
   let lastComparison = null;
   const worktreeRequests = new Map();
   const worktreeSessions = new Map();
@@ -396,23 +402,13 @@ function activate(context) {
     branchView, branchTree,
     ...[['diffList', 'diffLayout', 'list'], ['diffTree', 'diffLayout', 'tree'],
       ['diffSortName', 'diffSort', 'name'], ['diffSortPath', 'diffSort', 'path'], ['diffSortStatus', 'diffSort', 'status']]
-      .map(([command, property, value]) => vscode.commands.registerCommand(`git-branch.${command}`, async () => {
-        branchTree[property] = value;
-        await context.workspaceState?.update(`git-branch.${property}`, value);
-        branchTree.refresh();
-      })),
-    vscode.commands.registerCommand('git-branch.diffMore', async () => {
-      const check = active => active ? '$(check) ' : '      ';
-      const picked = await vscode.window.showQuickPick([
-        { label: `${check(branchTree.diffLayout === 'list')}View as List`, command: 'git-branch.diffList' },
-        { label: `${check(branchTree.diffLayout === 'tree')}View as Tree`, command: 'git-branch.diffTree' },
-        { label: 'Sort', kind: vscode.QuickPickItemKind?.Separator ?? -1 },
-        { label: `${check(branchTree.diffSort === 'name')}Sort Changes by Name`, command: 'git-branch.diffSortName' },
-        { label: `${check(branchTree.diffSort === 'path')}Sort Changes by Path`, command: 'git-branch.diffSortPath' },
-        { label: `${check(branchTree.diffSort === 'status')}Sort Changes by Status`, command: 'git-branch.diffSortStatus' }
-      ], { title: 'Diff · View & Sort', placeHolder: `Current: ${branchTree.diffLayout === 'tree' ? 'Tree' : 'List'}, sorted by ${branchTree.diffSort}` });
-      if (picked) await vscode.commands.executeCommand(picked.command);
-    }),
+      .flatMap(([command, property, value]) => [command, `${command}.current`].map(id =>
+        vscode.commands.registerCommand(`git-branch.${id}`, async () => {
+          branchTree[property] = value;
+          await context.workspaceState?.update(`git-branch.${property}`, value);
+          syncDiffContextKeys();
+          branchTree.refresh();
+        }))),
     vscode.window.registerFileDecorationProvider(worktreeDecorations),
     vscode.workspace.registerTextDocumentContentProvider(snapshotScheme, snapshotProvider),
 

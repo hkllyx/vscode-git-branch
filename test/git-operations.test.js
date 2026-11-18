@@ -218,13 +218,27 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.equal(manifest.contributes.viewsContainers, undefined);
   assert.deepEqual(Object.keys(manifest.contributes.views), ['scm']);
   assert.equal(views.length, 1);
-  assert.equal(manifest.contributes.submenus, undefined);
-  const moreMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.diffMore');
+  // The ⋯ button is an inline submenu: VS Code renders it as a dropdown anchored to the button (not a centered QuickPick).
+  assert.deepEqual(manifest.contributes.submenus, [{ id: 'git-branch.diffMore', label: 'View & Sort', icon: '$(ellipsis)' }]);
+  const moreMenu = manifest.contributes.menus['view/item/context'].find(item => item.submenu === 'git-branch.diffMore');
   assert.match(moreMenu.group, /^inline@/);
   assert.match(moreMenu.when, /viewItem == gb-diff-group/);
+  assert.ok(!manifest.contributes.menus['view/item/context'].some(item => item.command === 'git-branch.diffMore'));
+  const diffMoreMenu = manifest.contributes.menus['git-branch.diffMore'];
+  assert.equal(diffMoreMenu.length, 10);
   for (const id of ['diffList', 'diffTree', 'diffSortName', 'diffSortPath', 'diffSortStatus']) {
     assert.ok(cmds.includes(`git-branch.${id}`));
+    assert.ok(cmds.includes(`git-branch.${id}.current`));
+    // Options live inside the anchored submenu, not as right-click rows.
     assert.ok(!manifest.contributes.menus['view/item/context'].some(item => item.command === `git-branch.${id}`));
+    const base = diffMoreMenu.find(item => item.command === `git-branch.${id}`);
+    const current = diffMoreMenu.find(item => item.command === `git-branch.${id}.current`);
+    assert.ok(base && current);
+    assert.equal(base.group, current.group); // Same slot so the ✓ variant replaces the base in place.
+    assert.ok(base.when.includes('!='));
+    assert.ok(current.when.includes('=='));
+    // ✓ variants are menu-only; keep them out of the command palette.
+    assert.ok(manifest.contributes.menus.commandPalette.some(item => item.command === `git-branch.${id}.current` && item.when === 'false'));
   }
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
   assert.ok(!views.some(v => v.id === 'git-branch.comparison'));

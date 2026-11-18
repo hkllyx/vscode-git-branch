@@ -39,7 +39,14 @@
       { "command": "git-branch.diffSortName", "title": "Sort Changes by Name", "category": "Git Branch" },
       { "command": "git-branch.diffSortPath", "title": "Sort Changes by Path", "category": "Git Branch" },
       { "command": "git-branch.diffSortStatus", "title": "Sort Changes by Status", "category": "Git Branch" },
-      { "command": "git-branch.diffMore", "title": "View & Sort", "category": "Git Branch", "icon": "$(ellipsis)" }
+      { "command": "git-branch.diffList.current", "title": "✓ View as List", "category": "Git Branch" },
+      { "command": "git-branch.diffTree.current", "title": "✓ View as Tree", "category": "Git Branch" },
+      { "command": "git-branch.diffSortName.current", "title": "✓ Sort Changes by Name", "category": "Git Branch" },
+      { "command": "git-branch.diffSortPath.current", "title": "✓ Sort Changes by Path", "category": "Git Branch" },
+      { "command": "git-branch.diffSortStatus.current", "title": "✓ Sort Changes by Status", "category": "Git Branch" }
+    ],
+    "submenus": [
+      { "id": "git-branch.diffMore", "label": "View & Sort", "icon": "$(ellipsis)" }
     ],
     "views": {
       "scm": [
@@ -51,7 +58,7 @@
         { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" }
       ],
       "view/item/context": [
-        { "command": "git-branch.diffMore", "when": "view == git-branch.branches && viewItem == gb-diff-group", "group": "inline@1" },
+        { "submenu": "git-branch.diffMore", "when": "view == git-branch.branches && viewItem == gb-diff-group", "group": "inline@1" },
         { "command": "git-branch.refreshWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@1" },
         { "command": "git-branch.closeWorktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)-worktree$/", "group": "inline@2" },
         { "command": "git-branch.checkout", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|remote)(-worktree)?$/", "group": "1_actions@1" },
@@ -63,6 +70,25 @@
         { "command": "git-branch.worktree", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current|remote)(-worktree)?$/", "group": "3_compare@2" },
         { "command": "git-branch.rename", "when": "view == git-branch.branches && viewItem =~ /^gb-(local|current)(-worktree)?$/", "group": "4_branch@1" },
         { "command": "git-branch.delete", "when": "view == git-branch.branches && viewItem =~ /^gb-local(-worktree)?$/", "group": "4_branch@2" }
+      ],
+      "git-branch.diffMore": [
+        { "command": "git-branch.diffList", "when": "git-branch.diffLayout != list", "group": "1_view@1" },
+        { "command": "git-branch.diffList.current", "when": "git-branch.diffLayout == list", "group": "1_view@1" },
+        { "command": "git-branch.diffTree", "when": "git-branch.diffLayout != tree", "group": "1_view@2" },
+        { "command": "git-branch.diffTree.current", "when": "git-branch.diffLayout == tree", "group": "1_view@2" },
+        { "command": "git-branch.diffSortName", "when": "git-branch.diffSort != name", "group": "2_sort@1" },
+        { "command": "git-branch.diffSortName.current", "when": "git-branch.diffSort == name", "group": "2_sort@1" },
+        { "command": "git-branch.diffSortPath", "when": "git-branch.diffSort != path", "group": "2_sort@2" },
+        { "command": "git-branch.diffSortPath.current", "when": "git-branch.diffSort == path", "group": "2_sort@2" },
+        { "command": "git-branch.diffSortStatus", "when": "git-branch.diffSort != status", "group": "2_sort@3" },
+        { "command": "git-branch.diffSortStatus.current", "when": "git-branch.diffSort == status", "group": "2_sort@3" }
+      ],
+      "commandPalette": [
+        { "command": "git-branch.diffList.current", "when": "false" },
+        { "command": "git-branch.diffTree.current", "when": "false" },
+        { "command": "git-branch.diffSortName.current", "when": "false" },
+        { "command": "git-branch.diffSortPath.current", "when": "false" },
+        { "command": "git-branch.diffSortStatus.current", "when": "false" }
       ]
     }
   }

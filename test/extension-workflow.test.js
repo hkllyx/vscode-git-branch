@@ -31,7 +31,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.exec(['config', 'branch.main.remote', 'origin']);
   await git.exec(['config', 'branch.main.merge', 'refs/heads/main']);
   await git.exec(['pack-refs', '--all']);
-  const commands = new Map(), providers = new Map();
+  const commands = new Map(), providers = new Map(), contextKeys = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
   const tabGroups = [{ tabs: [] }, { tabs: [] }], closedTabs = [];
   let tree, diffTree, decorations, panelFocuses = 0, refreshes = 0, input, answer, choose = false;
@@ -55,6 +55,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
       executeCommand: async (...args) => {
         if (args[0] === 'git-branch.branches.focus') { panelFocuses++; return; }
+        if (args[0] === 'setContext') { contextKeys.set(args[1], args[2]); return; }
         if (commands.has(args[0])) return commands.get(args[0])(...args.slice(1));
         assert.equal(args[0], 'vscode.diff');
         assert.equal(args[4].preview, false); // Pin each file diff; do not replace preview tabs.
@@ -362,17 +363,13 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.deepEqual((await tree.getChildren(selected)).map(n => n.file.status), ['A', 'D', 'M', 'M']);
     await run('diffSortPath');
     assert.equal((await tree.getChildren(selected))[0].file.oldPath, 'lib/b.ts');
-    let quickItems;
-    const originalPick = mock.window.showQuickPick;
-    mock.window.showQuickPick = async items => { quickItems = items; return items.find(i => i.label?.includes('View as Tree')); };
-    await run('diffMore');
-    assert.equal(tree.diffLayout, 'tree');
-    assert.ok(quickItems.some(i => i.kind === -1)); // Separator between view and sort options.
-    assert.ok(quickItems.find(i => i.label.includes('Sort Changes by Path')).label.startsWith('$(check)'));
-    mock.window.showQuickPick = async items => items.find(i => i.label?.includes('View as Tree'));
-    await run('diffMore'); // Current choice is check-marked.
-    mock.window.showQuickPick = originalPick;
+    // The ⋯ dropdown is a native anchored submenu; its commands only set state + when-clause context keys.
     await run('diffTree');
+    assert.equal(tree.diffLayout, 'tree');
+    assert.equal(contextKeys.get('git-branch.diffLayout'), 'tree');
+    await run('diffTree.current'); // Re-applying the ✓ current entry is idempotent.
+    assert.equal(tree.diffLayout, 'tree');
+    assert.equal(contextKeys.get('git-branch.diffSort'), 'path');
     const folders = await tree.getChildren(selected);
     assert.deepEqual(folders.map(n => n.label || n.file.newPath), ['lib', 'src', 'root.ts']);
     const nested = await tree.getChildren(folders[1]);
