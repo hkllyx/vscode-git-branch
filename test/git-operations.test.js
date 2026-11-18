@@ -158,7 +158,8 @@ test('manifest: commands, views, menus are wired', async () => {
 
   const views = manifest.contributes.views.scm;
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
-  assert.ok(views.some(v => v.id === 'git-branch.comparison'));
+  assert.ok(!views.some(v => v.id === 'git-branch.comparison'));
+  assert.ok(cmds.includes('git-branch.openDiff'));
 
   // No HEAD node in tree (star icon highlights current)
   const bundle = await fs.readFile(path.join(__dirname, '../src/extension.js'), 'utf8');

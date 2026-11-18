@@ -29,19 +29,17 @@
       { "command": "git-branch.merge", "title": "Merge into Current", "category": "Git Branch" },
       { "command": "git-branch.rebase", "title": "Rebase Current onto...", "category": "Git Branch" },
       { "command": "git-branch.delete", "title": "Delete Branch", "category": "Git Branch" },
-      { "command": "git-branch.clearComparison", "title": "Clear Comparison", "category": "Git Branch", "icon": "$(close)" }
+      { "command": "git-branch.openDiff", "title": "Open Diff", "category": "Git Branch" }
     ],
     "views": {
       "scm": [
-        { "id": "git-branch.branches", "name": "Branches" },
-        { "id": "git-branch.comparison", "name": "Branch Comparison", "when": "git-branch.hasComparison" }
+        { "id": "git-branch.branches", "name": "Branches" }
       ]
     },
     "menus": {
       "view/title": [
         { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" },
-        { "command": "git-branch.create", "when": "view == git-branch.branches", "group": "navigation@2" },
-        { "command": "git-branch.clearComparison", "when": "view == git-branch.comparison", "group": "navigation" }
+        { "command": "git-branch.create", "when": "view == git-branch.branches", "group": "navigation@2" }
       ],
       "view/item/context": [
         { "command": "git-branch.checkout", "when": "view == git-branch.branches && (viewItem == gb-local || viewItem == gb-remote)", "group": "1_actions@1" },

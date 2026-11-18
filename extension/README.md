@@ -5,6 +5,7 @@
 ## 功能
 
 ### Branches 树
+
 - **Local** — 本地分支列表，当前分支以 ⭐ 星标突出显示
 - **Remote** — 远程分支，按远程名（origin 等）分组
 - **Tags** — 标签列表
@@ -12,24 +13,27 @@
 每个分支项显示：图标 + 分支名 + 短 hash（7 位）
 
 ### 右键菜单
-| 命令 | 说明 |
-|------|------|
-| Checkout | 切换到该分支（远程分支自动创建跟踪分支） |
-| Create Branch... | 从 HEAD 创建新分支 |
-| Merge into Current | 将选中分支合并到当前分支 |
-| Rebase Current onto... | 将当前分支变基到选中分支 |
-| Compare with Current | 比较选中分支与当前 HEAD 的提交快照差异 |
-| Rename Branch... | 重命名本地分支（含校验和二次确认） |
-| Delete Branch | 安全删除本地分支（未合并时拒绝） |
+
+| 命令                   | 说明                                     |
+| ---------------------- | ---------------------------------------- |
+| Checkout               | 切换到该分支（远程分支自动创建跟踪分支） |
+| Create Branch...       | 从 HEAD 创建新分支                       |
+| Merge into Current     | 将选中分支合并到当前分支                 |
+| Rebase Current onto... | 将当前分支变基到选中分支                 |
+| Compare with Current   | 比较选中分支与当前 HEAD 的提交快照差异   |
+| Rename Branch...       | 重命名本地分支（含校验和二次确认）       |
+| Delete Branch          | 安全删除本地分支（未合并时拒绝）         |
 
 ### Compare with Current
+
 - 不依赖任何不存在的命令，直接调用 `git diff` 比较两个提交
-- 在 **Branch Comparison** 视图中列出所有差异文件（支持重命名检测、中文路径）
-- 点击文件即可打开 VS Code 内置左右 diff 视图
+- 结果直接在 **Editor Tab** 中打开，列出所有差异文件（支持重命名检测、中文路径）
+- 通过命令面板 `Git Branch: Open Diff` 可选择文件打开 VS Code 内置左右 diff 视图
 - 左侧 = 选中分支的提交，右侧 = 当前 HEAD 的提交
 - 工作区未提交的修改不参与比较
 
 ### Rename Branch
+
 - 仅支持本地分支（含当前分支）
 - 校验 Git 分支名合法性、重名检测
 - 二次确认弹窗，不强制覆盖

@@ -27,8 +27,8 @@
 ### Compare with Current
 
 - 不依赖任何不存在的命令，直接调用 `git diff` 比较两个提交
-- 在 **Branch Comparison** 视图中列出所有差异文件（支持重命名检测、中文路径）
-- 点击文件即可打开 VS Code 内置左右 diff 视图
+- 结果直接在 **Editor Tab** 中打开，列出所有差异文件（支持重命名检测、中文路径）
+- 通过命令面板 `Git Branch: Open Diff` 可选择文件打开 VS Code 内置左右 diff 视图
 - 左侧 = 选中分支的提交，右侧 = 当前 HEAD 的提交
 - 工作区未提交的修改不参与比较
 
