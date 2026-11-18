@@ -84,13 +84,6 @@ class BranchTreeProvider {
       item.command = { command: 'git-branch.openWorktreeDiff', title: 'Open Diff', arguments: [element] };
       return item;
     }
-    if (element.kind === 'worktree-action') {
-      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.None);
-      item.iconPath = new vscode.ThemeIcon(element.action === 'refresh' ? 'refresh' : 'close');
-      item.contextValue = 'gb-worktree-action';
-      item.command = { command: `git-branch.${element.action === 'refresh' ? 'refreshWorktree' : 'closeWorktree'}`, title: element.label };
-      return item;
-    }
     if (element.kind === 'worktree-empty') {
       return new vscode.TreeItem('No differences with Working Tree', vscode.TreeItemCollapsibleState.None);
     }
@@ -134,6 +127,11 @@ class BranchTreeProvider {
       item.iconPath = new vscode.ThemeIcon('git-branch');
       item.contextValue = 'gb-local';
     }
+    if (showingWorktree) {
+      item.contextValue += '-worktree';
+      const count = this.workingTree.result.files.length;
+      item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
+    }
     return item;
   }
 
@@ -144,10 +142,8 @@ class BranchTreeProvider {
     if (isBranchNode(element) && this.workingTree?.key === qualifiedRef(element)) {
       const { result } = this.workingTree;
       return [
-        { kind: 'worktree-action', label: `Working Tree · ${result.files.length} files · Refresh`, action: 'refresh' },
         ...result.files.map(file => ({ kind: 'worktree-file', file, result })),
-        ...(!result.files.length ? [{ kind: 'worktree-empty' }] : []),
-        { kind: 'worktree-action', label: 'Close Working Tree Diff', action: 'close' }
+        ...(!result.files.length ? [{ kind: 'worktree-empty' }] : [])
       ];
     }
     return [];
@@ -371,12 +367,13 @@ function activate(context) {
       }
     }),
 
-    vscode.commands.registerCommand('git-branch.refreshWorktree', async () => {
-      if (!branchTree.workingTree) return;
+    vscode.commands.registerCommand('git-branch.refreshWorktree', async node => {
+      if (!branchTree.workingTree || (node && (!isBranchNode(node) || qualifiedRef(node) !== branchTree.workingTree.key))) return;
       try { await showWorkingTree(branchTree.workingTree.node); }
       catch (err) { vscode.window.showErrorMessage(`Working tree comparison failed: ${err.message}`); }
     }),
-    vscode.commands.registerCommand('git-branch.closeWorktree', () => {
+    vscode.commands.registerCommand('git-branch.closeWorktree', node => {
+      if (node && (!isBranchNode(node) || qualifiedRef(node) !== branchTree.workingTree?.key)) return;
       ++worktreeRequest;
       branchTree.clearWorkingTree();
     }),

@@ -224,6 +224,19 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('worktree', worktreeBranch);
     assert.equal(panels.length, panelCount); // File list stays in Source Control, not an editor tab.
     let children = await tree.getChildren(worktreeBranch);
+    assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-current-worktree');
+    assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
+    assert.ok(!children.some(n => n.kind === 'worktree-action'));
+    const menus = require('../package.json').contributes.menus['view/item/context'];
+    for (const id of ['refreshWorktree', 'closeWorktree']) {
+      const menu = menus.find(m => m.command === `git-branch.${id}`);
+      assert.match(menu.group, /^inline@/);
+      const pattern = new RegExp(menu.when.split(' =~ /')[1].slice(0, -1));
+      for (const kind of ['local', 'current', 'remote']) {
+        assert.ok(pattern.test(`gb-${kind}-worktree`));
+        assert.ok(!pattern.test(`gb-${kind}`));
+      }
+    }
     const fileNode = children.find(n => n.kind === 'worktree-file');
     const fileItem = tree.getTreeItem(fileNode);
     assert.equal(fileItem.label, 'new-main.txt');
