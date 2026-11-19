@@ -155,6 +155,35 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await assert.rejects(git.create('feature/test'), /already exists/);
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
     const upstreamOf = async name => (await git.branches()).branches.find(b => b.ref === `refs/heads/${name}`).upstream;
+    // Native modal dialogs supply Cancel themselves; only contribute the destructive action.
+    const originalCheckout = GitOperations.prototype.checkout;
+    const originalWarning = mock.window.showWarningMessage;
+    const decisions = [];
+    try {
+      GitOperations.prototype.checkout = async (node, confirm) => {
+        assert.equal(node, remote);
+        const confirmed = await confirm({ name: 'remote/test', remote: remote.ref, count: 1 });
+        decisions.push(confirmed);
+        return confirmed ? 'remote/test' : false;
+      };
+      mock.window.showWarningMessage = async (message, options, ...buttons) => {
+        assert.equal(options.modal, true);
+        assert.deepEqual(buttons, ['Drop Local Commits']);
+        return answer;
+      };
+      const beforeMessages = messages.length;
+      answer = undefined; // Native Cancel and dismissal both resolve undefined.
+      await run('checkout', remote);
+      assert.equal(messages.length, beforeMessages); // Never announce checkout on cancellation.
+      answer = 'Drop Local Commits';
+      await run('checkout', remote);
+      assert.equal(messages.pop(), 'Checked out: remote/test');
+      assert.deepEqual(decisions, [false, true]);
+    } finally {
+      GitOperations.prototype.checkout = originalCheckout;
+      mock.window.showWarningMessage = originalWarning;
+      answer = undefined;
+    }
     // Set Tracking validates local nodes, excludes self/symbolic refs, and handles cancellation.
     await run('setTracking', main);
     assert.equal(await upstreamOf('main'), 'refs/remotes/origin/main');

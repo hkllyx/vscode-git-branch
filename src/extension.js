@@ -452,7 +452,7 @@ function activate(context) {
             const choice = await vscode.window.showWarningMessage(
               `Local branch '${name}' has ${count} commit(s) not in '${remote}'. Drop these local commits and check out the fetched remote version?`,
               { modal: true, detail: 'Drop Local Commits resets the local branch to the remote commit. Uncommitted file changes are not discarded.' },
-              'Drop Local Commits', 'Cancel'
+              'Drop Local Commits'
             );
             return choice === 'Drop Local Commits';
           });
