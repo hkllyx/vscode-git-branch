@@ -1,6 +1,7 @@
 'use strict';
 const vscode = require('vscode');
 const path = require('node:path');
+const fs = require('node:fs/promises');
 const { randomUUID } = require('node:crypto');
 const { GitOperations } = require('./git-operations');
 const { formatGitDate } = require('./date-format');
@@ -211,6 +212,29 @@ class BranchTreeProvider {
     this.refresh();
   }
 
+  /** Only offer real working files within the repository, never snapshots or directories. */
+  async workingFileUri(file) {
+    try {
+      const absolute = this.git.worktreePath(file.newPath || file.oldPath);
+      const real = await fs.realpath(absolute);
+      const root = await fs.realpath(this.git.cwd);
+      this.git.worktreePath(path.relative(root, real));
+      if (!(await fs.stat(real)).isFile()) return undefined;
+      return vscode.Uri.file(absolute);
+    } catch { return undefined; }
+  }
+
+  async commitFileChildren(entry, parent, directory = '', details) {
+    const children = this.diffChildren(entry, parent, directory, details);
+    // Bound filesystem probes when a commit changes many files.
+    for (let start = 0; start < children.length; start += 32) {
+      await Promise.all(children.slice(start, start + 32).map(async child => {
+        if (child.kind === 'compare-file') child.workingFileUri = await this.workingFileUri(child.file);
+      }));
+    }
+    return this.commitEntry(entry.key) === entry ? children : [];
+  }
+
   diffChildren(comparison, parent, directory = '', details) {
     const { result, key, settings } = comparison;
     const nodeData = details ? { details, entry: comparison } : { result };
@@ -299,7 +323,7 @@ class BranchTreeProvider {
       item.iconPath = new vscode.ThemeIcon('file');
       item.resourceUri = vscode.Uri.from({ scheme: worktreeDecorationScheme, path: '/' + name, query: element.file.status[0] });
       item.tooltip = `${name}\nStatus: ${element.file.status}\nFirst parent → ${shortHash(element.details.hash)}`;
-      item.contextValue = 'gb-compare-file';
+      item.contextValue = element.workingFileUri ? 'gb-compare-file-openable' : 'gb-compare-file';
       item.command = { command: 'git-branch.openCompareDiff', title: 'Open Diff', arguments: [element] };
       return item;
     }
@@ -487,7 +511,7 @@ class BranchTreeProvider {
       try {
         const details = await this.commitDetailsFor(element.entry, element.commit.hash);
         if (this.commitEntry(element.key) !== element.entry) return [];
-        return this.diffChildren(element.entry, element, '', details);
+        return this.commitFileChildren(element.entry, element, '', details);
       } catch (error) {
         if (this.commitEntry(element.key) !== element.entry) return [];
         vscode.window.showErrorMessage(`Load commit failed: ${error.message}`);
@@ -496,7 +520,7 @@ class BranchTreeProvider {
     }
     if (element.kind === 'compare-folder') {
       return this.commitEntry(element.key) === element.entry
-        ? this.diffChildren(element.entry, element, element.directory, element.details) : [];
+        ? this.commitFileChildren(element.entry, element, element.directory, element.details) : [];
     }
     if (element.kind === 'category') return element.children || [];
     if (element.kind === 'remote-group') return element.children || [];
@@ -998,6 +1022,21 @@ function activate(context) {
       finally { node.history.loading = false; }
     }),
     vscode.commands.registerCommand('git-branch.loadBranchHistory', node => branchTree.loadBranchHistory(node)),
+    vscode.commands.registerCommand('git-branch.openCommitWorkingFile', async element => {
+      if (element?.kind !== 'compare-file' || branchTree.commitEntry(element.key) !== element.entry ||
+          !element.details?.files.includes(element.file)) return;
+      try {
+        // Recheck at click time: the working tree may have changed since expansion.
+        const uri = await branchTree.workingFileUri(element.file);
+        if (branchTree.commitEntry(element.key) !== element.entry) return;
+        if (!uri) {
+          branchTree.refresh();
+          vscode.window.showInformationMessage('This file is no longer available in the working tree.');
+          return;
+        }
+        await vscode.commands.executeCommand('vscode.open', uri, { preview: false });
+      } catch (error) { vscode.window.showErrorMessage(`Open working tree file failed: ${error.message}`); }
+    }),
     vscode.commands.registerCommand('git-branch.openCompareDiff', async element => {
       if (element?.kind !== 'compare-file' || branchTree.commitEntry(element.key) !== element.entry || !element.details.files.includes(element.file)) return;
       try { await openDiff({ ...element.file, left: element.details.left, right: element.details.right,

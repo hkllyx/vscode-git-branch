@@ -39,6 +39,7 @@
       { "command": "git-branch.rebase", "title": "Rebase Current onto Target", "category": "Git Branch" },
       { "command": "git-branch.delete", "title": "Delete", "category": "Git Branch" },
       { "command": "git-branch.openDiff", "title": "Open Diff", "category": "Git Branch" },
+      { "command": "git-branch.openCommitWorkingFile", "title": "Open File", "category": "Git Branch", "icon": "$(go-to-file)" },
       { "command": "git-branch.refreshWorktree", "title": "Refresh Diff", "category": "Git Branch", "icon": "$(refresh)" },
       { "command": "git-branch.swapWorktree", "title": "Swap Comparison", "category": "Git Branch", "icon": "$(arrow-swap)" },
       { "command": "git-branch.closeWorktree", "title": "Close Diff", "category": "Git Branch", "icon": "$(close)" },
@@ -69,6 +70,7 @@
         { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@1" }
       ],
       "view/item/context": [
+        { "command": "git-branch.openCommitWorkingFile", "when": "view == git-branch.branches && viewItem == gb-compare-file-openable", "group": "inline@1" },
         { "command": "git-branch.refreshCompare", "when": "view == git-branch.branches && viewItem =~ /^gb-compare-session-/", "group": "inline@1" },
         { "command": "git-branch.closeCompare", "when": "view == git-branch.branches && viewItem =~ /^gb-compare-session-/", "group": "inline@2" },
         { "command": "git-branch.compareSelected", "when": "view == git-branch.branches && git-branch.twoBranches && viewItem =~ /^gb-(local|current|remote)$/", "group": "3_compare@1" },
@@ -103,6 +105,7 @@
         { "command": "git-branch.diffSortStatus.current", "when": "viewItem =~ /-status$/", "group": "2_sort@3" }
       ],
       "commandPalette": [
+        { "command": "git-branch.openCommitWorkingFile", "when": "false" },
         { "command": "git-branch.diffList", "when": "false" },
         { "command": "git-branch.diffTree", "when": "false" },
         { "command": "git-branch.diffSortName", "when": "false" },

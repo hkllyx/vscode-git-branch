@@ -68,7 +68,7 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
   assert.equal(page.commits[0].merge, true);
   assert.deepEqual(page.commits[0].parents, [parent, topicHash]);
   assert.equal(page.commits.find(commit => commit.hash === topicHash).merge, false);
-  const commands = new Map(), diffs = [], messages = [], copied = [];
+  const commands = new Map(), diffs = [], openedFiles = [], messages = [], copied = [];
   const disposable = { dispose() {} };
   let tree, decorations;
   const mock = {
@@ -90,7 +90,10 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
       createFileSystemWatcher: () => ({ ...disposable, onDidChange() {}, onDidCreate() {}, onDidDelete() {} }) },
     extensions: { getExtension: () => undefined },
     commands: { registerCommand: (id, fn) => { commands.set(id, fn); return disposable; },
-      executeCommand: async (id, ...args) => { if (id === 'vscode.diff') diffs.push(args); } },
+      executeCommand: async (id, ...args) => {
+        if (id === 'vscode.diff') diffs.push(args);
+        if (id === 'vscode.open') openedFiles.push(args);
+      } },
     window: {
       createTreeView: (id, options) => { tree = options.treeDataProvider; return { ...disposable, reveal: async () => {} }; },
       registerFileDecorationProvider: provider => { decorations = provider; return disposable; },
@@ -146,6 +149,43 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
     const files = await tree.getChildren(commits[0]);
     assert.equal(files.length, 1);
     assert.equal(files[0].file.newPath, 'topic.txt');
+    assert.equal(tree.getTreeItem(files[0]).contextValue, 'gb-compare-file-openable');
+    assert.equal(tree.getTreeItem(files[0]).command.command, 'git-branch.openCompareDiff');
+    await run('openCommitWorkingFile', files[0]);
+    assert.equal(openedFiles[0][0].fsPath, path.join(cwd, 'topic.txt'));
+    assert.deepEqual(openedFiles[0][1], { preview: false });
+    // Missing files hide the action; a file disappearing after rendering cannot open a stale URI.
+    const topicContents = await fs.readFile(path.join(cwd, 'topic.txt'));
+    await fs.unlink(path.join(cwd, 'topic.txt'));
+    assert.equal(tree.getTreeItem((await tree.getChildren(commits[0]))[0]).contextValue, 'gb-compare-file');
+    await run('openCommitWorkingFile', files[0]);
+    assert.equal(openedFiles.length, 1);
+    assert.ok(messages.includes('This file is no longer available in the working tree.'));
+    await fs.writeFile(path.join(cwd, 'topic.txt'), topicContents);
+    assert.equal(tree.getTreeItem((await tree.getChildren(commits[0]))[0]).contextValue, 'gb-compare-file-openable');
+    assert.equal(await tree.workingFileUri({ newPath: '../outside.txt' }), undefined);
+    assert.equal(await tree.workingFileUri({ newPath: cwd }), undefined);
+    assert.equal(await tree.workingFileUri({ newPath: 'missing.txt' }), undefined);
+    assert.equal((await tree.workingFileUri({ status: 'D', oldPath: 'topic.txt' })).fsPath, path.join(cwd, 'topic.txt'));
+    assert.equal(await tree.workingFileUri({ status: 'R', oldPath: 'topic.txt', newPath: 'missing.txt' }), undefined);
+    await fs.mkdir(path.join(cwd, 'directory'));
+    assert.equal(await tree.workingFileUri({ newPath: 'directory' }), undefined);
+    await run('openCommitWorkingFile', { ...files[0], entry: {} });
+    await run('openCommitWorkingFile', { ...files[0], file: { newPath: 'base.txt' } });
+    assert.equal(openedFiles.length, 1); // Stale or forged nodes cannot open working files.
+    // The same action is available in tree layout, including nested commit folders.
+    files[0].entry.settings.layout = 'tree';
+    const nestedDetails = { ...files[0].details,
+      files: [{ status: 'M', oldPath: 'nested/file.txt', newPath: 'nested/file.txt' }] };
+    await fs.mkdir(path.join(cwd, 'nested'));
+    await fs.writeFile(path.join(cwd, 'nested/file.txt'), 'nested\n');
+    const folder = (await tree.commitFileChildren(files[0].entry, commits[0], '', nestedDetails))[0];
+    const nested = (await tree.getChildren(folder))[0];
+    assert.equal(tree.getTreeItem(nested).contextValue, 'gb-compare-file-openable');
+    await fs.unlink(path.join(cwd, 'nested/file.txt'));
+    await fs.rmdir(path.join(cwd, 'nested'));
+    await fs.rmdir(path.join(cwd, 'directory'));
+    files[0].entry.settings.layout = 'list';
     await run('openCompareDiff', files[0]);
     assert.equal(JSON.parse(diffs[0][0].query).hash, parent);
     assert.equal(JSON.parse(diffs[0][1].query).hash, mergeHash);
