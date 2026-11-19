@@ -34,7 +34,11 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   const commands = new Map(), providers = new Map(), contextKeys = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
   const tabGroups = [{ tabs: [] }, { tabs: [] }], closedTabs = [], copied = [];
-  const hoverText = item => JSON.parse(decodeURIComponent(/command:git-branch.copyDetails\?([^)]*)/.exec(item.tooltip.value)[1]))[0];
+  const hoverText = item => item.tooltip.value
+    .replace(/ \[\$\(copy\)\]\(command:git-branch.copyBranchName\?[^ ]+ "Copy branch name"\)/g, '')
+    .replace(/\\([\\`*_{}\[\]()<>#+\-.!])/g, '$1').replace(/ {2}\n/g, '\n');
+  const copyNames = item => [...item.tooltip.value.matchAll(/command:git-branch.copyBranchName\?([^ ]+)/g)]
+    .map(match => JSON.parse(decodeURIComponent(match[1]))[0]);
   let tree, diffTree, decorations, panelFocuses = 0, refreshes = 0, input, answer, trackingSelection, choose = false;
   const disposable = { dispose() {} };
   const mock = {
@@ -138,8 +142,14 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       } else assert.equal(item.iconPath, undefined);
       assert.equal(item.description, undefined); // Branch/tag names have no trailing hash.
       assert.ok(item.tooltip instanceof mock.MarkdownString);
-      assert.deepEqual(item.tooltip.isTrusted, { enabledCommands: ['git-branch.copyDetails'] });
+      assert.deepEqual(item.tooltip.isTrusted, { enabledCommands: ['git-branch.copyBranchName'] });
+      assert.equal(item.tooltip.supportThemeIcons, true);
       assert.equal(item.tooltip.supportHtml, false);
+      assert.ok(!item.tooltip.value.includes('\n\n')); // One compact paragraph, not spaced paragraphs.
+      assert.equal(item.tooltip.value.split('  \n').length, hoverText(item).split('\n').length);
+      const expectedCopyNames = node.kind === 'tag' ? [] : [node.ref];
+      if (!node.remote && node.kind !== 'tag' && node.upstream) expectedCopyNames.push(node.upstream.replace(/^refs\/(heads|remotes)\//, ''));
+      assert.deepEqual(copyNames(item), expectedCopyNames);
       assert.ok(hoverText(item).includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
       assert.ok(hoverText(item).includes(`Hash: ${node.hash}`));
       assert.ok(hoverText(item).includes(`Last commit: ${node.commitDate.replace('T', ' ')}`));
@@ -167,10 +177,13 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
     const copyItem = tree.getTreeItem({ ...selected, ref: 'feature/[Copy](command:other)' });
     assert.equal((copyItem.tooltip.value.match(/\]\(command:/g) || []).length, 1); // Only our real link is active.
-    const copyArgs = JSON.parse(decodeURIComponent(/command:git-branch.copyDetails\?([^)]*)/.exec(copyItem.tooltip.value)[1]));
-    await commands.get('git-branch.copyDetails')(...copyArgs);
-    assert.equal(copied.pop(), hoverText(copyItem));
-    await run('copyDetails', {});
+    assert.deepEqual(copyNames(copyItem), ['feature/[Copy](command:other)']);
+    await run('copyBranchName', copyNames(copyItem)[0]);
+    assert.equal(copied.pop(), 'feature/[Copy](command:other)'); // Name only, without labels or other fields.
+    const mainNames = copyNames(tree.getTreeItem(main));
+    for (const name of mainNames) await run('copyBranchName', name);
+    assert.deepEqual(copied.splice(0), ['main', 'origin/main']);
+    await run('copyBranchName', {});
     assert.equal(copied.length, 0);
     const upstreamOf = async name => (await git.branches()).branches.find(b => b.ref === `refs/heads/${name}`).upstream;
     // Native modal dialogs supply Cancel themselves; only contribute the destructive action.

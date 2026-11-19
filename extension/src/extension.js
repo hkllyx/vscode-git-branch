@@ -204,15 +204,22 @@ class BranchTreeProvider {
       item.contextValue = 'gb-diff-session';
       item.tooltip += `\nWorking Tree Diff: ${count} changed ${count === 1 ? 'file' : 'files'} (selected branch ↔ working tree)`;
     }
-    // A real link makes the native workbench hover interactive. Plain Markdown alone
-    // still hides on mouse entry. Escape repository text and trust only our copy command.
-    const details = item.tooltip;
-    const args = encodeURIComponent(JSON.stringify([details]))
-      .replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+    // Keep all fields in one Markdown paragraph with hard line breaks. appendText
+    // on a multiline string creates paragraph gaps. Only actual branch names get copy links.
     const hover = new vscode.MarkdownString();
-    hover.appendText(details);
-    hover.appendMarkdown(`\n\n[Copy](command:git-branch.copyDetails?${args})`);
-    hover.isTrusted = { enabledCommands: ['git-branch.copyDetails'] };
+    hover.supportThemeIcons = true;
+    item.tooltip.split('\n').forEach((line, index) => {
+      if (index > 0) hover.appendMarkdown('  \n');
+      hover.appendText(line);
+      const name = index === 0 && isBranchNode(element) ? (element.ref || element.label)
+        : line.startsWith('Tracking branch:') && isBranchNode(element) && !element.remote && element.upstream ? tracking : undefined;
+      if (name) {
+        const args = encodeURIComponent(JSON.stringify([name]))
+          .replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+        hover.appendMarkdown(` [$(copy)](command:git-branch.copyBranchName?${args} "Copy branch name")`);
+      }
+    });
+    hover.isTrusted = { enabledCommands: ['git-branch.copyBranchName'] };
     hover.supportHtml = false;
     item.tooltip = hover;
     return item;
@@ -430,7 +437,7 @@ function activate(context) {
 
   context.subscriptions.push(
     branchView, branchTree,
-    vscode.commands.registerCommand('git-branch.copyDetails', async text => {
+    vscode.commands.registerCommand('git-branch.copyBranchName', async text => {
       if (typeof text !== 'string' || text.length > 65536) return;
       try { await vscode.env.clipboard.writeText(text); }
       catch (err) { vscode.window.showErrorMessage(`Copy failed: ${err.message}`); }
