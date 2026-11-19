@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const { GitOperations } = require('../src/git-operations');
+const { formatGitDate } = require('../src/date-format');
 
 test('all editor commands: selected refs, cached Compare tabs, active-tab diff and lifecycle', async t => {
   const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'git-branch-workflow-'));
@@ -156,13 +157,13 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       assert.deepEqual(copyNames(item), expectedCopyNames);
       assert.ok(hoverText(item).includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
       if (node.kind === 'tag') assert.ok(hoverText(item).includes(`Hash: ${node.hash}`));
-      assert.ok(hoverText(item).includes(`Last commit: ${node.kind === 'tag' ? '' : `${node.commitAuthor} · `}${node.commitDate.replace('T', ' ')}`));
+      assert.ok(hoverText(item).includes(`Last commit: ${node.kind === 'tag' ? '' : `${node.commitAuthor} · `}${formatGitDate(node.commitDate)}`));
       if (node.kind !== 'tag') {
         assert.equal(node.commitAuthor, 'Test');
         assert.ok(!item.tooltip.value.includes(node.hash));
         assert.ok(!hoverText(item).includes('Hash:'));
         const commitLine = item.tooltip.value.split('  \n')[1];
-        assert.ok(hoverText(item).includes(`Last commit: Test · ${node.commitDate.replace('T', ' ')} · ${node.hash.slice(0, 7)}`));
+        assert.ok(hoverText(item).includes(`Last commit: Test · ${formatGitDate(node.commitDate)} · ${node.hash.slice(0, 7)}`));
         assert.ok(commitLine.endsWith(`${node.hash.slice(0, 7)} [$(copy)](command:git-branch.copyCommitHash?${encodeURIComponent(JSON.stringify([node.hash.slice(0, 7)]))} "Copy short commit hash")`));
         const link = /command:git-branch.copyCommitHash\?([^ ]+)/.exec(item.tooltip.value);
         await commands.get('git-branch.copyCommitHash')(JSON.parse(decodeURIComponent(link[1]))[0]);
@@ -319,7 +320,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     const sides = await tree.getChildren(first);
     const commits = await tree.getChildren(sides[0]);
     const commitItem = tree.getTreeItem(commits[0]);
-    assert.equal(commitItem.description, `${commits[0].commit.author} · ${commits[0].commit.date}`);
+    assert.equal(commitItem.description, `${commits[0].commit.author} · ${formatGitDate(commits[0].commit.date)}`);
     assert.equal(commitItem.iconPath.id, 'git-commit');
     assert.equal(commitItem.tooltip, undefined);
     await tree.resolveTreeItem(commitItem, commits[0], { isCancellationRequested: false });
@@ -330,7 +331,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.deepEqual(commitItem.tooltip.isTrusted, { enabledCommands: ['git-branch.copyCommitHash'] });
     assert.equal(commitItem.tooltip.supportThemeIcons, true);
     assert.ok(!commitItem.tooltip.value.includes('\n\n')); // No paragraph margins.
-    assert.ok(hoverText(commitItem).startsWith(`Test · ${commits[0].commit.date}\n\u00a0\nfeature`));
+    assert.ok(hoverText(commitItem).startsWith(`Test · ${formatGitDate(commits[0].commit.date)}\n\u00a0\nfeature`));
     assert.ok(commitItem.tooltip.value.includes('  \n\u00a0  \n2 files changed'));
     assert.ok(commitItem.tooltip.value.includes(`${feature.slice(0, 7)} [$(copy)](command:git-branch.copyCommitHash?`));
     assert.ok(!commitItem.tooltip.value.includes(`[${feature.slice(0, 7)}](`));

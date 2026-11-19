@@ -10,8 +10,10 @@ const xml = fs.readFileSync(path.join(base, 'extension.vsixmanifest'), 'utf8');
 if (!xml.includes(`Version="${manifest.version}" Publisher="${manifest.publisher}"`)) {
   throw new Error('VSIX manifest publisher/version differs from package.json');
 }
-// Refresh the ignored staging copy from authoritative source on every build.
-for (const relative of ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js', 'src/comparison-view.js']) {
+// Derive staging and ZIP entries from one list so a new runtime module cannot
+// be copied locally but accidentally omitted from the install package.
+const runtimeFiles = ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js', 'src/date-format.js'];
+for (const relative of runtimeFiles) {
   const destination = path.join(base, 'extension', relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(path.join(base, relative), destination);
@@ -20,11 +22,7 @@ const quote = value => `'${value.replace(/'/g, "''")}'`;
 const mappings = [
   ['extension.vsixmanifest', 'extension.vsixmanifest'],
   ['[Content_Types].xml', '[Content_Types].xml'],
-  ['package.json', 'extension/package.json'],
-  ['README.md', 'extension/README.md'],
-  ['src/extension.js', 'extension/src/extension.js'],
-  ['src/git-operations.js', 'extension/src/git-operations.js'],
-  ['src/comparison-view.js', 'extension/src/comparison-view.js']
+  ...runtimeFiles.map(relative => [relative, `extension/${relative}`])
 ];
 // Use Windows .NET ZIP support without installing dependencies or leaving temp directories.
 const entries = mappings.map(([source, entry]) =>

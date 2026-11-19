@@ -17,7 +17,7 @@
   "activationEvents": ["onStartupFinished"],
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node --check src/extension.js && node --check src/git-operations.js && node --check src/comparison-view.js"
+    "check": "node --check src/extension.js && node --check src/git-operations.js && node --check src/date-format.js && node --check package-vsix.js"
   },
   "contributes": {
     "commands": [

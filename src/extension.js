@@ -3,6 +3,7 @@ const vscode = require('vscode');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { GitOperations } = require('./git-operations');
+const { formatGitDate } = require('./date-format');
 // Comparisons are hosted in the native Branches tree.
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -66,14 +67,19 @@ function changeSummary(files, stats) {
     + (stats.unsupportedFiles ? `; ${stats.unsupportedFiles} submodule/special files (line counts unavailable)` : '');
 }
 
-function reverseWorktreeResult(result) {
-  return { ...result, reversed: !result.reversed,
+function reverseDiffData(result) {
+  return {
     ...(result.stats ? { stats: { ...result.stats, insertions: result.stats.deletions, deletions: result.stats.insertions } } : {}),
-    ...(!result.worktree ? { left: result.right, right: result.left } : {}),
     files: result.files.map(file => ({
-    ...file, oldPath: file.newPath, newPath: file.oldPath,
-    status: file.status === 'A' ? 'D' : file.status === 'D' ? 'A' : file.status
-  })) };
+      ...file, oldPath: file.newPath, newPath: file.oldPath,
+      status: file.status === 'A' ? 'D' : file.status === 'D' ? 'A' : file.status
+    }))
+  };
+}
+
+function reverseWorktreeResult(result) {
+  return { ...result, ...reverseDiffData(result), reversed: !result.reversed,
+    ...(!result.worktree ? { left: result.right, right: result.left } : {}) };
 }
 
 // ─── Branch Tree ────────────────────────────────────────────────────────────
@@ -178,7 +184,7 @@ class BranchTreeProvider {
     if (element.kind === 'compare-commit') {
       const item = new vscode.TreeItem(element.commit.subject, vscode.TreeItemCollapsibleState.Collapsed);
       item.id = `${element.key}:${element.parent.side}:${element.commit.hash}`;
-      item.description = `${element.commit.author} · ${element.commit.date}`;
+      item.description = `${element.commit.author} · ${formatGitDate(element.commit.date)}`;
       item.iconPath = new vscode.ThemeIcon('git-commit');
       // Full messages and file statistics are loaded lazily when the hover resolves.
       item.contextValue = 'gb-compare-commit';
@@ -256,10 +262,10 @@ class BranchTreeProvider {
     const details = [
       `${element.kind === 'tag' ? 'Tag' : 'Branch'} name: ${element.ref || element.label}`,
       ...(isBranchNode(element) ? [
-        `Last commit: ${element.commitAuthor || 'Unknown'} · ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'} · ${shortHash(element.hash) || 'Unknown'}`
+        `Last commit: ${element.commitAuthor || 'Unknown'} · ${formatGitDate(element.commitDate)} · ${shortHash(element.hash) || 'Unknown'}`
       ] : [
         `Hash: ${element.hash || 'Unknown'}`,
-        `Last commit: ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'}`
+        `Last commit: ${formatGitDate(element.commitDate)}`
       ])
     ];
     if (isBranchNode(element) && !element.remote) details.push(`Tracking branch: ${tracking}`);
@@ -331,21 +337,28 @@ class BranchTreeProvider {
     return item;
   }
 
+  commitDetailsFor(entry, hash) {
+    entry.details ||= new Map();
+    let pending = entry.details.get(hash);
+    if (!pending) {
+      pending = this.git.commitDetails(hash).catch(error => {
+        // Evict only this request; an older failure must not remove a newer retry.
+        if (entry.details.get(hash) === pending) entry.details.delete(hash);
+        throw error;
+      });
+      entry.details.set(hash, pending);
+    }
+    return pending;
+  }
+
   async resolveTreeItem(item, element, token) {
     if (element.kind !== 'compare-commit' || token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
-    element.entry.details ||= new Map();
-    let pending = element.entry.details.get(element.commit.hash);
-    if (!pending) {
-      pending = this.git.commitDetails(element.commit.hash);
-      element.entry.details.set(element.commit.hash, pending);
-    }
     let details;
-    try { details = await pending; }
+    try { details = await this.commitDetailsFor(element.entry, element.commit.hash); }
     catch (error) {
-      if (element.entry.details.get(element.commit.hash) === pending) element.entry.details.delete(element.commit.hash);
       if (token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
       const hover = new vscode.MarkdownString();
-      hover.appendText(`${element.commit.author} · ${element.commit.date}\n${element.commit.subject}\nCommit details unavailable: ${error.message}`);
+      hover.appendText(`${element.commit.author} · ${formatGitDate(element.commit.date)}\n${element.commit.subject}\nCommit details unavailable: ${error.message}`);
       item.tooltip = hover;
       return item;
     }
@@ -354,7 +367,7 @@ class BranchTreeProvider {
     hover.supportThemeIcons = true;
     // One Markdown paragraph, like branch hovers. NBSP-only spacer lines keep
     // an actual blank row without introducing Markdown paragraph margins.
-    const lines = [`${details.author} · ${details.date}`, '', ...details.message.split('\n'), '',
+    const lines = [`${details.author} · ${formatGitDate(details.date)}`, '', ...details.message.split('\n'), '',
       changeSummary(details.files, details.stats)];
     lines.forEach((line, index) => {
       if (index > 0) hover.appendMarkdown('  \n');
@@ -395,18 +408,12 @@ class BranchTreeProvider {
     }
     if (element.kind === 'compare-commit') {
       if (this.comparisons.get(element.key) !== element.entry) return [];
-      element.entry.details ||= new Map();
-      let pending = element.entry.details.get(element.commit.hash);
-      if (!pending) {
-        pending = this.git.commitDetails(element.commit.hash);
-        element.entry.details.set(element.commit.hash, pending);
-      }
       try {
-        const details = await pending;
+        const details = await this.commitDetailsFor(element.entry, element.commit.hash);
         if (this.comparisons.get(element.key) !== element.entry) return [];
         return this.diffChildren(element.entry, element, '', details);
       } catch (error) {
-        element.entry.details.delete(element.commit.hash);
+        if (this.comparisons.get(element.key) !== element.entry) return [];
         vscode.window.showErrorMessage(`Load commit failed: ${error.message}`);
         return [];
       }
@@ -595,6 +602,7 @@ function activate(context) {
       [result.selected, result.current] = [result.current, result.selected];
       [result.left, result.right] = [result.right, result.left];
       [result.ref, result.currentLabel] = [result.currentLabel, result.ref];
+      Object.assign(result, reverseDiffData(result));
     }
     const entry = { key, leftNode, rightNode, result, reversed: !!previous?.reversed,
       openedOrder: previous?.openedOrder ?? openedOrder,
@@ -870,7 +878,7 @@ function activate(context) {
       if (!entry) return;
       compareRequests.delete(entry.key);
       const result = entry.result;
-      const next = { ...entry, reversed: !entry.reversed, result: { ...result,
+      const next = { ...entry, reversed: !entry.reversed, result: { ...result, ...reverseDiffData(result),
         left: result.right, right: result.left, ref: result.currentLabel, currentLabel: result.ref,
         selected: result.current, current: result.selected } };
       branchTree.comparisons.set(entry.key, next);
@@ -1117,10 +1125,15 @@ function activate(context) {
           file: { ...f, left: comparison.left, right: comparison.right, ref: comparison.ref, rightLabel: comparison.currentLabel }
         }));
         const picked = await vscode.window.showQuickPick(items, {
-          title: `Open Diff (${comparison.ref} ↔ HEAD)`,
+          title: `Open Diff (${comparison.ref} ↔ ${comparison.currentLabel})`,
           placeHolder: 'Select a file to diff'
         });
         if (!picked) return;
+        // The picker can outlive a refresh, swap or close. Never reopen an orphaned snapshot.
+        if (![...branchTree.comparisons.values()].some(entry => entry.result === comparison)) {
+          vscode.window.showInformationMessage('Comparison changed or closed. Run Open Diff again.');
+          return;
+        }
         file = picked.file;
       }
       if (!file) return;

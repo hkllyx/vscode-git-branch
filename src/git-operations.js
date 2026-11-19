@@ -17,6 +17,9 @@ class GitOperations {
     try {
       const { stdout } = await run(this.executable, args, {
         cwd: this.cwd,
+        // Safe-delete classification relies on Git's diagnostic text. Keep it
+        // deterministic without changing the user's environment or Git config.
+        env: { ...process.env, LC_ALL: 'C', LANG: 'C' },
         encoding,
         maxBuffer: 32 * 1024 * 1024,
         timeout: 30000,
@@ -324,6 +327,13 @@ class GitOperations {
     return absolute;
   }
 
+  /** Git stores a symlink's target text, not the contents of the target file. */
+  async readWorktreeFile(file) {
+    const location = this.worktreePath(file);
+    const stat = await fs.lstat(location);
+    return stat.isSymbolicLink() ? Buffer.from(await fs.readlink(location), 'utf8') : fs.readFile(location);
+  }
+
   /** Branch snapshot versus working files, not just the index. Dirty editor buffers can override disk. */
   async worktreeCompare(ref, dirtyDocuments = []) {
     const left = await this.resolve(ref);
@@ -341,7 +351,7 @@ class GitOperations {
     for (const [name, file] of byPath) {
       if (file.status !== 'D') continue;
       try {
-        const disk = await fs.readFile(this.worktreePath(name));
+        const disk = await this.readWorktreeFile(name);
         const original = await this.exec(['show', `${left}:${name}`], 'buffer');
         byPath.delete(name);
         if (!disk.equals(original)) byPath.set(name, { status: 'M', oldPath: name, newPath: name });
@@ -354,7 +364,7 @@ class GitOperations {
       // A file deleted from the index but still on disk is untracked; compare it with the base,
       // rather than duplicating Git's deletion/addition entries or pretending the left is empty.
       if (base.has(file)) {
-        const disk = await fs.readFile(this.worktreePath(file));
+        const disk = await this.readWorktreeFile(file);
         const original = await this.exec(['show', `${left}:${file}`], 'buffer');
         byPath.delete(file);
         if (!disk.equals(original)) byPath.set(file, { status: 'M', oldPath: file, newPath: file });
@@ -470,7 +480,11 @@ class GitOperations {
   /** Validate a branch name; returns error message or undefined. */
   async validateName(name) {
     if (!name || name !== name.trim()) return 'Enter a branch name without leading/trailing spaces.';
-    try { await this.exec(['check-ref-format', '--branch', name]); } catch { return 'Invalid Git branch name.'; }
+    try { await this.exec(['check-ref-format', '--branch', name]); }
+    catch (error) {
+      if (error.code === 1 || error.code === 128) return 'Invalid Git branch name.';
+      throw error; // Missing executable, permissions or timeout is not an invalid name.
+    }
     if (name.startsWith('-') || name.includes('@{')) return 'Use a literal branch name.';
     const existing = await this.exec(['for-each-ref', '--format=%(refname)', 'refs/heads/']);
     if (existing.split(/\r?\n/).includes(`refs/heads/${name}`)) return 'A local branch with this name already exists.';

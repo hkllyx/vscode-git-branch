@@ -82,6 +82,26 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     await require('../src/extension').activate(context);
     const run = (id, ...args) => commands.get(`git-branch.${id}`)(...args);
     const roots = await tree.getChildren();
+    const originalDetails = tree.git.commitDetails;
+    const cacheEntry = {};
+    let detailRequests = 0, rejectDetails;
+    tree.git.commitDetails = () => {
+      detailRequests++;
+      return new Promise((resolve, reject) => { rejectDetails = reject; });
+    };
+    try {
+      const hoverRequest = tree.commitDetailsFor(cacheEntry, base);
+      const expandRequest = tree.commitDetailsFor(cacheEntry, base);
+      assert.equal(hoverRequest, expandRequest);
+      assert.equal(detailRequests, 1);
+      const failed = Promise.allSettled([hoverRequest, expandRequest]);
+      rejectDetails(new Error('temporary details failure'));
+      assert.ok((await failed).every(result => result.status === 'rejected'));
+      assert.equal(cacheEntry.details.has(base), false);
+      tree.git.commitDetails = async () => { detailRequests++; return { hash: base }; };
+      assert.deepEqual(await tree.commitDetailsFor(cacheEntry, base), { hash: base });
+      assert.equal(detailRequests, 2);
+    } finally { tree.git.commitDetails = originalDetails; }
     const local = name => roots[0].children.find(node => node.ref === name);
     const left = local('left'), right = local('right');
     view.selection = [local('rename-me')]; onSelection({ selection: view.selection });
@@ -135,15 +155,40 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     const commitTab = tabs.at(-1);
     assert.equal(JSON.parse(commitTab.input.original.query).hash, base);
     assert.equal(JSON.parse(commitTab.input.modified.query).hash, leftHash);
+    const beforeSwap = session.entry.result;
     await run('swapCompare', session);
     session = (await tree.getChildren(group))[0];
     assert.equal(tree.getTreeItem(session).label, 'right ↔ left');
+    assert.deepEqual(session.entry.result.stats, { ...beforeSwap.stats,
+      insertions: beforeSwap.stats.deletions, deletions: beforeSwap.stats.insertions });
+    assert.equal(session.entry.result.files.find(file => file.oldPath === 'only-right.txt').status, 'D');
+    mock.window.showQuickPick = async (items, options) => {
+      assert.equal(options.title, 'Open Diff (right ↔ left)');
+      return items.find(item => item.label === 'only-right.txt');
+    };
+    await run('openDiff');
+    const aggregateTab = tabs.at(-1);
+    assert.equal(JSON.parse(aggregateTab.input.original.query).hash, rightHash);
+    assert.equal(JSON.parse(aggregateTab.input.original.query).file, 'only-right.txt');
+    assert.equal(JSON.parse(aggregateTab.input.modified.query).file, null);
     sides = await tree.getChildren(session); commits = await tree.getChildren(sides[0]);
     assert.equal(commits[0].commit.hash, rightHash);
     assert.ok(tabs.includes(commitTab)); // Commit changes retain parent → commit direction.
     await run('refreshCompare', session);
     session = (await tree.getChildren(group))[0];
     assert.equal(tree.getTreeItem(session).label, 'right ↔ left');
+    assert.deepEqual(session.entry.result.stats, { ...beforeSwap.stats,
+      insertions: beforeSwap.stats.deletions, deletions: beforeSwap.stats.insertions });
+    assert.equal(session.entry.result.files.find(file => file.oldPath === 'only-right.txt').status, 'D');
+    const openCount = tabs.length;
+    mock.window.showQuickPick = async items => {
+      await run('closeCompare', session);
+      return items[0];
+    };
+    await run('openDiff');
+    assert.equal(tabs.length, 0); // A picker cannot reopen a closed comparison.
+    assert.ok(openCount > 0);
+    assert.ok(messages.includes('Comparison changed or closed. Run Open Diff again.'));
     await run('closeCompare', session);
     assert.equal(tabs.length, 0);
     assert.ok(!(await tree.getChildren()).some(node => node.comparisonsGroup));

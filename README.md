@@ -14,26 +14,26 @@
 本地／远程分支统一用原生 `git-branch` 图标；Tags 分组和标签项都用 `tag`；Remote 分组与 origin 等远程名都用 `cloud`；Local 分组用 `repo`。Comparisons 分组用 `compare-changes`，文件 Show Diff 项用 `diff-multiple`，提交历史 Branch Compare 项用 `git-compare`，提交用 `git-commit`。所有图标均使用 VS Code 内置 ThemeIcon／Codicon，不使用或打包自定义 SVG；样式、大小及默认颜色由编辑器统一控制，适配明暗主题、选中状态和产品图标主题。文件／目录保留原有图标和状态标识。保留当前分支图标的主题黄色高亮、Left／Right 来源的主题区分色，不高亮分支名称。保留展开箭头及右侧按钮，分支／标签名后不显示 hash。
 当前分支由本地 HEAD 判断；detached HEAD 不标记当前分支。默认主分支不再使用独立的星星或组合标记。
 Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显示创建按钮和「…」更多菜单；Create / Create and Checkout 通过分支右键或命令面板使用。
-分支悬浮提示显示名称、最后提交和追踪分支；Last commit 同一行显示 `提交人 · 提交时间 · 7 位短 hash`，时间含时区偏移，短 hash 后显示复制图标，点击仅复制短 hash，不单独显示 Hash 行。本地分支未配置追踪时明确标注，远程分支／标签不显示 Tracking branch 行。标签保持显示完整 hash 和时间，附注标签的 hash 和时间取其对应提交。不再显示 Current branch／Default branch；Tracking status 仅显示 ahead／behind 数量，不重复跟踪分支名和说明。分支、标签与 Diff 会话使用原生 Markdown 悬浮框，各字段紧凑换行，不使用段落间距。分支名称和已配置的跟踪分支名称行尾也显示复制图标，各自只复制对应分支名，不复制字段标签或整段信息；不适用／未配置的跟踪项不显示复制图标，也没有底部 Copy 行。带复制链接的悬浮框支持鼠标移入；仓库文字经过转义，仅授权内部复制命令，不使用 WebView。
+分支悬浮提示显示名称、最后提交和追踪分支；Last commit 同一行显示 `提交人 · 提交时间 · 7 位短 hash`，时间统一为 `yyyy-MM-dd HH:mm:ss`，不显示 T 或时区后缀，保留 Git 记录中的年月日时分秒，不换算时区；短 hash 后显示复制图标，点击仅复制短 hash，不单独显示 Hash 行。本地分支未配置追踪时明确标注，远程分支／标签不显示 Tracking branch 行。标签保持显示完整 hash 和时间，附注标签的 hash 和时间取其对应提交。不再显示 Current branch／Default branch；Tracking status 仅显示 ahead／behind 数量，不重复跟踪分支名和说明。分支、标签与 Diff 会话使用原生 Markdown 悬浮框，各字段紧凑换行，不使用段落间距。分支名称和已配置的跟踪分支名称行尾也显示复制图标，各自只复制对应分支名，不复制字段标签或整段信息；不适用／未配置的跟踪项不显示复制图标，也没有底部 Copy 行。带复制链接的悬浮框支持鼠标移入；仓库文字经过转义，仅授权内部复制命令，不使用 WebView。
 本地分支名后显示与其配置的跟踪分支之间的提交差异，例如 `1↓ 2↑` 表示落后 1 个、领先 2 个提交，使用普通描述文字，不加颜色。仅显示非零方向；同步、无跟踪配置时隐藏数字。跟踪引用在本地缺失时不伪装为同步，悬浮提示计数不可用。计算依据本地保存的引用（也支持跟踪本地分支），不自动 fetch；fetch／pull／push 后可刷新查看。远程分支、标签和 Diff 会话不显示该计数。
 
 ### 右键菜单
 
 远程 Checkout 先 fetch 所选分支（失败则直接报错，不使用旧引用）。优先使用远程分支的同名本地分支，并更新其跟踪配置；不会改动其他名称的跟踪分支。本地分支若含有远程没有的提交，弹窗显示 **Drop Local Commits**／**Cancel**：前者丢弃这些本地提交、重置到刚 fetch 的远程提交并检出；后者或关闭弹窗则不改动本地分支、不检出。仅落后或已经同步时无需确认。存在未提交的工作区修改时要求先提交或 stash，不会强制丢弃文件修改；其他 worktree 占用目标分支时直接报错。
 
-| 命令                        | 说明                                                   |
-| --------------------------- | ------------------------------------------------------ |
+| 命令                        | 说明                                                            |
+| --------------------------- | --------------------------------------------------------------- |
 | Update (Fetch & Pull)       | 单选／多选更新：本地按跟踪分支 Fetch 后仅快进，远程分支仅 Fetch |
-| Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支 |
-| Create                      | 有指定分支／标签时从它创建；没有则默认当前分支，不切换 |
-| Create and Checkout         | 使用相同起点创建新分支，并检出新分支                   |
-| Set Tracking                | 设置本地分支的跟踪分支，或选择 No Tracking 取消跟踪    |
-| Merge into Current          | 将选中分支合并到当前分支                               |
-| Rebase Current onto Target  | 将当前分支变基到选中分支                               |
-| Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异                 |
-| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）         |
-| Rename                      | 重命名本地分支（含校验和二次确认）                     |
-| Delete                      | 先安全删除；未合并时可确认 Force Delete                |
+| Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支        |
+| Create                      | 有指定分支／标签时从它创建；没有则默认当前分支，不切换          |
+| Create and Checkout         | 使用相同起点创建新分支，并检出新分支                            |
+| Set Tracking                | 设置本地分支的跟踪分支，或选择 No Tracking 取消跟踪             |
+| Merge into Current          | 将选中分支合并到当前分支                                        |
+| Rebase Current onto Target  | 将当前分支变基到选中分支                                        |
+| Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异                          |
+| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）                  |
+| Rename                      | 重命名本地分支（含校验和二次确认）                              |
+| Delete                      | 先安全删除；未合并时可确认 Force Delete                         |
 
 ### 创建与跟踪分支
 
@@ -51,7 +51,7 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 
 - Compare 结果在 **Branches → Comparisons** 原生树中显示，不打开 WebView；与文件比较共用外层分组，各会话独立。
 - 默认方案 A：每个会话下有 `Left only`、`Right only` 两组，描述显示 `N commits`，名称与描述之间不加分隔点，分别显示左／右独有提交；悬浮显示完整来源分支名和数量。共同提交不显示，独有提交为零的一侧不显示；两侧均为零时仅显示 `No differences`，与文件比较一致。两组用主题绿色／主题修改色分支图标辅助区分，不依赖颜色辨认。来源行保留短名称，避免长分支名挤占提交数量。
-- 提交行用 Commit 图标，右侧简要信息为 `提交人 · 提交时间`（保持 ISO 时间及原时区），不显示短 hash。原生悬浮依次显示：提交人及时间、完整 Commit 消息（保留正文换行）、`N files changed, X insertions(+), Y deletions(-)`、普通文本短 hash 及其后方的复制图标。行距与分支悬浮一致，Commit 消息前后各保留一行空白，统计与 hash 紧凑换行，不使用 Markdown 段落外边距。点击复制图标仅复制短 hash；仓库文字经过 Markdown 转义，仅授权内部复制命令。悬浮及展开文件共享按需加载的详情缓存；失败明确显示详情不可用，不伪造统计。
+- 提交行用 Commit 图标，右侧简要信息为 `提交人 · 提交时间`（统一 `yyyy-MM-dd HH:mm:ss`，不含 T／时区后缀，不换算原记录时间），不显示短 hash。原生悬浮依次显示：提交人及时间、完整 Commit 消息（保留正文换行）、`N files changed, X insertions(+), Y deletions(-)`、普通文本短 hash 及其后方的复制图标。行距与分支悬浮一致，Commit 消息前后各保留一行空白，统计与 hash 紧凑换行，不使用 Markdown 段落外边距。点击复制图标仅复制短 hash；仓库文字经过 Markdown 转义，仅授权内部复制命令。悬浮及展开文件共享按需加载的详情缓存；失败明确显示详情不可用，不伪造统计。
 - 展开提交按需读取文件列表，文件后显示 M／A／D／R 等状态；点击打开固定（非预览）的原生文件 Diff Tab。
 - 单提交文件 Diff 固定为 **第一个父提交 → 当前提交**；根提交缺失侧为空。交换比较分支只交换来源分组、两侧历史和会话标签，不反转提交自身的变更含义，已打开的单提交 Tab 也保持父 → 提交。
 - 每侧初始加载最多 200 个提交，更多时显示 Load more commits；展开文件时才读取提交详情。
