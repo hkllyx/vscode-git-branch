@@ -163,26 +163,28 @@ test('checkout accepts actual tree nodes and rejects missing refs before executi
   await git.exec(['remote', 'add', 'origin', cwd]);
   await git.exec(['config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']);
   const hash = await git.resolve('HEAD');
-  await git.exec(['update-ref', 'refs/remotes/origin/feature/remote', hash]);
+    await git.create('feature/remote');
+    await git.exec(['update-ref', 'refs/remotes/origin/feature/remote', hash]);
   await git.checkout({ kind: 'branch', label: 'feature/remote', ref: 'origin/feature/remote', remote: true });
   assert.equal(await git.current(), 'feature/remote');
   assert.equal((await git.exec(['config', 'branch.feature/remote.remote'])).trim(), 'origin');
   await git.checkout({ ref: 'main', remote: false });
   await git.checkout({ ref: 'origin/feature/remote', remote: true });
   assert.equal(await git.current(), 'feature/remote'); // Reuse tracking branch, do not recreate.
-  await git.exec(['update-ref', 'refs/remotes/origin/full-ref', hash]);
+    await git.create('full-ref');
+    await git.exec(['update-ref', 'refs/remotes/origin/full-ref', hash]);
   await git.checkout({ ref: 'refs/remotes/origin/full-ref', remote: true });
   assert.equal(await git.current(), 'full-ref');
   await git.exec(['update-ref', 'refs/remotes/origin/main', hash]);
-  await assert.rejects(git.checkout({ ref: 'origin/main', remote: true }), /already exists/);
-  assert.equal(await git.current(), 'full-ref'); // Never overwrite unrelated local main.
-  await git.create('second-tracker');
-  await git.exec(['config', 'branch.second-tracker.remote', 'origin']);
-  await git.exec(['config', 'branch.second-tracker.merge', 'refs/heads/feature/remote']);
-  await assert.rejects(git.checkout({ ref: 'origin/feature/remote', remote: true }), /Multiple local branches/);
-  assert.equal(await git.current(), 'full-ref');
-  await assert.rejects(git.checkout({ ref: 'missing', remote: false }));
-  assert.equal(await git.current(), 'full-ref');
+    await git.checkout({ ref: 'origin/main', remote: true });
+    assert.equal(await git.current(), 'main'); // Same-name branch is updated and tracked.
+    await git.create('second-tracker');
+    await git.exec(['config', 'branch.second-tracker.remote', 'origin']);
+    await git.exec(['config', 'branch.second-tracker.merge', 'refs/heads/feature/remote']);
+    await git.checkout({ ref: 'origin/feature/remote', remote: true });
+    assert.equal(await git.current(), 'feature/remote'); // Prefer same-name over other trackers.
+    await assert.rejects(git.checkout({ ref: 'missing', remote: false }));
+    assert.equal(await git.current(), 'feature/remote');
   const invalid = new GitOperations(cwd);
   let executed = false;
   invalid.exec = async () => { executed = true; };

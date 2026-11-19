@@ -114,23 +114,45 @@ class GitOperations {
   }
 
   /** Checkout accepts tree nodes (ref) and repository branch records (ref/name). */
-  async checkout(branch) {
+  async checkout(branch, confirmOverwrite) {
     const ref = branch?.ref || branch?.name;
     if (typeof ref !== 'string' || !ref.trim() || ref.startsWith('-')) {
       throw new Error('Select a valid branch to check out.');
     }
     if (branch.remote) {
       const qualified = ref.startsWith('refs/remotes/') ? ref : `refs/remotes/${ref}`;
-      await this.exec(['show-ref', '--verify', qualified]);
-      const locals = await this.exec(['for-each-ref', '--format=%(refname)%09%(upstream)', 'refs/heads/']);
-      const tracking = locals.split(/\r?\n/).filter(Boolean).map(line => line.split('\t'))
-        .filter(([, upstream]) => upstream === qualified);
-      if (tracking.length > 1) throw new Error('Multiple local branches track this remote. Check out the desired Local branch.');
-      if (tracking.length === 1) {
-        await this.exec(['switch', '--', tracking[0][0].slice('refs/heads/'.length)]);
-      } else {
-        await this.exec(['switch', '--track', '--', qualified]);
-      }
+        const remoteRef = qualified.slice('refs/remotes/'.length);
+        const remotes = (await this.exec(['remote'])).trim().split(/\r?\n/).filter(Boolean)
+          .sort((a, b) => b.length - a.length);
+        const remote = remotes.find(name => remoteRef.startsWith(`${name}/`));
+        if (!remote) throw new Error('The selected remote is not configured. Refresh the branch list.');
+        const name = remoteRef.slice(remote.length + 1);
+        if (!name || name.startsWith('-') || name.includes('@{')) throw new Error('Invalid remote branch name.');
+        await this.exec(['check-ref-format', '--branch', name]);
+        // Explicit refspec refreshes just this branch, including a rewritten remote history.
+        // Fetch failure must never fall back to an old remote-tracking ref.
+        await this.exec(['fetch', '--no-tags', '--', remote, `+refs/heads/${name}:${qualified}`]);
+        const remoteHash = await this.resolve(qualified);
+        const localRef = `refs/heads/${name}`;
+        const localRecord = (await this.exec(['for-each-ref', '--format=%(refname)%09%(objectname)', localRef]))
+          .split(/\r?\n/).map(line => line.split('\t')).find(([ref]) => ref === localRef);
+        const localHash = localRecord?.[1];
+        if (localHash) {
+          const count = Number((await this.exec(['rev-list', '--count', `${remoteHash}..${localHash}`])).trim());
+          if (count > 0 && await confirmOverwrite?.({ name, remote: remoteRef, count }) !== true) return false;
+          // Revalidate after an asynchronous confirmation; never drop newly added commits.
+          if (await this.resolve(localRef) !== localHash || await this.resolve(qualified) !== remoteHash) {
+            throw new Error('Branch changed during checkout. Please try again.');
+          }
+        }
+        // Dropping commits is not permission to discard uncommitted files.
+        if ((await this.exec(['status', '--porcelain'])).trim()) {
+          throw new Error('Commit or stash your working tree changes before checking out a remote branch.');
+        }
+        // Transactional switch: if another worktree owns this branch, Git refuses without resetting it.
+        await this.exec(['switch', '-C', name, remoteHash]);
+        await this.exec(['branch', `--set-upstream-to=${qualified}`, '--', name]);
+        return name;
     } else {
       const name = ref.replace(/^refs\/heads\//, '');
       await this.exec(['show-ref', '--verify', `refs/heads/${name}`]);

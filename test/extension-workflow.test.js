@@ -195,6 +195,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.match(messages.pop(), /Create branch failed:/);
     await run('checkout', selected); assert.equal(await git.current(), 'feature/test');
     await run('checkout', main); assert.equal(await git.current(), 'main');
+    await git.create('remote/test', feature); // Actual server ref for the required fetch (self-hosted test remote).
     await run('checkout', remote); assert.equal(await git.current(), 'remote/test');
     await run('checkout', main); await run('checkout', remote); // Existing tracking branch.
     assert.equal(await git.current(), 'remote/test'); await run('checkout', main);

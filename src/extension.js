@@ -441,10 +441,24 @@ function activate(context) {
         return;
       }
       try {
-        await configureGitExecutable(git);
-        await git.checkout(node);
-        branchTree.refresh();
-        vscode.window.showInformationMessage(`Checked out: ${node.label}`);
+          await configureGitExecutable(git);
+          const repositoryPath = path.resolve(git.cwd);
+          if (node.remote && vscode.workspace.textDocuments?.some(document => {
+            if (!document.isDirty || document.uri.scheme !== 'file') return false;
+            const relative = path.relative(repositoryPath, document.uri.fsPath);
+            return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative));
+          })) throw new Error('Save or revert your unsaved editor changes before checking out a remote branch.');
+          const result = await git.checkout(node, async ({ name, remote, count }) => {
+            const choice = await vscode.window.showWarningMessage(
+              `Local branch '${name}' has ${count} commit(s) not in '${remote}'. Drop these local commits and check out the fetched remote version?`,
+              { modal: true, detail: 'Drop Local Commits resets the local branch to the remote commit. Uncommitted file changes are not discarded.' },
+              'Drop Local Commits', 'Cancel'
+            );
+            return choice === 'Drop Local Commits';
+          });
+          branchTree.refresh();
+          if (result === false) return;
+          vscode.window.showInformationMessage(`Checked out: ${result || node.label}`);
       } catch (err) {
         vscode.window.showErrorMessage(`Checkout failed: ${err.message}`);
       }
