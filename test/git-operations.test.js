@@ -197,6 +197,15 @@ test('checkout accepts actual tree nodes and rejects missing refs before executi
 test('manifest: commands, views, menus are wired', async () => {
   const manifest = require('../package.json');
   const cmds = manifest.contributes.commands.map(c => c.command);
+  for (const command of ['git-branch.closeCompare', 'git-branch.closeWorktree']) {
+    const item = manifest.contributes.commands.find(c => c.command === command);
+    assert.deepEqual(item.icon, { light: 'media/close-small-light.svg', dark: 'media/close-small.svg' });
+    for (const asset of Object.values(item.icon)) {
+      const svg = await fs.readFile(path.join(__dirname, '..', asset), 'utf8');
+      assert.match(svg, /viewBox="0 0 16 16"/);
+      assert.match(svg, /m4\.5 4\.5 7 7m0-7-7 7/);
+    }
+  }
   for (const item of manifest.contributes.commands) {
     assert.ok(!item.title.includes('...') && !item.title.includes('…'));
     assert.ok(!/\bBranches?\b/i.test(item.title));
@@ -253,12 +262,13 @@ test('manifest: commands, views, menus are wired', async () => {
     assert.equal(base.group, current.group); // Same slot so the ✓ variant replaces the base in place.
     assert.ok(base.when.startsWith('!('));
     assert.ok(current.when.startsWith('viewItem =~'));
-    // Leading text cell: ✓ (U+2713) for the current item; a trim-protected figure space (U+2060 + U+2007) for the rest, so labels align.
+    // Left-align the full title, treating ✓ as text, without placeholder padding.
     const baseCmd = manifest.contributes.commands.find(c => c.command === `git-branch.${id}`);
     const currentCmd = manifest.contributes.commands.find(c => c.command === `git-branch.${id}.current`);
-    assert.ok(baseCmd.title.startsWith('\u2060\u2007 '));
+    assert.equal(baseCmd.title, baseCmd.title.trimStart());
+    assert.doesNotMatch(baseCmd.title, /[\u2060\u2007]/);
     assert.ok(currentCmd.title.startsWith('\u2713 '));
-    assert.equal(baseCmd.title.slice(3), currentCmd.title.slice(2)); // Same label text after the leading cell.
+    assert.equal(baseCmd.title, currentCmd.title.slice(2));
     assert.equal(baseCmd.icon, undefined); // This dropdown does not render command codicons.
     assert.equal(currentCmd.icon, undefined);
     // Both variants are menu-only; keep them out of the command palette.
