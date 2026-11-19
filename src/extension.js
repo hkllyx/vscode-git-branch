@@ -207,7 +207,7 @@ class BranchTreeProvider {
       item.contextValue = element.diffGroup ? 'gb-diff-group' : 'gb-category';
       if (element.diffGroup) {
         item.id = 'worktree-diff-group';
-        item.tooltip = 'Working Tree comparisons. Use the ⋯ button to change layout and sorting.';
+        item.tooltip = 'File comparisons. Use the ⋯ button to change layout and sorting.';
       }
       return item;
     }
