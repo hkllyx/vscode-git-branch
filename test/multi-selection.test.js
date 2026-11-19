@@ -117,7 +117,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     let session = (await tree.getChildren(group))[0];
     assert.equal(tree.getTreeItem(session).label, 'left ↔ right');
     assert.equal(tree.getTreeItem(session).iconPath.id, 'git-compare');
-    assert.equal(tree.getTreeItem(group).iconPath.id, 'layers');
+    assert.equal(path.basename(tree.getTreeItem(group).iconPath.dark.fsPath), 'comparisons-group.svg');
     let sides = await tree.getChildren(session);
     assert.ok(sides.every(side => tree.getTreeItem(side).iconPath.id === 'git-branch'));
     assert.deepEqual(sides.map(node => node.history.total), [1, 1]);
@@ -186,7 +186,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(tree.getTreeItem(diffSession).label, 'left ↔ right');
     assert.equal(path.basename(tree.getTreeItem(diffSession).iconPath.dark.fsPath), 'branch-diff.svg');
     assert.equal(path.basename(tree.getTreeItem(diffSession).iconPath.light.fsPath), 'branch-diff-light.svg');
-    assert.equal(tree.getTreeItem(diffRoot).iconPath.id, 'layers');
+    assert.equal(path.basename(tree.getTreeItem(diffRoot).iconPath.dark.fsPath), 'comparisons-group.svg');
     let diffFiles = await tree.getChildren(diffSession);
     const added = diffFiles.find(node => node.file.newPath === 'only-right.txt');
     assert.equal(added.file.status, 'A');

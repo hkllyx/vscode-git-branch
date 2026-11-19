@@ -129,8 +129,15 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let selected = roots[0].children.find(n => n.ref === 'feature/test');
     assert.equal(tree.getTreeItem(main).contextValue, 'gb-current');
     assert.equal(tree.getTreeItem(selected).contextValue, 'gb-local');
-    for (const [group, icon] of [[roots[0], 'repo'], [roots[1], 'globe'], [roots[2], 'folder'], [roots[1].children[0], 'remote']]) {
+    for (const [group, icon] of [[roots[0], 'repo'], [roots[1].children[0], 'cloud']]) {
       assert.equal(tree.getTreeItem(group).iconPath.id, icon);
+    }
+    for (const [group, name] of [[roots[1], 'remote-group'], [roots[2], 'tags-group']]) {
+      const icon = tree.getTreeItem(group).iconPath;
+      assert.equal(path.basename(icon.dark.fsPath), `${name}.svg`);
+      assert.equal(path.basename(icon.light.fsPath), `${name}-light.svg`);
+      await fs.access(icon.dark.fsPath);
+      await fs.access(icon.light.fsPath);
     }
     let remote = roots[1].children[0].children[0];
     const tag = roots[2].children[0];
@@ -308,7 +315,9 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('compare', selected);
     const compareRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
     const first = (await tree.getChildren(compareRoot))[0];
-    assert.equal(tree.getTreeItem(compareRoot).iconPath.id, 'layers');
+    assert.equal(path.basename(tree.getTreeItem(compareRoot).iconPath.dark.fsPath), 'comparisons-group.svg');
+    await fs.access(tree.getTreeItem(compareRoot).iconPath.dark.fsPath);
+    await fs.access(tree.getTreeItem(compareRoot).iconPath.light.fsPath);
     assert.equal(tree.getTreeItem(first).iconPath.id, 'git-compare');
     assert.notEqual(tree.getTreeItem(compareRoot).iconPath.id, tree.getTreeItem(first).iconPath.id);
     assert.equal(first.entry.result.left, feature);

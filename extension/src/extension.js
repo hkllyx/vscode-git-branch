@@ -11,6 +11,13 @@ function shortHash(hash) {
   return hash ? hash.slice(0, 7) : '';
 }
 
+function themedSvgIcon(name) {
+  return {
+    light: vscode.Uri.file(path.join(__dirname, '..', 'media', `${name}-light.svg`)),
+    dark: vscode.Uri.file(path.join(__dirname, '..', 'media', `${name}.svg`))
+  };
+}
+
 function isBranchNode(node) {
   return node?.kind === 'branch' && typeof node.ref === 'string' && !!node.ref &&
     typeof node.remote === 'boolean';
@@ -230,9 +237,10 @@ class BranchTreeProvider {
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = element.comparisonsGroup ? 'gb-comparisons-group' : 'gb-category';
-      // Collection icons differ from the concrete entries directly below them.
-      item.iconPath = new vscode.ThemeIcon(element.comparisonsGroup ? 'layers'
-        : element.label === 'Tags' ? 'folder' : element.label === 'Remote' ? 'globe' : 'repo');
+      // Parent collections share their children's visual language with layered detail.
+      item.iconPath = element.comparisonsGroup ? themedSvgIcon('comparisons-group')
+        : element.label === 'Tags' ? themedSvgIcon('tags-group')
+        : element.label === 'Remote' ? themedSvgIcon('remote-group') : new vscode.ThemeIcon('repo');
       if (element.comparisonsGroup) {
         item.id = 'comparisons-group';
         item.tooltip = 'File and commit comparisons';
@@ -242,7 +250,7 @@ class BranchTreeProvider {
     if (element.kind === 'remote-group') {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = 'gb-remote-group';
-      item.iconPath = new vscode.ThemeIcon('remote');
+      item.iconPath = new vscode.ThemeIcon('cloud');
       return item;
     }
     // Each compared branch independently expands to its working-tree differences.
@@ -293,10 +301,7 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
       item.label = `${leftLabel} ↔ ${rightLabel}`;
-      item.iconPath = {
-        light: vscode.Uri.file(path.join(__dirname, '..', 'media', 'branch-diff-light.svg')),
-        dark: vscode.Uri.file(path.join(__dirname, '..', 'media', 'branch-diff.svg'))
-      };
+      item.iconPath = themedSvgIcon('branch-diff');
       item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;
