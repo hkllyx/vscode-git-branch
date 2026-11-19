@@ -12,7 +12,7 @@ if (!xml.includes(`Version="${manifest.version}" Publisher="${manifest.publisher
 }
 // Refresh the tracked staging copy from authoritative source on every build.
 for (const relative of ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js', 'src/comparison-view.js', 'media/branch-diff.svg',
-  'media/current-branch.svg', 'media/primary-branch.svg', 'media/current-primary.svg']) {
+  'media/branch-diff-light.svg', 'media/current-branch.svg', 'media/primary-branch.svg', 'media/current-primary.svg']) {
   const destination = path.join(base, 'extension', relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(path.join(base, relative), destination);
@@ -27,6 +27,7 @@ const mappings = [
   ['src/git-operations.js', 'extension/src/git-operations.js'],
   ['src/comparison-view.js', 'extension/src/comparison-view.js'],
   ['media/branch-diff.svg', 'extension/media/branch-diff.svg'],
+  ['media/branch-diff-light.svg', 'extension/media/branch-diff-light.svg'],
   ['media/current-branch.svg', 'extension/media/current-branch.svg'],
   ['media/primary-branch.svg', 'extension/media/primary-branch.svg'],
   ['media/current-primary.svg', 'extension/media/current-primary.svg']

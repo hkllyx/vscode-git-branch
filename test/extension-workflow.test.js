@@ -404,7 +404,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let children = await tree.getChildren(worktreeBranch);
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session-list-path');
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
-    assert.equal(tree.getTreeItem(worktreeBranch).iconPath.id, 'diff');
+    assert.equal(path.basename(tree.getTreeItem(worktreeBranch).iconPath.dark.fsPath), 'branch-diff.svg');
+    assert.equal(path.basename(tree.getTreeItem(worktreeBranch).iconPath.light.fsPath), 'branch-diff-light.svg');
     assert.equal(tree.getTreeItem(worktreeBranch).description, '· 1 file');
     assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\n1 file changed, 1 insertions(+), 1 deletions(-)`);
     assert.deepEqual(copyNames(tree.getTreeItem(worktreeBranch)), [worktreeBranch.ref]);
@@ -460,7 +461,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(hoverText(tree.getTreeItem(remote)), `Left: ${remote.ref}\nRight: Working Tree\n${remoteCount} files changed, ${remoteStats.insertions} insertions(+), ${remoteStats.deletions} deletions(-)`);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session-list-path');
-      assert.equal(tree.getTreeItem(branch).iconPath.id, 'diff');
+      assert.equal(path.basename(tree.getTreeItem(branch).iconPath.dark.fsPath), 'branch-diff.svg');
       assert.match(tree.getTreeItem(branch).label, / ↔ Working Tree$/);
       assert.match(tree.getTreeItem(branch).description, /^· \d+ files?$/);
     }

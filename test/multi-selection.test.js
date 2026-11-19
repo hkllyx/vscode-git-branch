@@ -183,7 +183,8 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     const diffRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
     const diffSession = (await tree.getChildren(diffRoot))[0];
     assert.equal(tree.getTreeItem(diffSession).label, 'left ↔ right');
-    assert.equal(tree.getTreeItem(diffSession).iconPath.id, 'diff');
+    assert.equal(path.basename(tree.getTreeItem(diffSession).iconPath.dark.fsPath), 'branch-diff.svg');
+    assert.equal(path.basename(tree.getTreeItem(diffSession).iconPath.light.fsPath), 'branch-diff-light.svg');
     assert.equal(tree.getTreeItem(diffRoot).iconPath.id, 'layers');
     let diffFiles = await tree.getChildren(diffSession);
     const added = diffFiles.find(node => node.file.newPath === 'only-right.txt');

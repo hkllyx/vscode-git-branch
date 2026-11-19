@@ -11,7 +11,7 @@
 - **Tags** — 标签列表
 - **Comparisons** — 文件与提交比较统一分组；比较名后显示 `· N files` 或 `· N commits`（数量为 1 时用单数），独立展开，没有会话时隐藏。只合并外层，不添加 Files／Commits 中间层
 
-本地／远程分支统一用 `git-branch` 图标；Tag 用普通、不高亮的 `tag` 标签图标；文件 Diff 比较项用 `diff`，提交历史 Branch Compare 项用 `git-compare`，不展开也可区分两种比较；提交用 `git-commit`。父级分组与子项使用不同图标：Local 用 `repo`，Remote 用 `globe`、origin 等远程名用 `remote`，Tags 分组用 `folder`、标签项用 `tag`，Comparisons 分组用 `layers`。文件／目录保留原有图标和状态标识。使用原生 ThemeIcon，尺寸与树行一致；只高亮当前分支图标，不高亮名称。保留展开箭头及右侧按钮，分支／标签名后不显示 hash。
+本地／远程分支统一用 `git-branch` 图标；Tag 用普通、不高亮的 `tag` 标签图标；文件 Diff 比较项用 16px「文本行＋双向箭头」SVG 图标（无底色，浅色／深色主题分别适配），提交历史 Branch Compare 项用 `git-compare`，不展开也可区分两种比较；提交用 `git-commit`。父级分组与子项使用不同图标：Local 用 `repo`，Remote 用 `globe`、origin 等远程名用 `remote`，Tags 分组用 `folder`、标签项用 `tag`，Comparisons 分组用 `layers`。文件／目录保留原有图标和状态标识。除文件 Diff 自定义图标外使用原生 ThemeIcon，尺寸与树行一致；只高亮当前分支图标，不高亮名称。保留展开箭头及右侧按钮，分支／标签名后不显示 hash。
 当前分支由本地 HEAD 判断；detached HEAD 不标记当前分支。默认主分支不再使用独立的星星或组合标记。
 Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显示创建按钮和「…」更多菜单；Create / Create and Checkout 通过分支右键或命令面板使用。
 分支悬浮提示显示名称、最后提交和追踪分支；Last commit 同一行显示 `提交人 · 提交时间 · 7 位短 hash`，时间含时区偏移，短 hash 后显示复制图标，点击仅复制短 hash，不单独显示 Hash 行。本地分支未配置追踪时明确标注，远程分支／标签不显示 Tracking branch 行。标签保持显示完整 hash 和时间，附注标签的 hash 和时间取其对应提交。不再显示 Current branch／Default branch；Tracking status 仅显示 ahead／behind 数量，不重复跟踪分支名和说明。分支、标签与 Diff 会话使用原生 Markdown 悬浮框，各字段紧凑换行，不使用段落间距。分支名称和已配置的跟踪分支名称行尾也显示复制图标，各自只复制对应分支名，不复制字段标签或整段信息；不适用／未配置的跟踪项不显示复制图标，也没有底部 Copy 行。带复制链接的悬浮框支持鼠标移入；仓库文字经过转义，仅授权内部复制命令，不使用 WebView。

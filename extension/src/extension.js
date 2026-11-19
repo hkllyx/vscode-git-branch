@@ -293,7 +293,10 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
       item.label = `${leftLabel} ↔ ${rightLabel}`;
-      item.iconPath = new vscode.ThemeIcon('diff');
+      item.iconPath = {
+        light: vscode.Uri.file(path.join(__dirname, '..', 'media', 'branch-diff-light.svg')),
+        dark: vscode.Uri.file(path.join(__dirname, '..', 'media', 'branch-diff.svg'))
+      };
       item.description = `· ${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;
