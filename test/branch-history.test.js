@@ -132,8 +132,8 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
       .startsWith(`Test · ${formatGitDate(commits[0].commit.date)} · ${mergeHash.slice(0, 7)} [$(copy)]`));
     assert.equal(lines[1].replace(/\\([\\`*_{}\[\]()<>#+\-.!])/g, '$1'),
       '1 file changed, 1 insertions(+), 0 deletions(-); Merge commit (first-parent changes)');
-    assert.equal(lines[2], '\u00a0');
-    assert.equal(lines[3], 'Join histories');
+    assert.equal(lines[2], 'Join histories');
+    assert.ok(lines.every(line => line.trim() && !line.includes('\u00a0')));
     assert.ok(mergeItem.tooltip.value.includes('Full body'));
     assert.ok(!mergeItem.tooltip.value.includes('<script>'));
     assert.ok(!mergeItem.tooltip.value.includes('[unsafe](command:evil)'));

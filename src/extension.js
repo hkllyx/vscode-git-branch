@@ -83,12 +83,14 @@ function commitHover(commit, details, error) {
   }
   const merge = (data.parents?.length || 0) > 1 || data.merge;
   const summary = details ? changeSummary(details.files, details.stats) : 'File statistics unavailable';
-  const lines = [summary + (merge ? '; Merge commit (first-parent changes)' : ''), '',
-    ...(details ? details.message : commit.subject).split('\n'),
-    ...(error ? [`Commit details unavailable: ${error.message}`] : [])];
+  // Compact native hover: omit spacer rows, but preserve every nonblank message line.
+  const messageLines = (details ? details.message : commit.subject).split(/\r?\n/)
+    .filter(line => line.trim().length > 0);
+  const lines = [summary + (merge ? '; Merge commit (first-parent changes)' : ''),
+    ...messageLines, ...(error ? [`Commit details unavailable: ${error.message}`] : [])];
   for (const line of lines) {
     hover.appendMarkdown('  \n');
-    hover.appendText(line || '\u00a0');
+    hover.appendText(line);
   }
   hover.isTrusted = { enabledCommands: ['git-branch.copyCommitHash'] };
   hover.supportHtml = false;
@@ -251,11 +253,11 @@ class BranchTreeProvider {
       item.contextValue = `gb-compare-session-${element.entry.settings.layout}-${element.entry.settings.sort}`;
       const total = result.selected.total + result.current.total;
       item.description = total ? `${total} ${total === 1 ? 'commit' : 'commits'}` : 'Commits';
-      item.tooltip = `Left: ${result.ref}\nRight: ${result.currentLabel}\nLeft only: ${result.selected.total} commits\nRight only: ${result.current.total} commits`;
+      item.tooltip = `${result.ref}: ${result.selected.total} exclusive commits\n${result.currentLabel}: ${result.current.total} exclusive commits`;
       return item;
     }
     if (element.kind === 'compare-side') {
-      const item = new vscode.TreeItem(`${element.side === 'selected' ? 'Left' : 'Right'} only`, vscode.TreeItemCollapsibleState.Expanded);
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
       item.tooltip = `${element.label}\n${element.history.total} exclusive commits`;
       item.id = `${element.key}:${element.side}`;
       item.description = `${element.history.total} commits`;

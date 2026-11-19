@@ -334,8 +334,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     const hoverLines = commitItem.tooltip.value.split('  \n');
     assert.ok(hoverLines[0].replace(/\\([\\`*_{}\[\]()<>#+\-.!])/g, '$1')
       .startsWith(`Test · ${formatGitDate(commits[0].commit.date)} · ${feature.slice(0, 7)} [$(copy)]`));
-    assert.ok(hoverText(commitItem).includes('\n2 files changed, 2 insertions(+), 1 deletions(-)\n\u00a0\nfeature'));
-    assert.ok(hoverLines[2] === '\u00a0'); // Compact blank row before the full message.
+    assert.ok(hoverText(commitItem).includes('\n2 files changed, 2 insertions(+), 1 deletions(-)\nfeature'));
+    assert.ok(hoverLines.every(line => line.trim() && !line.includes('\u00a0'))); // No spacer rows, including within the message.
     assert.ok(commitItem.tooltip.value.includes(`${feature.slice(0, 7)} [$(copy)](command:git-branch.copyCommitHash?`));
     assert.ok(!commitItem.tooltip.value.includes(`[${feature.slice(0, 7)}](`));
     const hashLink = /command:git-branch.copyCommitHash\?([^ ]+)/.exec(commitItem.tooltip.value);

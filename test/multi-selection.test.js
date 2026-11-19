@@ -141,7 +141,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     let sides = await tree.getChildren(session);
     assert.ok(sides.every(side => tree.getTreeItem(side).iconPath.id === 'git-branch'));
     assert.deepEqual(sides.map(node => node.history.total), [1, 1]);
-    assert.deepEqual(sides.map(node => tree.getTreeItem(node).label), ['Left only', 'Right only']);
+    assert.deepEqual(sides.map(node => tree.getTreeItem(node).label), ['left', 'right']);
     assert.deepEqual(sides.map(node => tree.getTreeItem(node).description), ['1 commits', '1 commits']);
     assert.match(tree.getTreeItem(sides[0]).tooltip, /left/);
     assert.equal(tree.getTreeItem(session).description, '2 commits');
@@ -198,12 +198,13 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(tree.getTreeItem(oneSided).description, '1 commit');
     let visibleSides = await tree.getChildren(oneSided);
     assert.equal(visibleSides.length, 1);
-    assert.equal(tree.getTreeItem(visibleSides[0]).label, 'Left only');
+    assert.equal(tree.getTreeItem(visibleSides[0]).label, 'left');
     await run('swapCompare', oneSided);
     oneSided = (await tree.getChildren(group))[0];
     visibleSides = await tree.getChildren(oneSided);
     assert.equal(visibleSides.length, 1);
-    assert.equal(tree.getTreeItem(visibleSides[0]).label, 'Right only');
+    assert.equal(tree.getTreeItem(visibleSides[0]).label, 'left');
+    assert.equal(visibleSides[0].side, 'current'); // Swapping preserves branch names, not positional labels.
     await run('refreshCompare', oneSided);
     oneSided = (await tree.getChildren(group))[0];
     assert.equal((await tree.getChildren(oneSided)).length, 1);
