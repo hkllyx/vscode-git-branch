@@ -230,8 +230,9 @@ class BranchTreeProvider {
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = element.comparisonsGroup ? 'gb-comparisons-group' : 'gb-category';
-      item.iconPath = new vscode.ThemeIcon(element.comparisonsGroup ? 'git-compare'
-        : element.label === 'Tags' ? 'tag' : element.label === 'Remote' ? 'remote' : 'repo');
+      // Collection icons differ from the concrete entries directly below them.
+      item.iconPath = new vscode.ThemeIcon(element.comparisonsGroup ? 'layers'
+        : element.label === 'Tags' ? 'folder' : element.label === 'Remote' ? 'globe' : 'repo');
       if (element.comparisonsGroup) {
         item.id = 'comparisons-group';
         item.tooltip = 'File and commit comparisons';
@@ -292,7 +293,7 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
       item.label = `${leftLabel} ↔ ${rightLabel}`;
-      item.iconPath = new vscode.ThemeIcon('git-compare');
+      item.iconPath = new vscode.ThemeIcon('diff');
       item.description = `· ${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;

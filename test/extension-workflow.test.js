@@ -129,7 +129,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let selected = roots[0].children.find(n => n.ref === 'feature/test');
     assert.equal(tree.getTreeItem(main).contextValue, 'gb-current');
     assert.equal(tree.getTreeItem(selected).contextValue, 'gb-local');
-    for (const [group, icon] of [[roots[0], 'repo'], [roots[1], 'remote'], [roots[2], 'tag'], [roots[1].children[0], 'remote']]) {
+    for (const [group, icon] of [[roots[0], 'repo'], [roots[1], 'globe'], [roots[2], 'folder'], [roots[1].children[0], 'remote']]) {
       assert.equal(tree.getTreeItem(group).iconPath.id, icon);
     }
     let remote = roots[1].children[0].children[0];
@@ -308,6 +308,9 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('compare', selected);
     const compareRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
     const first = (await tree.getChildren(compareRoot))[0];
+    assert.equal(tree.getTreeItem(compareRoot).iconPath.id, 'layers');
+    assert.equal(tree.getTreeItem(first).iconPath.id, 'git-compare');
+    assert.notEqual(tree.getTreeItem(compareRoot).iconPath.id, tree.getTreeItem(first).iconPath.id);
     assert.equal(first.entry.result.left, feature);
     assert.equal(first.entry.result.right, base);
     const sides = await tree.getChildren(first);
@@ -401,7 +404,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let children = await tree.getChildren(worktreeBranch);
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session-list-path');
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
-    assert.equal(tree.getTreeItem(worktreeBranch).iconPath.id, 'git-compare');
+    assert.equal(tree.getTreeItem(worktreeBranch).iconPath.id, 'diff');
     assert.equal(tree.getTreeItem(worktreeBranch).description, '· 1 file');
     assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\n1 file changed, 1 insertions(+), 1 deletions(-)`);
     assert.deepEqual(copyNames(tree.getTreeItem(worktreeBranch)), [worktreeBranch.ref]);
@@ -457,7 +460,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(hoverText(tree.getTreeItem(remote)), `Left: ${remote.ref}\nRight: Working Tree\n${remoteCount} files changed, ${remoteStats.insertions} insertions(+), ${remoteStats.deletions} deletions(-)`);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session-list-path');
-      assert.equal(tree.getTreeItem(branch).iconPath.id, 'git-compare');
+      assert.equal(tree.getTreeItem(branch).iconPath.id, 'diff');
       assert.match(tree.getTreeItem(branch).label, / ↔ Working Tree$/);
       assert.match(tree.getTreeItem(branch).description, /^· \d+ files?$/);
     }
