@@ -70,11 +70,11 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 - 展开提交按需读取文件列表，文件后显示 M／A／D／R 等状态；点击文件名打开固定（非预览）的原生文件 Diff Tab。右侧原生 Open File（go-to-file）按钮打开当前工作树文件，仅在对应路径存在且是仓库内文件时显示；分支历史和 Compare、List 和 Tree 布局均支持。重命名使用新路径，删除使用原路径，不回退到其他同名文件；点击时再次检查，文件已消失则提示并刷新，不打开历史快照代替。目录和指向仓库外的链接不提供按钮。
 - 单提交文件 Diff 固定为 **第一个父提交 → 当前提交**；根提交缺失侧为空。交换比较分支只交换来源分组、两侧历史和会话标签，不反转提交自身的变更含义，已打开的单提交 Tab 也保持父 → 提交。
 - 每侧初始加载最多 200 个提交，更多时显示 Load more commits；展开文件时才读取提交详情。
-- 会话后依次为 **刷新 → 关闭 → ⋯**；交换和 View／Sort 收进 ⋯ 锚定原生菜单。刷新保留方向及会话设置。关闭同时关闭该会话打开的提交 Diff Tab，包括刷新前的快照，不影响其他会话或普通文件。
+- 会话后依次为 **刷新 → 交换 → 关闭 → ⋯**；刷新、交换和关闭均为外置行内按钮，View／Sort 收进 ⋯ 锚定原生菜单。刷新保留方向及会话设置。关闭同时关闭该会话打开的提交 Diff Tab，包括刷新前的快照，不影响其他会话或普通文件。
 - Compare 的 View／Sort 仅调整每个提交展开的文件列表／目录树及文件排序，不改变两侧分组或提交历史顺序；每个会话独立设置。
 - 单选 Compare with Current 比较所选分支与当前 HEAD；当前本地分支不显示该项，执行时重新核实，避免旧树节点误操作。
 - 使用 Ctrl／Shift 选择恰好两个 Local／Remote 分支（可混合选择），右键提供 **Compare** 和 **Show Diff**；当前分支允许参与双选比较。分组、标签和比较会话不能混入分支选择。
-- 双选 Compare 比较两侧独有提交；双选 Show Diff 比较两分支 tip 之间的全部文件差异，并显示在 **Branches → Comparisons**，不是与 Working Tree 比较。会话名称明确显示左右；初始方向取视图传入的选择列表顺序，不承诺 Ctrl 点击先后，可用 ⋯ 中的交换调整。
+- 双选 Compare 比较两侧独有提交；双选 Show Diff 比较两分支 tip 之间的全部文件差异，并显示在 **Branches → Comparisons**，不是与 Working Tree 比较。会话名称明确显示左右；初始方向取视图传入的选择列表顺序，不承诺 Ctrl 点击先后，可用行内交换按钮调整。
 - 双分支 Show Diff 复用 Diff 的文件排序、目录模式、刷新、交换和关闭逻辑；交换同时反转 A／D、重命名路径及已打开原生 Diff Tab 的左右内容。工作区比较与双分支比较会话可同时存在，互不覆盖。
 - 每次结果固定双方 commit ID；已打开文件 Tab 不随后续分支移动或刷新改变快照。
 - 命令面板 Git Branch: Open Diff 可选择最近一次 Compare 的分支 tip 文件差异。
@@ -101,7 +101,7 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 
 - 本地分支、当前分支和远程分支均可右键使用；不创建或切换 Git worktree
 - 文件列表位于 **Branches → Comparisons → 比较项**，Comparisons 与 Local、Remote、Tags 同级，不新增 Source Control 视图或底部面板。执行比较自动显示 Branches 并展开对应会话。原生紧凑树显示文件图标、名称和目录，最右侧像 Changes 一样显示彩色 M／A／D／R 状态。
-- 分组行没有按钮；每个比较项后依次显示 **刷新 → 关闭 → ⋯（More Actions）**。⋯ 在按钮处弹出原生锚定菜单：Swap Comparison；View as List／View as Tree；Sort by Name／Path／Status，三组以分隔线区分，不添加 View & Sort 中间层，也不在右键重复展示。
+- 分组行没有按钮；每个比较项后依次显示 **刷新 → 交换 → 关闭 → ⋯（More Actions）**，交换不折叠进更多菜单。⋯ 在按钮处弹出原生锚定菜单：View as List／View as Tree；Sort by Name／Path／Status，两组以分隔线区分，不添加 View & Sort 中间层，也不在右键重复展示。
 - 当前选项用行首 `✓ `，对勾当作标题文本的一部分；所有菜单标题直接左对齐，未选中项不加占位空格。扩展菜单不能使用内置勾选槽，仍受原生菜单边距限制。默认列表、按路径排序；每个 Files／Commits 会话独立保存设置到工作区，刷新、交换、关闭后重新比较保留设置。只调整文件展示，不修改 Git。Diff／Compare 的刷新、关闭、更多按钮统一使用原生 `refresh`／`close`／`ellipsis`，不单独调整大小或写死颜色。
 - 没有任何文件或提交比较时 Comparisons 自动隐藏；最后一个会话关闭后消失。
 - 会话默认显示 `分支名 ↔ Working Tree · N files`，交换后显示 `Working Tree ↔ 分支名 · N files`，数量为 1 时用 `1 file`，前置对比图标。会话不是分支节点，右键不弹出分支操作。支持多个工作区／双分支文件比较及提交比较同时存在，各会话独立刷新、关闭及设置。
