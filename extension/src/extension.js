@@ -185,6 +185,17 @@ class BranchTreeProvider {
         item.iconPath = vscode.Uri.file(path.join(__dirname, '..', 'media', `${icon}.svg`));
       }
       item.tooltip += `\nCurrent branch: ${element.current ? 'Yes' : 'No'}\nDefault branch: ${element.primary ? 'Yes (remote HEAD or main/master fallback)' : 'No'}`;
+      if (!element.remote && element.upstream) {
+        if (element.trackingMissing) {
+          item.tooltip += '\nTracking status: upstream ref is missing locally; counts unavailable (not in sync)';
+        } else if (Number.isInteger(element.ahead) && Number.isInteger(element.behind)) {
+          const differences = [];
+          if (element.behind > 0) differences.push(`↓${element.behind}`);
+          if (element.ahead > 0) differences.push(`↑${element.ahead}`);
+          if (differences.length) item.description = differences.join(' ');
+          item.tooltip += `\nTracking status: ${element.ahead} ahead, ${element.behind} behind ${tracking} (commits; local refs only)`;
+        }
+      }
     }
     if (showingWorktree) {
       const count = showingWorktree.result.files.length;
@@ -238,6 +249,7 @@ class BranchTreeProvider {
       const locals = branches.filter(b => !b.remote).map(b => ({
         kind: 'branch', label: b.name, ref: b.name, hash: b.hash,
         commitDate: b.commitDate, upstream: b.upstream,
+        ahead: b.ahead, behind: b.behind, trackingMissing: b.trackingMissing,
         current: b.current, primary: b.primary, remote: false
       }));
       const localNode = { kind: 'category', label: 'Local', expanded: true, children: locals };

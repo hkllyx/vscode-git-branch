@@ -34,7 +34,7 @@ class GitOperations {
   async branches() {
     const output = await this.exec([
       'for-each-ref',
-      '--format=%(refname)%09%(objectname)%09%(symref)%09%(committerdate:iso8601-strict)%09%(upstream)',
+      '--format=%(refname)%09%(objectname)%09%(symref)%09%(committerdate:iso8601-strict)%09%(upstream)%09%(upstream:track,nobracket)',
       'refs/heads/', 'refs/remotes/'
     ]);
     let current;
@@ -43,9 +43,13 @@ class GitOperations {
       current = undefined;
     }
     const records = output.trim().split(/\r?\n/).filter(Boolean).map(line => {
-      const [ref, hash, symbolic, commitDate = '', upstream = ''] = line.split('\t');
+      const [ref, hash, symbolic, commitDate = '', upstream = '', track = ''] = line.split('\t');
       const remote = ref.startsWith('refs/remotes/');
-      return { ref, hash, symbolic, commitDate, upstream, remote,
+      const trackingMissing = !!upstream && track === 'gone';
+      const tracked = !remote && !!upstream && !trackingMissing;
+      const ahead = tracked ? Number(/ahead (\d+)/.exec(track)?.[1] || 0) : undefined;
+      const behind = tracked ? Number(/behind (\d+)/.exec(track)?.[1] || 0) : undefined;
+      return { ref, hash, symbolic, commitDate, upstream, remote, ahead, behind, trackingMissing,
         current: ref === current, name: ref.slice(remote ? 13 : 11) };
     });
     const branches = records.filter(b => !b.symbolic);

@@ -138,6 +138,17 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(main.upstream, 'refs/remotes/origin/main');
     assert.match(tree.getTreeItem(main).tooltip, /Tracking branch: origin\/main/);
     assert.match(tree.getTreeItem(selected).tooltip, /Tracking branch: Not configured/);
+    for (const [ahead, behind, expected] of [[2, 1, '↓1 ↑2'], [3, 0, '↑3'], [0, 4, '↓4'], [0, 0, undefined]]) {
+      const item = tree.getTreeItem({ ...main, ahead, behind, trackingMissing: false });
+      assert.equal(item.description, expected);
+      assert.equal(item.label, main.label);
+      assert.match(item.tooltip, new RegExp(`${ahead} ahead, ${behind} behind origin/main`));
+    }
+    const missing = tree.getTreeItem({ ...main, trackingMissing: true, ahead: undefined, behind: undefined });
+    assert.equal(missing.description, undefined);
+    assert.match(missing.tooltip, /upstream ref is missing locally/);
+    assert.equal(tree.getTreeItem({ ...selected, ahead: 10, behind: 20 }).description, undefined); // No upstream.
+    assert.equal(tree.getTreeItem({ ...remote, upstream: main.upstream, ahead: 10, behind: 20 }).description, undefined);
     assert.match(tree.getTreeItem(remote).tooltip, /Tracking branch: Not applicable \(remote branch\)/);
     assert.match(tree.getTreeItem(tag).tooltip, /Tracking branch: Not applicable \(tag\)/);
     await assert.rejects(git.create('feature/test'), /already exists/);

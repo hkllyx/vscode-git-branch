@@ -1,0 +1,43 @@
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const os = require('node:os');
+const { GitOperations } = require('../src/git-operations');
+
+test('tracking counts: equal, ahead, behind, diverged, missing upstream and local tracking', async t => {
+  const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'git-branch-tracking-'));
+  t.after(() => fs.rm(cwd, { recursive: true, force: true }));
+  const git = new GitOperations(cwd);
+  await git.exec(['init', '-b', 'main']);
+  await git.exec(['config', 'user.name', 'Test']); await git.exec(['config', 'user.email', 'test@example.invalid']);
+  await git.exec(['commit', '--allow-empty', '-m', 'base']);
+  const base = await git.resolve('HEAD');
+  await git.create('topic');
+  await git.exec(['remote', 'add', 'origin', cwd]);
+  await git.exec(['update-ref', 'refs/remotes/origin/topic', base]);
+  await git.exec(['branch', '--set-upstream-to=origin/topic', 'topic']);
+  const topic = async () => (await git.branches()).branches.find(b => b.name === 'topic');
+  assert.equal((await topic()).ahead, 0); assert.equal((await topic()).behind, 0);
+  await git.checkout({ ref: 'topic' });
+  await git.exec(['commit', '--allow-empty', '-m', 'local-only']);
+  assert.equal((await topic()).ahead, 1); assert.equal((await topic()).behind, 0);
+  await git.checkout({ ref: 'main' });
+  for (const message of ['upstream-one', 'upstream-two']) await git.exec(['commit', '--allow-empty', '-m', message]);
+  await git.exec(['update-ref', 'refs/remotes/origin/topic', await git.resolve('HEAD')]);
+  assert.equal((await topic()).ahead, 1); assert.equal((await topic()).behind, 2);
+  // A local branch can also be configured as upstream; count against the exact configured ref.
+  await git.exec(['branch', '--set-upstream-to=main', 'topic']);
+  assert.equal((await topic()).upstream, 'refs/heads/main');
+  assert.equal((await topic()).ahead, 1); assert.equal((await topic()).behind, 2);
+  await git.exec(['branch', '--set-upstream-to=origin/topic', 'topic']);
+  await git.exec(['update-ref', 'refs/heads/topic', base]);
+  assert.equal((await topic()).ahead, 0); assert.equal((await topic()).behind, 2);
+  await git.exec(['update-ref', '-d', 'refs/remotes/origin/topic']);
+  const missing = await topic();
+  assert.equal(missing.trackingMissing, true);
+  assert.equal(missing.ahead, undefined); assert.equal(missing.behind, undefined);
+  await git.exec(['branch', '--unset-upstream', 'topic']);
+  assert.equal((await topic()).upstream, ''); assert.equal((await topic()).ahead, undefined);
+});
