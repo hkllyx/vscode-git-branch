@@ -243,10 +243,10 @@ class GitOperations {
   }
 
   /** Compare ref with HEAD: returns { left, right, ref, files }. */
-  async compare(ref) {
+  async compare(ref, target = 'HEAD') {
     const [left, right] = await Promise.all([
       this.resolve(ref),
-      this.resolve('HEAD')
+      this.resolve(target)
     ]);
     const files = parseDiff(await this.exec([
       'diff', '--name-status', '-z', '--find-renames', left, right, '--'
@@ -336,8 +336,8 @@ class GitOperations {
   }
 
   /** Immutable branch tips plus both directions of unique history. */
-  async branchComparison(ref) {
-    const result = await this.compare(ref);
+  async branchComparison(ref, target = 'HEAD') {
+    const result = await this.compare(ref, target);
     const [selected, current] = await Promise.all([
       this.uniqueCommits(result.left, result.right),
       this.uniqueCommits(result.right, result.left)

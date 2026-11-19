@@ -87,8 +87,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
         assert.equal(id, 'git-branch.branches');
         tree = options.treeDataProvider;
         return { ...disposable, reveal: async (node, options) => {
-          assert.equal(node.diffSession, true);
-          assert.equal(node.kind, 'branch'); assert.equal(options.expand, true);
+          assert.ok(node.diffSession || node.kind === 'compare-session');
+          assert.equal(options.expand, true);
         } };
       },
       showInformationMessage: message => messages.push(message), showErrorMessage: message => messages.push(message),
@@ -294,40 +294,42 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('checkout', main); await run('checkout', remote); // Existing tracking branch.
     assert.equal(await git.current(), 'remote/test'); await run('checkout', main);
     await run('compare', selected);
-    const first = panels[0];
-    assert.ok(first.webview.html.includes(feature)); assert.ok(first.webview.html.includes(base));
-    assert.ok(first.webview.html.includes('中文 added.txt'));
-    await first.message({ type: 'commit', side: 'selected', hash: feature });
-    const detail = first.sent.at(-1).detail;
-    assert.equal(detail.hash, feature); assert.equal(detail.left, base);
-    assert.equal(detail.files.length, 2);
-    await first.message({ type: 'diff', scope: 'commit', hash: feature, index: 0 });
+    const compareRoot = (await tree.getChildren()).find(node => node.compareGroup);
+    const first = (await tree.getChildren(compareRoot))[0];
+    assert.equal(first.entry.result.left, feature);
+    assert.equal(first.entry.result.right, base);
+    const sides = await tree.getChildren(first);
+    const commits = await tree.getChildren(sides[0]);
+    const commitFiles = await tree.getChildren(commits[0]);
+    assert.equal(commitFiles[0].details.hash, feature);
+    assert.equal(commitFiles[0].details.left, base);
+    assert.equal(commitFiles.length, 2);
+    await run('openCompareDiff', commitFiles[0]);
     assert.equal(JSON.parse(diffs.pop()[1].query).hash, base);
-    const sentCount = first.sent.length;
-    await first.message({ type: 'commit', side: 'selected', hash: base }); // Not in unique history.
-    await first.message({ type: 'diff', scope: 'commit', hash: base, index: 0 });
-    await first.message({ type: 'diff', scope: 'branch', index: -1 });
-    assert.equal(first.sent.length, sentCount); assert.equal(diffs.length, 0);
+    const immutableTab = tabGroups[0].tabs.at(-1);
     await fs.writeFile(path.join(cwd, 'new-main.txt'), 'new main\n');
     await git.exec(['add', '.']); await git.exec(['commit', '-m', 'main changes']);
     const changedMain = await git.resolve('HEAD');
     await run('compare', selected);
-    const second = panels[1];
-    assert.ok(second.webview.html.includes(changedMain)); assert.ok(!first.webview.html.includes(changedMain));
-    first.activate();
+    const second = (await tree.getChildren(compareRoot))[0];
+    assert.equal(second.entry.result.right, changedMain);
+    assert.equal(first.entry.result.right, base);
+    await run('openCompareDiff', commitFiles[0]); // Stale tree nodes are rejected.
+    assert.equal(diffs.length, 0);
     await run('openDiff'); assert.equal(diffs.length, 0); // Picker cancellation.
     choose = true; await run('openDiff');
     assert.equal(diffs[0][0], 'vscode.diff');
     assert.equal(JSON.parse(diffs[0][1].query).hash, feature);
-    assert.equal(JSON.parse(diffs[0][2].query).hash, base); // Active panel, not last created comparison.
+    assert.equal(JSON.parse(diffs[0][2].query).hash, changedMain);
     assert.equal(diffs[0][4].viewColumn, -1);
     assert.equal(diffs[0][4].preview, false);
-    const rightContent = await providers.get('git-branch-snapshot').provideTextDocumentContent(diffs[0][2]);
-    assert.equal(rightContent, 'base\n');
-    first.dispose();
-    const beforeClose = diffs.length;
-    await first.message({ type: 'diff', scope: 'branch', index: 0 });
-    assert.equal(diffs.length, beforeClose);
+    const rightContent = await providers.get('git-branch-snapshot').provideTextDocumentContent(immutableTab.input.modified);
+    assert.equal(rightContent, await git.content(feature, JSON.parse(immutableTab.input.modified.query).file));
+    await run('closeCompare', second);
+    assert.ok(closedTabs.includes(immutableTab));
+    assert.equal(tree.comparisons.size, 0);
+    assert.equal(panels.length, 0);
+    closedTabs.length = 0; // Start a fresh baseline for independent Working Tree close tests.
     answer = undefined;
     await run('merge', selected); await run('rebase', selected);
     assert.equal(await git.resolve('HEAD'), changedMain);
@@ -453,7 +455,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     tabGroups[1].tabs.push(secondGroupTab);
     const normalTab = { input: { uri: mock.Uri.file(path.join(cwd, 'new-main.txt')) } };
     tabGroups[1].tabs.push(normalTab);
-    const unrelatedDiff = tabGroups[0].tabs[0]; // Compare with Current tab.
+    const unrelatedDiff = { input: new mock.TabInputTextDiff(mock.Uri.file(path.join(cwd, 'file.txt')), mock.Uri.file(path.join(cwd, 'file.txt'))) };
+    tabGroups[0].tabs.push(unrelatedDiff); // An unrelated native diff must not close.
     await run('closeWorktree', worktreeBranch);
     assert.ok(closedTabs.includes(sessionTab));
     assert.ok(closedTabs.includes(secondGroupTab));
