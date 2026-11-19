@@ -338,18 +338,20 @@ class BranchTreeProvider {
     }
     if (token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
     const hover = new vscode.MarkdownString();
-    hover.appendText(`${details.author} · ${details.date}`);
-    hover.appendMarkdown('\n\n');
-    details.message.split('\n').forEach((line, index) => {
+    hover.supportThemeIcons = true;
+    // One Markdown paragraph, like branch hovers. NBSP-only spacer lines keep
+    // an actual blank row without introducing Markdown paragraph margins.
+    const lines = [`${details.author} · ${details.date}`, '', ...details.message.split('\n'), '',
+      changeSummary(details.files, details.stats)];
+    lines.forEach((line, index) => {
       if (index > 0) hover.appendMarkdown('  \n');
-      hover.appendText(line);
+      hover.appendText(line || '\u00a0');
     });
-    hover.appendMarkdown('\n\n');
-    hover.appendText(changeSummary(details.files, details.stats));
-    hover.appendMarkdown('\n\n');
+    hover.appendMarkdown('  \n');
     const hash = shortHash(details.hash);
     const args = encodeURIComponent(JSON.stringify([hash]));
-    hover.appendMarkdown(`[${hash}](command:git-branch.copyCommitHash?${args} "Copy short commit hash")`);
+    hover.appendText(hash);
+    hover.appendMarkdown(` [$(copy)](command:git-branch.copyCommitHash?${args} "Copy short commit hash")`);
     hover.isTrusted = { enabledCommands: ['git-branch.copyCommitHash'] };
     hover.supportHtml = false;
     item.tooltip = hover;

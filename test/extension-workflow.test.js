@@ -310,6 +310,12 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.ok(!commitItem.tooltip.value.includes('[unsafe](command:evil)'));
     assert.ok(hoverText(commitItem).includes('2 files changed, 2 insertions(+), 1 deletions(-)'));
     assert.deepEqual(commitItem.tooltip.isTrusted, { enabledCommands: ['git-branch.copyCommitHash'] });
+    assert.equal(commitItem.tooltip.supportThemeIcons, true);
+    assert.ok(!commitItem.tooltip.value.includes('\n\n')); // No paragraph margins.
+    assert.ok(hoverText(commitItem).startsWith(`Test · ${commits[0].commit.date}\n\u00a0\nfeature`));
+    assert.ok(commitItem.tooltip.value.includes('  \n\u00a0  \n2 files changed'));
+    assert.ok(commitItem.tooltip.value.includes(`${feature.slice(0, 7)} [$(copy)](command:git-branch.copyCommitHash?`));
+    assert.ok(!commitItem.tooltip.value.includes(`[${feature.slice(0, 7)}](`));
     const hashLink = /command:git-branch.copyCommitHash\?([^ ]+)/.exec(commitItem.tooltip.value);
     await run('copyCommitHash', JSON.parse(decodeURIComponent(hashLink[1]))[0]);
     assert.equal(copied.pop(), feature.slice(0, 7));
