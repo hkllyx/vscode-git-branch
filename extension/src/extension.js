@@ -184,7 +184,6 @@ class BranchTreeProvider {
         const icon = element.current && element.primary ? 'current-primary' : element.current ? 'current-branch' : 'primary-branch';
         item.iconPath = vscode.Uri.file(path.join(__dirname, '..', 'media', `${icon}.svg`));
       }
-      item.tooltip += `\nCurrent branch: ${element.current ? 'Yes' : 'No'}\nDefault branch: ${element.primary ? 'Yes (remote HEAD or main/master fallback)' : 'No'}`;
       if (!element.remote && element.upstream) {
         if (element.trackingMissing) {
           item.tooltip += '\nTracking status: upstream ref is missing locally; counts unavailable (not in sync)';
@@ -193,7 +192,7 @@ class BranchTreeProvider {
           if (element.behind > 0) differences.push(`${element.behind}↓`);
           if (element.ahead > 0) differences.push(`${element.ahead}↑`);
           if (differences.length) item.description = differences.join(' ');
-          item.tooltip += `\nTracking status: ${element.ahead} ahead, ${element.behind} behind ${tracking} (commits; local refs only)`;
+          item.tooltip += `\nTracking status: ${element.ahead} ahead, ${element.behind} behind`;
         }
       }
     }
@@ -205,6 +204,17 @@ class BranchTreeProvider {
       item.contextValue = 'gb-diff-session';
       item.tooltip += `\nWorking Tree Diff: ${count} changed ${count === 1 ? 'file' : 'files'} (selected branch ↔ working tree)`;
     }
+    // A real link makes the native workbench hover interactive. Plain Markdown alone
+    // still hides on mouse entry. Escape repository text and trust only our copy command.
+    const details = item.tooltip;
+    const args = encodeURIComponent(JSON.stringify([details]))
+      .replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+    const hover = new vscode.MarkdownString();
+    hover.appendText(details);
+    hover.appendMarkdown(`\n\n[Copy](command:git-branch.copyDetails?${args})`);
+    hover.isTrusted = { enabledCommands: ['git-branch.copyDetails'] };
+    hover.supportHtml = false;
+    item.tooltip = hover;
     return item;
   }
 
@@ -420,6 +430,11 @@ function activate(context) {
 
   context.subscriptions.push(
     branchView, branchTree,
+    vscode.commands.registerCommand('git-branch.copyDetails', async text => {
+      if (typeof text !== 'string' || text.length > 65536) return;
+      try { await vscode.env.clipboard.writeText(text); }
+      catch (err) { vscode.window.showErrorMessage(`Copy failed: ${err.message}`); }
+    }),
     ...[['diffList', 'diffLayout', 'list'], ['diffTree', 'diffLayout', 'tree'],
       ['diffSortName', 'diffSort', 'name'], ['diffSortPath', 'diffSort', 'path'], ['diffSortStatus', 'diffSort', 'status']]
       .flatMap(([command, property, value]) => [command, `${command}.current`].map(id =>

@@ -33,12 +33,19 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.exec(['pack-refs', '--all']);
   const commands = new Map(), providers = new Map(), contextKeys = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
-  const tabGroups = [{ tabs: [] }, { tabs: [] }], closedTabs = [];
+  const tabGroups = [{ tabs: [] }, { tabs: [] }], closedTabs = [], copied = [];
+  const hoverText = item => JSON.parse(decodeURIComponent(/command:git-branch.copyDetails\?([^)]*)/.exec(item.tooltip.value)[1]))[0];
   let tree, diffTree, decorations, panelFocuses = 0, refreshes = 0, input, answer, trackingSelection, choose = false;
   const disposable = { dispose() {} };
   const mock = {
     EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
     TreeItem: class { constructor(label) { this.label = label; } },
+    MarkdownString: class {
+      value = '';
+      appendText(text) { this.value += text.replace(/[\\`*_{}\[\]()<>#+\-.!]/g, '\\$&'); return this; }
+      appendMarkdown(text) { this.value += text; return this; }
+    },
+    env: { clipboard: { writeText: async text => copied.push(text) } },
     TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 }, ThemeIcon: class { constructor(id) { this.id = id; } },
     ThemeColor: class { constructor(id) { this.id = id; } },
     Uri: { from: value => ({ query: '', ...value }), file: fsPath => ({ scheme: 'file', fsPath }) },
@@ -130,30 +137,41 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
         assert.equal(path.basename(item.iconPath.fsPath), expected);
       } else assert.equal(item.iconPath, undefined);
       assert.equal(item.description, undefined); // Branch/tag names have no trailing hash.
-      assert.ok(item.tooltip.includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
-      assert.ok(item.tooltip.includes(`Hash: ${node.hash}`));
-      assert.ok(item.tooltip.includes(`Last commit: ${node.commitDate.replace('T', ' ')}`));
+      assert.ok(item.tooltip instanceof mock.MarkdownString);
+      assert.deepEqual(item.tooltip.isTrusted, { enabledCommands: ['git-branch.copyDetails'] });
+      assert.equal(item.tooltip.supportHtml, false);
+      assert.ok(hoverText(item).includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
+      assert.ok(hoverText(item).includes(`Hash: ${node.hash}`));
+      assert.ok(hoverText(item).includes(`Last commit: ${node.commitDate.replace('T', ' ')}`));
+      assert.doesNotMatch(hoverText(item), /Current branch:|Default branch:|commits; local refs only/);
     }
     assert.equal(main.commitDate, (await git.exec(['show', '-s', '--format=%cI', base])).trim());
     assert.equal(remote.commitDate, (await git.exec(['show', '-s', '--format=%cI', feature])).trim());
     assert.equal(main.upstream, 'refs/remotes/origin/main');
-    assert.match(tree.getTreeItem(main).tooltip, /Tracking branch: origin\/main/);
-    assert.match(tree.getTreeItem(selected).tooltip, /Tracking branch: Not configured/);
+    assert.match(hoverText(tree.getTreeItem(main)), /Tracking branch: origin\/main/);
+    assert.match(hoverText(tree.getTreeItem(selected)), /Tracking branch: Not configured/);
     for (const [ahead, behind, expected] of [[1, 1, '1↓ 1↑'], [2, 1, '1↓ 2↑'], [3, 0, '3↑'], [0, 4, '4↓'], [0, 0, undefined]]) {
       const item = tree.getTreeItem({ ...main, ahead, behind, trackingMissing: false });
       assert.equal(item.description, expected);
       assert.equal(item.label, main.label);
-      assert.match(item.tooltip, new RegExp(`${ahead} ahead, ${behind} behind origin/main`));
+      assert.match(hoverText(item), new RegExp(`Tracking status: ${ahead} ahead, ${behind} behind$`));
     }
     const missing = tree.getTreeItem({ ...main, trackingMissing: true, ahead: undefined, behind: undefined });
     assert.equal(missing.description, undefined);
-    assert.match(missing.tooltip, /upstream ref is missing locally/);
+    assert.match(hoverText(missing), /upstream ref is missing locally/);
     assert.equal(tree.getTreeItem({ ...selected, ahead: 10, behind: 20 }).description, undefined); // No upstream.
     assert.equal(tree.getTreeItem({ ...remote, upstream: main.upstream, ahead: 10, behind: 20 }).description, undefined);
-    assert.match(tree.getTreeItem(remote).tooltip, /Tracking branch: Not applicable \(remote branch\)/);
-    assert.match(tree.getTreeItem(tag).tooltip, /Tracking branch: Not applicable \(tag\)/);
+    assert.match(hoverText(tree.getTreeItem(remote)), /Tracking branch: Not applicable \(remote branch\)/);
+    assert.match(hoverText(tree.getTreeItem(tag)), /Tracking branch: Not applicable \(tag\)/);
     await assert.rejects(git.create('feature/test'), /already exists/);
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
+    const copyItem = tree.getTreeItem({ ...selected, ref: 'feature/[Copy](command:other)' });
+    assert.equal((copyItem.tooltip.value.match(/\]\(command:/g) || []).length, 1); // Only our real link is active.
+    const copyArgs = JSON.parse(decodeURIComponent(/command:git-branch.copyDetails\?([^)]*)/.exec(copyItem.tooltip.value)[1]));
+    await commands.get('git-branch.copyDetails')(...copyArgs);
+    assert.equal(copied.pop(), hoverText(copyItem));
+    await run('copyDetails', {});
+    assert.equal(copied.length, 0);
     const upstreamOf = async name => (await git.branches()).branches.find(b => b.ref === `refs/heads/${name}`).upstream;
     // Native modal dialogs supply Cancel themselves; only contribute the destructive action.
     const originalCheckout = GitOperations.prototype.checkout;
@@ -337,7 +355,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
     assert.equal(tree.getTreeItem(worktreeBranch).iconPath, undefined);
     assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
-    assert.match(tree.getTreeItem(worktreeBranch).tooltip, /Working Tree Diff: 1 changed file/);
+    assert.match(hoverText(tree.getTreeItem(worktreeBranch)), /Working Tree Diff: 1 changed file/);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
     const menus = require('../package.json').contributes.menus['view/item/context'];
     for (const id of ['refreshWorktree', 'closeWorktree']) {

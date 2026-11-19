@@ -35,6 +35,11 @@ test('delete and rename accept real tree data nodes without contextValue', async
   const mock = {
     EventEmitter: class { event = () => {}; fire() {} dispose() {} },
     TreeItem: class { constructor(label) { this.label = label; } },
+    MarkdownString: class {
+      value = '';
+      appendText(text) { this.value += text; return this; }
+      appendMarkdown(text) { this.value += text; return this; }
+    },
     TreeItemCollapsibleState: { None: 0, Expanded: 2, Collapsed: 1 },
     ThemeIcon: class {},
     RelativePattern: class {},
