@@ -126,11 +126,11 @@ test('complete worktree swap: status, paths, existing tabs, groups, refresh, can
     assert.equal(tree.getTreeItem(renamed).label, 'old.txt');
     assert.equal(tree.getTreeItem(fileNodes.find(file => file.file.status === 'A')).resourceUri.query, 'A');
     assert.equal(tree.getTreeItem(fileNodes.find(file => file.file.status === 'D')).resourceUri.query, 'D');
-    await run('diffTree');
+    await run('diffTree', { ...node, diffSession: true });
     const reversedTree = await tree.getChildren({ ...node, diffSession: true });
     assert.ok(reversedTree.some(file => file.kind === 'worktree-file' && file.file.newPath === 'old.txt'));
     assert.ok(!reversedTree.some(file => file.kind === 'worktree-folder' && file.label === 'sub'));
-    await run('diffList');
+    await run('diffList', { ...node, diffSession: true });
     await run('openWorktreeDiff', renamed);
     assert.equal(openings.at(-1).tab.input.original.fsPath, path.join(cwd, 'sub', 'new.txt'));
     assert.equal(JSON.parse(openings.at(-1).tab.input.modified.query).file, 'old.txt');
@@ -152,12 +152,12 @@ test('complete worktree swap: status, paths, existing tabs, groups, refresh, can
     assert.equal(active().result.reversed, false);
     assert.deepEqual(active().result.files, originals);
     assert.equal(tree.getTreeItem({ ...node, diffSession: true }).label, 'main ↔ Working Tree');
-    await run('diffTree');
+    await run('diffTree', { ...node, diffSession: true });
     const normalTree = await tree.getChildren({ ...node, diffSession: true });
     const folder = normalTree.find(file => file.kind === 'worktree-folder' && file.label === 'sub');
     assert.ok(folder);
     assert.equal(tree.getTreeItem((await tree.getChildren(folder))[0]).label, 'new.txt');
-    await run('diffList');
+    await run('diffList', { ...node, diffSession: true });
     const countBeforeCancel = openings.length;
     cancelClose = true;
     await run('swapWorktree', node);
@@ -184,7 +184,7 @@ test('complete worktree swap: status, paths, existing tabs, groups, refresh, can
     tree.setWorkingTree(node, { ...active().result, reversed: false, files: [] });
     await run('swapWorktree', node);
     assert.equal(active().result.reversed, false);
-    assert.equal(tree.getTreeItem({ ...node, diffSession: true }).description, '0 files');
+    assert.equal(tree.getTreeItem({ ...node, diffSession: true }).description, 'Files · 0');
     assert.equal((await tree.getChildren({ ...node, diffSession: true }))[0].kind, 'worktree-empty');
     await run('swapWorktree', node);
     assert.equal(active().result.reversed, true);

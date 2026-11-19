@@ -222,24 +222,26 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.equal(title('refreshWorktree'), 'Refresh Diff');
   assert.equal(title('swapWorktree'), 'Swap Comparison');
   assert.equal(title('closeWorktree'), 'Close Diff');
-  for (const [id, order] of [['refreshWorktree', 1], ['swapWorktree', 2], ['closeWorktree', 3]]) {
+  for (const [id, order] of [['refreshWorktree', 1], ['closeWorktree', 2], ['refreshCompare', 1], ['closeCompare', 2]]) {
     const item = manifest.contributes.menus['view/item/context'].find(menu => menu.command === `git-branch.${id}`);
     assert.equal(item.group, `inline@${order}`);
-    assert.equal(item.when, 'view == git-branch.branches && viewItem == gb-diff-session');
+    assert.match(item.when, /viewItem =~ \/\^gb-(diff|compare)-session-\//);
   }
+  assert.ok(!manifest.contributes.menus['view/item/context'].some(menu => /swap/.test(menu.command || '')));
 
   const views = manifest.contributes.views.scm;
   assert.equal(manifest.contributes.viewsContainers, undefined);
   assert.deepEqual(Object.keys(manifest.contributes.views), ['scm']);
   assert.equal(views.length, 1);
   // The ⋯ button is an inline submenu: VS Code renders it as a dropdown anchored to the button (not a centered QuickPick).
-  assert.deepEqual(manifest.contributes.submenus, [{ id: 'git-branch.diffMore', label: 'View & Sort', icon: '$(ellipsis)' }]);
+  assert.deepEqual(manifest.contributes.submenus, [{ id: 'git-branch.diffMore', label: 'More Actions', icon: '$(ellipsis)' }]);
   const moreMenu = manifest.contributes.menus['view/item/context'].find(item => item.submenu === 'git-branch.diffMore');
-  assert.match(moreMenu.group, /^inline@/);
-  assert.match(moreMenu.when, /viewItem == gb-diff-group/);
+  assert.equal(moreMenu.group, 'inline@3');
+  assert.ok(moreMenu.when.includes('viewItem =~ /^gb-(diff|compare)-session-/'));
+  assert.ok(!manifest.contributes.menus['view/item/context'].some(item => item.when.includes('gb-comparisons-group')));
   assert.ok(!manifest.contributes.menus['view/item/context'].some(item => item.command === 'git-branch.diffMore'));
   const diffMoreMenu = manifest.contributes.menus['git-branch.diffMore'];
-  assert.equal(diffMoreMenu.length, 10);
+  assert.equal(diffMoreMenu.length, 12);
   for (const id of ['diffList', 'diffTree', 'diffSortName', 'diffSortPath', 'diffSortStatus']) {
     assert.ok(cmds.includes(`git-branch.${id}`));
     assert.ok(cmds.includes(`git-branch.${id}.current`));
@@ -249,8 +251,8 @@ test('manifest: commands, views, menus are wired', async () => {
     const current = diffMoreMenu.find(item => item.command === `git-branch.${id}.current`);
     assert.ok(base && current);
     assert.equal(base.group, current.group); // Same slot so the ✓ variant replaces the base in place.
-    assert.ok(base.when.includes('!='));
-    assert.ok(current.when.includes('=='));
+    assert.ok(base.when.startsWith('!('));
+    assert.ok(current.when.startsWith('viewItem =~'));
     // Leading text cell: ✓ (U+2713) for the current item; a trim-protected figure space (U+2060 + U+2007) for the rest, so labels align.
     const baseCmd = manifest.contributes.commands.find(c => c.command === `git-branch.${id}`);
     const currentCmd = manifest.contributes.commands.find(c => c.command === `git-branch.${id}.current`);

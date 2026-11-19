@@ -20,6 +20,8 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
   await git.create('left'); await git.checkout({ ref: 'left' });
   await fs.writeFile(path.join(cwd, 'file.txt'), 'left');
   await fs.writeFile(path.join(cwd, 'only-left.txt'), 'left');
+  await fs.mkdir(path.join(cwd, 'src', 'nested'), { recursive: true });
+  await fs.writeFile(path.join(cwd, 'src', 'nested', 'left.txt'), 'nested left');
   await git.exec(['add', '.']); await git.exec(['commit', '-m', 'left-only']);
   const leftHash = await git.resolve('HEAD');
   await git.create('right', base); await git.checkout({ ref: 'right' });
@@ -71,7 +73,10 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
   };
   const originalLoad = Module._load;
   Module._load = function(request, ...args) { return request === 'vscode' ? mock : originalLoad.call(this, request, ...args); };
-  const context = { subscriptions: [] };
+  const savedState = new Map();
+  const context = { subscriptions: [], workspaceState: {
+    get: key => savedState.get(key), update: async (key, value) => savedState.set(key, value)
+  } };
   try {
     delete require.cache[require.resolve('../src/extension')];
     await require('../src/extension').activate(context);
@@ -108,11 +113,14 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.ok(messages.includes('Update: 1 succeeded, 0 failed.'));
     tree.git.update = savedUpdate;
     await run('compareSelected', left, [left, right]);
-    const group = (await tree.getChildren()).find(node => node.compareGroup);
+    const group = (await tree.getChildren()).find(node => node.comparisonsGroup);
     let session = (await tree.getChildren(group))[0];
     assert.equal(tree.getTreeItem(session).label, 'left ↔ right');
     let sides = await tree.getChildren(session);
     assert.deepEqual(sides.map(node => node.history.total), [1, 1]);
+    assert.deepEqual(sides.map(node => tree.getTreeItem(node).label), ['Left only', 'Right only']);
+    assert.match(tree.getTreeItem(sides[0]).tooltip, /left/);
+    assert.equal(tree.getTreeItem(session).description, 'Commits · 2');
     assert.notEqual(tree.getTreeItem(sides[0]).iconPath.color.id, tree.getTreeItem(sides[1]).iconPath.color.id);
     let commits = await tree.getChildren(sides[0]);
     assert.equal(commits[0].commit.hash, leftHash);
@@ -132,9 +140,9 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(tree.getTreeItem(session).label, 'right ↔ left');
     await run('closeCompare', session);
     assert.equal(tabs.length, 0);
-    assert.ok(!(await tree.getChildren()).some(node => node.compareGroup));
+    assert.ok(!(await tree.getChildren()).some(node => node.comparisonsGroup));
     await run('diffSelected', left, [left, right]);
-    const diffRoot = (await tree.getChildren()).find(node => node.diffGroup);
+    const diffRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
     const diffSession = (await tree.getChildren(diffRoot))[0];
     assert.equal(tree.getTreeItem(diffSession).label, 'left ↔ right');
     let diffFiles = await tree.getChildren(diffSession);
@@ -161,6 +169,44 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(tree.workingTrees.size, 2);
     await run('compare', local('main'), [local('main'), left]); // Current is allowed in a pair.
     assert.equal(tree.comparisons.size, 1);
+    const combined = (await tree.getChildren()).filter(node => node.comparisonsGroup);
+    assert.equal(combined.length, 1);
+    const entries = await tree.getChildren(combined[0]);
+    assert.equal(entries.length, 3);
+    const historySession = entries.find(node => node.kind === 'compare-session');
+    const fileSessions = entries.filter(node => node.diffSession);
+    await run('diffTree', historySession);
+    await run('diffSortStatus', historySession);
+    await run('diffTree', fileSessions[0]);
+    assert.deepEqual(historySession.entry.settings, { layout: 'tree', sort: 'status' });
+    assert.deepEqual(savedState.get('git-branch.comparisonSettings')[historySession.key], { layout: 'tree', sort: 'status' });
+    assert.deepEqual(tree.workingTreeFor(fileSessions[0]).settings, { layout: 'tree', sort: 'path' });
+    assert.deepEqual(tree.workingTreeFor(fileSessions[1]).settings, { layout: 'list', sort: 'path' });
+    const historySides = await tree.getChildren(historySession);
+    const historyCommits = await tree.getChildren(historySides.find(side => side.history.total > 0));
+    const historyFiles = await tree.getChildren(historyCommits[0]);
+    assert.ok(historyFiles.length);
+    assert.ok(historyFiles.every(node => node.kind === 'compare-file' || node.kind === 'compare-folder'));
+    const directory = historyFiles.find(node => node.kind === 'compare-folder');
+    assert.equal(tree.getTreeItem(directory).label, 'src');
+    const nestedDirectory = (await tree.getChildren(directory))[0];
+    const nestedFile = (await tree.getChildren(nestedDirectory))[0];
+    assert.equal(tree.getTreeItem(nestedFile).description, '');
+    assert.equal(await tree.getParent(nestedFile), nestedDirectory);
+    await run('openCompareDiff', nestedFile);
+    assert.equal(JSON.parse(tabs.at(-1).input.modified.query).hash, leftHash);
+    await run('swapCompare', historySession);
+    assert.deepEqual(await tree.getChildren(directory), []);
+    const countAfterSwap = tabs.length;
+    await run('openCompareDiff', nestedFile);
+    assert.equal(tabs.length, countAfterSwap); // Stale directory descendants cannot reopen tabs.
+    await run('refreshCompare', historySession);
+    const refreshed = tree.comparisons.get(historySession.key);
+    assert.deepEqual(refreshed.settings, { layout: 'tree', sort: 'status' });
+    await run('closeCompare', historySession);
+    assert.ok((await tree.getChildren()).some(node => node.comparisonsGroup));
+    await run('compare', local('main'), [local('main'), left]);
+    assert.deepEqual(tree.comparisons.get(historySession.key).settings, { layout: 'tree', sort: 'status' });
     await run('compare', left, [left, roots[0]]);
     assert.equal(tree.comparisons.size, 1);
     const missing = { ...left, ref: 'missing', label: 'missing' };

@@ -294,7 +294,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('checkout', main); await run('checkout', remote); // Existing tracking branch.
     assert.equal(await git.current(), 'remote/test'); await run('checkout', main);
     await run('compare', selected);
-    const compareRoot = (await tree.getChildren()).find(node => node.compareGroup);
+    const compareRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
     const first = (await tree.getChildren(compareRoot))[0];
     assert.equal(first.entry.result.left, feature);
     assert.equal(first.entry.result.right, base);
@@ -359,17 +359,17 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.deepEqual(await tree.getChildren(worktreeBranch), []);
     assert.equal(tree.getTreeItem(worktreeBranch).description, undefined);
     const scmTree = tree;
-    const diffGroup = (await tree.getChildren()).find(n => n.diffGroup);
-    assert.equal(diffGroup.label, 'Diff');
-    assert.equal(tree.getTreeItem(diffGroup).contextValue, 'gb-diff-group');
-    diffTree = { getChildren: () => scmTree.getChildren(diffGroup) };
+    const diffGroup = (await tree.getChildren()).find(n => n.comparisonsGroup);
+    assert.equal(diffGroup.label, 'Comparisons');
+    assert.equal(tree.getTreeItem(diffGroup).contextValue, 'gb-comparisons-group');
+    diffTree = { getChildren: async () => (await scmTree.getChildren(diffGroup)).filter(node => node.diffSession) };
     worktreeBranch = (await diffTree.getChildren())[0];
     assert.equal(await tree.getParent(worktreeBranch), diffGroup);
     let children = await tree.getChildren(worktreeBranch);
-    assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session');
+    assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session-list-path');
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
     assert.equal(tree.getTreeItem(worktreeBranch).iconPath, undefined);
-    assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
+    assert.equal(tree.getTreeItem(worktreeBranch).description, 'Files · 1');
     assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\nChanged files: 1`);
     assert.deepEqual(copyNames(tree.getTreeItem(worktreeBranch)), [worktreeBranch.ref]);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
@@ -378,10 +378,10 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       const menu = menus.find(m => m.command === `git-branch.${id}`);
       assert.match(menu.group, /^inline@/);
       assert.match(menu.when, /view == git-branch.branches/);
-      assert.ok(menu.when.includes('viewItem == gb-diff-session'));
+      assert.ok(menu.when.includes('viewItem =~ /^gb-diff-session-/'));
     }
     // Comparison sessions must not match any branch action menu.
-    for (const menu of menus.filter(m => m.command && m.when.includes(' =~ /'))) {
+    for (const menu of menus.filter(m => m.command && !m.group.startsWith('inline') && m.when.includes(' =~ /'))) {
       const pattern = new RegExp(menu.when.split(' =~ /')[1].slice(0, -1));
       assert.ok(!pattern.test('gb-diff-session'));
     }
@@ -422,10 +422,10 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     const remoteCount = tree.workingTreeFor(remote).result.files.length;
     assert.equal(hoverText(tree.getTreeItem(remote)), `Left: ${remote.ref}\nRight: Working Tree\nChanged files: ${remoteCount}`);
     for (const branch of [worktreeBranch, selected, remote]) {
-      assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session');
+      assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session-list-path');
       assert.equal(tree.getTreeItem(branch).iconPath, undefined);
       assert.match(tree.getTreeItem(branch).label, / ↔ Working Tree$/);
-      assert.match(tree.getTreeItem(branch).description, /^\d+ files?$/);
+      assert.match(tree.getTreeItem(branch).description, /^Files · \d+$/);
     }
     const selectedFile = (await tree.getChildren(selected)).find(n => n.kind === 'worktree-file');
     const remoteFile = (await tree.getChildren(remote)).find(n => n.kind === 'worktree-file');
@@ -479,30 +479,29 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       { status: 'D', oldPath: 'lib/b.ts' }, { status: 'M', newPath: 'root.ts' }
     ] };
     tree.setWorkingTree(selected, synthetic);
-    await run('diffSortName');
+    await run('diffSortName', selected);
     assert.deepEqual((await tree.getChildren(selected)).map(n => n.file.newPath || n.file.oldPath), ['src/a.ts', 'lib/b.ts', 'root.ts', 'src/z.ts']);
-    await run('diffSortStatus');
+    await run('diffSortStatus', selected);
     assert.deepEqual((await tree.getChildren(selected)).map(n => n.file.status), ['A', 'D', 'M', 'M']);
-    await run('diffSortPath');
+    await run('diffSortPath', selected);
     assert.equal((await tree.getChildren(selected))[0].file.oldPath, 'lib/b.ts');
-    // The ⋯ dropdown is a native anchored submenu; its commands only set state + when-clause context keys.
-    await run('diffTree');
-    assert.equal(tree.diffLayout, 'tree');
-    assert.equal(contextKeys.get('git-branch.diffLayout'), 'tree');
-    await run('diffTree.current'); // Re-applying the ✓ current entry is idempotent.
-    assert.equal(tree.diffLayout, 'tree');
-    assert.equal(contextKeys.get('git-branch.diffSort'), 'path');
+    await run('diffTree', selected);
+    assert.equal(tree.workingTreeFor(selected).settings.layout, 'tree');
+    await run('diffTree.current', selected);
+    assert.equal(tree.getTreeItem(selected).contextValue, 'gb-diff-session-tree-path');
+    await run('diffList'); // No target must not change any session.
+    assert.equal(tree.workingTreeFor(selected).settings.layout, 'tree');
     const folders = await tree.getChildren(selected);
     assert.deepEqual(folders.map(n => n.label || n.file.newPath), ['lib', 'src', 'root.ts']);
     const nested = await tree.getChildren(folders[1]);
     assert.equal(await tree.getParent(nested[0]), folders[1]);
     assert.equal(tree.getTreeItem(nested[0]).description, '');
-    assert.equal(tree.getTreeItem(folders[1]).contextValue, 'gb-worktree-folder');
-    await run('diffList');
+    assert.equal(tree.getTreeItem(folders[1]).contextValue, 'gb-comparison-folder');
+    await run('diffList', selected);
     assert.equal((await tree.getChildren(selected)).length, 4);
     assert.equal(tree.getTreeItem((await tree.getChildren(selected))[1]).description, '');
     tree.clearWorkingTree('refs/heads/' + selected.ref);
-    assert.ok(!(await tree.getChildren()).some(n => n.diffGroup)); // Diff group hides when no comparisons remain.
+    assert.ok(!(await tree.getChildren()).some(n => n.comparisonsGroup)); // Hidden after the final session closes.
     for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }

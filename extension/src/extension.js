@@ -75,10 +75,15 @@ class BranchTreeProvider {
     this.workingTrees = new Map();
     this.comparisons = new Map();
     this.lastWorkingTreeKey = null;
-    this.diffLayout = 'list';
-    this.diffSort = 'path';
+    this.savedSettings = {};
     this._onDidChange = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChange.event;
+  }
+
+  settingsFor(key) {
+    const saved = this.savedSettings[key] || {};
+    return { layout: ['list', 'tree'].includes(saved.layout) ? saved.layout : 'list',
+      sort: ['name', 'path', 'status'].includes(saved.sort) ? saved.sort : 'path' };
   }
 
   refresh() { this._onDidChange.fire(); }
@@ -87,7 +92,8 @@ class BranchTreeProvider {
   setWorkingTree(node, result) {
     const key = node.diffKey || qualifiedRef(node);
     if (this.workingTrees.get(key)?.result.reversed) result = reverseWorktreeResult(result);
-    this.workingTrees.set(key, { key, node, result });
+    const previous = this.workingTrees.get(key);
+    this.workingTrees.set(key, { key, node, result, settings: previous?.settings || this.settingsFor(key) });
     this.lastWorkingTreeKey = key;
     this.refresh();
   }
@@ -103,16 +109,19 @@ class BranchTreeProvider {
     this.refresh();
   }
 
-  diffChildren(comparison, parent, directory = '') {
-    const { result, key } = comparison;
-    const files = [...result.files].sort((a, b) => {
+  diffChildren(comparison, parent, directory = '', details) {
+    const { result, key, settings } = comparison;
+    const nodeData = details ? { details, entry: comparison } : { result };
+    const fileKind = details ? 'compare-file' : 'worktree-file';
+    const folderKind = details ? 'compare-folder' : 'worktree-folder';
+    const files = [...(details || result).files].sort((a, b) => {
       const ap = a.newPath || a.oldPath;
       const bp = b.newPath || b.oldPath;
-      const primary = this.diffSort === 'name' ? path.posix.basename(ap).localeCompare(path.posix.basename(bp))
-        : this.diffSort === 'status' ? a.status.localeCompare(b.status) : 0;
+      const primary = settings.sort === 'name' ? path.posix.basename(ap).localeCompare(path.posix.basename(bp))
+        : settings.sort === 'status' ? a.status.localeCompare(b.status) : 0;
       return primary || ap.localeCompare(bp);
     });
-    if (this.diffLayout === 'list') return files.map(file => ({ kind: 'worktree-file', file, result, key, parent }));
+    if (settings.layout === 'list') return files.map(file => ({ kind: fileKind, file, ...nodeData, key, parent, layout: settings.layout }));
     const children = [];
     const folders = new Set();
     for (const file of files) {
@@ -120,16 +129,16 @@ class BranchTreeProvider {
       if (!filePath.startsWith(directory)) continue;
       const rest = filePath.slice(directory.length);
       const slash = rest.indexOf('/');
-      if (slash < 0) children.push({ kind: 'worktree-file', file, result, key, parent });
+      if (slash < 0) children.push({ kind: fileKind, file, ...nodeData, key, parent, layout: settings.layout });
       else {
         const name = rest.slice(0, slash);
         if (!folders.has(name)) {
           folders.add(name);
-          children.push({ kind: 'worktree-folder', label: name, directory: directory + name + '/', key, result, parent });
+          children.push({ kind: folderKind, label: name, directory: directory + name + '/', key, ...nodeData, parent });
         }
       }
     }
-    return children.sort((a, b) => (a.kind === 'worktree-folder' ? 0 : 1) - (b.kind === 'worktree-folder' ? 0 : 1));
+    return children.sort((a, b) => (a.kind === folderKind ? 0 : 1) - (b.kind === folderKind ? 0 : 1));
   }
 
   getTreeItem(element) {
@@ -137,15 +146,16 @@ class BranchTreeProvider {
       const { result } = element.entry;
       const item = new vscode.TreeItem(`${result.ref} ↔ ${result.currentLabel}`, vscode.TreeItemCollapsibleState.Expanded);
       item.id = element.key;
-      item.contextValue = 'gb-compare-session';
-      item.description = `${result.selected.total + result.current.total} unique commits`;
-      item.tooltip = `Left: ${result.ref}\nRight: ${result.currentLabel}\nUnique commits: ${result.selected.total + result.current.total}`;
+      item.contextValue = `gb-compare-session-${element.entry.settings.layout}-${element.entry.settings.sort}`;
+      item.description = `Commits · ${result.selected.total + result.current.total}`;
+      item.tooltip = `Left: ${result.ref}\nRight: ${result.currentLabel}\nLeft only: ${result.selected.total} commits\nRight only: ${result.current.total} commits`;
       return item;
     }
     if (element.kind === 'compare-side') {
-      const item = new vscode.TreeItem(`${element.label} only`, vscode.TreeItemCollapsibleState.Expanded);
+      const item = new vscode.TreeItem(`${element.side === 'selected' ? 'Left' : 'Right'} only`, vscode.TreeItemCollapsibleState.Expanded);
+      item.tooltip = `${element.label}\n${element.history.total} exclusive commits`;
       item.id = `${element.key}:${element.side}`;
-      item.description = `${element.history.total} commits`;
+      item.description = `· ${element.history.total} commits`;
       item.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor(element.side === 'selected'
         ? 'gitDecoration.addedResourceForeground' : 'gitDecoration.modifiedResourceForeground'));
       item.contextValue = 'gb-compare-side';
@@ -169,7 +179,7 @@ class BranchTreeProvider {
       const name = element.file.newPath || element.file.oldPath;
       const item = new vscode.TreeItem(path.posix.basename(name), vscode.TreeItemCollapsibleState.None);
       item.id = `${element.key}:${element.details.hash}:${name}`;
-      item.description = path.posix.dirname(name) === '.' ? '' : path.posix.dirname(name);
+      item.description = element.layout === 'tree' || path.posix.dirname(name) === '.' ? '' : path.posix.dirname(name);
       item.iconPath = new vscode.ThemeIcon('file');
       item.resourceUri = vscode.Uri.from({ scheme: worktreeDecorationScheme, path: '/' + name, query: element.file.status[0] });
       item.tooltip = `${name}\nStatus: ${element.file.status}\nFirst parent → ${shortHash(element.details.hash)}`;
@@ -177,11 +187,11 @@ class BranchTreeProvider {
       item.command = { command: 'git-branch.openCompareDiff', title: 'Open Diff', arguments: [element] };
       return item;
     }
-    if (element.kind === 'worktree-folder') {
+    if (element.kind === 'worktree-folder' || element.kind === 'compare-folder') {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Collapsed);
-      item.id = `worktree-folder:${element.key}:${element.directory}`;
+      item.id = `${element.kind}:${element.key}:${element.details?.hash || ''}:${element.directory}`;
       item.iconPath = new vscode.ThemeIcon('folder');
-      item.contextValue = 'gb-worktree-folder';
+      item.contextValue = 'gb-comparison-folder';
       return item;
     }
     if (element.kind === 'worktree-file') {
@@ -191,7 +201,7 @@ class BranchTreeProvider {
       item.resourceUri = vscode.Uri.from({ scheme: worktreeDecorationScheme,
         path: '/' + filePath, query: element.file.status.slice(0, 1) });
       item.iconPath = new vscode.ThemeIcon('file');
-      item.description = this.diffLayout === 'tree' || path.posix.dirname(filePath) === '.' ? '' : path.posix.dirname(filePath);
+      item.description = element.layout === 'tree' || path.posix.dirname(filePath) === '.' ? '' : path.posix.dirname(filePath);
       item.tooltip = `${filePath}\nStatus: ${element.file.status}\n${worktreeLabels(element.result).join(' ↔ ')}`;
       item.contextValue = 'gb-worktree-file';
       item.command = { command: 'git-branch.openWorktreeDiff', title: 'Open Diff', arguments: [element] };
@@ -204,10 +214,10 @@ class BranchTreeProvider {
       const item = new vscode.TreeItem(element.label, element.expanded
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed);
-      item.contextValue = element.diffGroup ? 'gb-diff-group' : 'gb-category';
-      if (element.diffGroup) {
-        item.id = 'worktree-diff-group';
-        item.tooltip = 'File comparisons. Use the ⋯ button to change layout and sorting.';
+      item.contextValue = element.comparisonsGroup ? 'gb-comparisons-group' : 'gb-category';
+      if (element.comparisonsGroup) {
+        item.id = 'comparisons-group';
+        item.tooltip = 'File and commit comparisons';
       }
       return item;
     }
@@ -260,8 +270,8 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
       item.label = `${leftLabel} ↔ ${rightLabel}`;
-      item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
-      item.contextValue = 'gb-diff-session';
+      item.description = `Files · ${count}`;
+      item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\nChanged files: ${count}`;
     }
     // Keep all fields in one Markdown paragraph with hard line breaks. appendText
@@ -291,7 +301,10 @@ class BranchTreeProvider {
 
   async getChildren(element) {
     if (!element) return this.getRootNodes();
-    if (element.compareGroup) return [...this.comparisons.values()].map(entry => ({ kind: 'compare-session', key: entry.key, entry, parent: element }));
+    if (element.comparisonsGroup) return [
+      ...[...this.workingTrees.values()].map(entry => ({ ...entry.node, diffSession: true, parent: element })),
+      ...[...this.comparisons.values()].map(entry => ({ kind: 'compare-session', key: entry.key, entry, parent: element }))
+    ];
     if (element.kind === 'compare-session') {
       if (this.comparisons.get(element.key) !== element.entry) return [];
       return ['selected', 'current'].map(side => ({ kind: 'compare-side', key: element.key, entry: element.entry,
@@ -315,14 +328,17 @@ class BranchTreeProvider {
       try {
         const details = await pending;
         if (this.comparisons.get(element.key) !== element.entry) return [];
-        return details.files.map(file => ({ kind: 'compare-file', file, details, key: element.key, entry: element.entry, parent: element }));
+        return this.diffChildren(element.entry, element, '', details);
       } catch (error) {
         element.entry.details.delete(element.commit.hash);
         vscode.window.showErrorMessage(`Load commit failed: ${error.message}`);
         return [];
       }
     }
-    if (element.kind === 'category' && element.diffGroup) return [...this.workingTrees.values()].map(entry => ({ ...entry.node, diffSession: true, parent: element }));
+    if (element.kind === 'compare-folder') {
+      return this.comparisons.get(element.key) === element.entry
+        ? this.diffChildren(element.entry, element, element.directory, element.details) : [];
+    }
     if (element.kind === 'category') return element.children || [];
     if (element.kind === 'remote-group') return element.children || [];
     if (element.kind === 'worktree-folder') {
@@ -390,8 +406,7 @@ class BranchTreeProvider {
       const tagNode = { kind: 'category', label: 'Tags', expanded: false, children: tagChildren };
 
       const roots = [localNode, remoteNode, tagNode];
-      if (this.workingTrees.size) roots.push({ kind: 'category', label: 'Diff', diffGroup: true, expanded: true, children: [] });
-      if (this.comparisons.size) roots.push({ kind: 'category', label: 'Compare', compareGroup: true, expanded: true, children: [] });
+      if (this.workingTrees.size || this.comparisons.size) roots.push({ kind: 'category', label: 'Comparisons', comparisonsGroup: true, expanded: true, children: [] });
       return roots;
     } catch (err) {
       vscode.window.showErrorMessage(`Git Branch: ${err.message}`);
@@ -413,16 +428,10 @@ function activate(context) {
   git.ready = configureGitExecutable(git);
 
   const branchTree = new BranchTreeProvider(git);
-  for (const [property, values] of [['diffLayout', ['list', 'tree']], ['diffSort', ['name', 'path', 'status']]]) {
-    const saved = context.workspaceState?.get(`git-branch.${property}`);
-    if (values.includes(saved)) branchTree[property] = saved;
-  }
-  // Drive the ⋯ submenu's ✓ current-item entries via when-clause context keys.
-  const syncDiffContextKeys = () => {
-    vscode.commands.executeCommand('setContext', 'git-branch.diffLayout', branchTree.diffLayout);
-    vscode.commands.executeCommand('setContext', 'git-branch.diffSort', branchTree.diffSort);
-  };
-  syncDiffContextKeys();
+  // Encode settings in each session's contextValue so the anchored menu reflects
+  // its target, even when a different tree item is selected.
+  const savedSettings = context.workspaceState?.get('git-branch.comparisonSettings');
+  if (savedSettings && typeof savedSettings === 'object' && !Array.isArray(savedSettings)) branchTree.savedSettings = { ...savedSettings };
   let lastComparison = null;
   const worktreeRequests = new Map();
   const worktreeSessions = new Map();
@@ -463,7 +472,7 @@ function activate(context) {
     if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });
     branchTree.setWorkingTree(node, result);
     await vscode.commands.executeCommand('git-branch.branches.focus');
-    const group = (await branchTree.getRootNodes()).find(item => item.diffGroup);
+    const group = (await branchTree.getRootNodes()).find(item => item.comparisonsGroup);
     await branchView.reveal({ ...node, diffSession: true, parent: group }, { expand: true, select: true, focus: false });
   }
 
@@ -508,13 +517,14 @@ function activate(context) {
       [result.left, result.right] = [result.right, result.left];
       [result.ref, result.currentLabel] = [result.currentLabel, result.ref];
     }
-    const entry = { key, leftNode, rightNode, result, reversed: !!previous?.reversed };
+    const entry = { key, leftNode, rightNode, result, reversed: !!previous?.reversed,
+      settings: previous?.settings || branchTree.settingsFor(key) };
     branchTree.comparisons.set(key, entry);
     if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });
     lastComparison = result;
     branchTree.refresh();
     await vscode.commands.executeCommand('git-branch.branches.focus');
-    const parent = (await branchTree.getRootNodes()).find(item => item.compareGroup);
+    const parent = (await branchTree.getRootNodes()).find(item => item.comparisonsGroup);
     await branchView.reveal({ kind: 'compare-session', key, entry, parent }, { expand: true, select: true, focus: false });
   }
 
@@ -680,14 +690,18 @@ function activate(context) {
       try { await vscode.env.clipboard.writeText(text); }
       catch (err) { vscode.window.showErrorMessage(`Copy failed: ${err.message}`); }
     }),
-    ...[['diffList', 'diffLayout', 'list'], ['diffTree', 'diffLayout', 'tree'],
-      ['diffSortName', 'diffSort', 'name'], ['diffSortPath', 'diffSort', 'path'], ['diffSortStatus', 'diffSort', 'status']]
+    ...[['diffList', 'layout', 'list'], ['diffTree', 'layout', 'tree'],
+      ['diffSortName', 'sort', 'name'], ['diffSortPath', 'sort', 'path'], ['diffSortStatus', 'sort', 'status']]
       .flatMap(([command, property, value]) => [command, `${command}.current`].map(id =>
-        vscode.commands.registerCommand(`git-branch.${id}`, async () => {
-          branchTree[property] = value;
-          await context.workspaceState?.update(`git-branch.${property}`, value);
-          syncDiffContextKeys();
+        vscode.commands.registerCommand(`git-branch.${id}`, async node => {
+          const entry = node?.kind === 'compare-session' ? branchTree.comparisons.get(node.key)
+            : node?.diffSession ? branchTree.workingTreeFor(node) : undefined;
+          if (!entry) return;
+          entry.settings = { ...entry.settings, [property]: value };
+          branchTree.savedSettings[entry.key] = { ...entry.settings };
           branchTree.refresh();
+          try { await context.workspaceState?.update('git-branch.comparisonSettings', { ...branchTree.savedSettings }); }
+          catch (error) { vscode.window.showErrorMessage(`Save comparison settings failed: ${error.message}`); }
         }))),
     vscode.window.registerFileDecorationProvider(worktreeDecorations),
     vscode.workspace.registerTextDocumentContentProvider(snapshotScheme, snapshotProvider),
