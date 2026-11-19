@@ -10,7 +10,7 @@ const xml = fs.readFileSync(path.join(base, 'extension.vsixmanifest'), 'utf8');
 if (!xml.includes(`Version="${manifest.version}" Publisher="${manifest.publisher}"`)) {
   throw new Error('VSIX manifest publisher/version differs from package.json');
 }
-// Refresh the tracked staging copy from authoritative source on every build.
+// Refresh the ignored staging copy from authoritative source on every build.
 for (const relative of ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js', 'src/comparison-view.js']) {
   const destination = path.join(base, 'extension', relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });

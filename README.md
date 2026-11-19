@@ -149,4 +149,4 @@ npm run check
 node package-vsix.js
 ```
 
-无第三方构建依赖。打包脚本使用 Windows PowerShell／.NET ZIP，每次从根目录源码同步生成 `extension/` 和 VSIX，避免打入旧副本。检查范围与未覆盖项见 `AUDIT.md`。
+无第三方构建依赖。打包脚本使用 Windows PowerShell／.NET ZIP，每次从根目录源码同步生成 `extension/` 和 VSIX，避免打入旧副本。`src/` 是正式源码；`extension/` 是自动生成的本地副本，与 `*.vsix` 一样由 `.gitignore` 忽略、不提交到 Git，也不要直接编辑。VSIX 内部的 `extension/` 目录结构仍保留，不受 Git 忽略规则影响。检查范围与未覆盖项见 `AUDIT.md`。

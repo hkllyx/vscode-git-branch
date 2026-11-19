@@ -1,2 +1,3 @@
-# Packaged VS Code extensions
+# Generated VS Code extension staging copy and install packages
+/extension/
 *.vsix
