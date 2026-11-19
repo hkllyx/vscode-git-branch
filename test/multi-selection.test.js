@@ -141,6 +141,38 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     await run('closeCompare', session);
     assert.equal(tabs.length, 0);
     assert.ok(!(await tree.getChildren()).some(node => node.comparisonsGroup));
+    // Zero-commit sides are hidden without changing left/right identities.
+    await run('compareSelected', left, [left, local('main')]);
+    let oneSided = (await tree.getChildren(group))[0];
+    let visibleSides = await tree.getChildren(oneSided);
+    assert.equal(visibleSides.length, 1);
+    assert.equal(tree.getTreeItem(visibleSides[0]).label, 'Left only');
+    await run('swapCompare', oneSided);
+    oneSided = (await tree.getChildren(group))[0];
+    visibleSides = await tree.getChildren(oneSided);
+    assert.equal(visibleSides.length, 1);
+    assert.equal(tree.getTreeItem(visibleSides[0]).label, 'Right only');
+    await run('refreshCompare', oneSided);
+    oneSided = (await tree.getChildren(group))[0];
+    assert.equal((await tree.getChildren(oneSided)).length, 1);
+    await run('closeCompare', oneSided);
+    // Distinct local/remote refs with equal tips show one non-expandable empty row.
+    const sameTipRemote = roots[1].children[0].children.find(node => node.ref === 'origin/right');
+    await run('compareSelected', right, [right, sameTipRemote]);
+    const equalSession = (await tree.getChildren(group))[0];
+    assert.equal(tree.getTreeItem(equalSession).description, 'Commits');
+    let emptyRows = await tree.getChildren(equalSession);
+    assert.equal(emptyRows.length, 1);
+    assert.equal(emptyRows[0].kind, 'compare-empty');
+    assert.equal(tree.getTreeItem(emptyRows[0]).label, 'No differences');
+    assert.equal(await tree.getParent(emptyRows[0]), equalSession);
+    assert.deepEqual(await tree.getChildren(emptyRows[0]), []);
+    await run('swapCompare', equalSession);
+    await run('refreshCompare', equalSession);
+    emptyRows = await tree.getChildren((await tree.getChildren(group))[0]);
+    assert.equal(emptyRows.length, 1);
+    assert.equal(tree.getTreeItem(emptyRows[0]).label, 'No differences');
+    await run('closeCompare', equalSession);
     await run('diffSelected', left, [left, right]);
     const diffRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
     const diffSession = (await tree.getChildren(diffRoot))[0];

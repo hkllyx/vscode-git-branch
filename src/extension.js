@@ -147,7 +147,8 @@ class BranchTreeProvider {
       const item = new vscode.TreeItem(`${result.ref} ↔ ${result.currentLabel}`, vscode.TreeItemCollapsibleState.Expanded);
       item.id = element.key;
       item.contextValue = `gb-compare-session-${element.entry.settings.layout}-${element.entry.settings.sort}`;
-      item.description = `Commits · ${result.selected.total + result.current.total}`;
+      const total = result.selected.total + result.current.total;
+      item.description = total ? `Commits · ${total}` : 'Commits';
       item.tooltip = `Left: ${result.ref}\nRight: ${result.currentLabel}\nLeft only: ${result.selected.total} commits\nRight only: ${result.current.total} commits`;
       return item;
     }
@@ -207,7 +208,7 @@ class BranchTreeProvider {
       item.command = { command: 'git-branch.openWorktreeDiff', title: 'Open Diff', arguments: [element] };
       return item;
     }
-    if (element.kind === 'worktree-empty') {
+    if (element.kind === 'worktree-empty' || element.kind === 'compare-empty') {
       return new vscode.TreeItem('No differences', vscode.TreeItemCollapsibleState.None);
     }
     if (element.kind === 'category') {
@@ -307,7 +308,9 @@ class BranchTreeProvider {
     ];
     if (element.kind === 'compare-session') {
       if (this.comparisons.get(element.key) !== element.entry) return [];
-      return ['selected', 'current'].map(side => ({ kind: 'compare-side', key: element.key, entry: element.entry,
+      const sides = ['selected', 'current'].filter(side => element.entry.result[side].total > 0);
+      if (!sides.length) return [{ kind: 'compare-empty', key: element.key, parent: element }];
+      return sides.map(side => ({ kind: 'compare-side', key: element.key, entry: element.entry,
         side, label: side === 'selected' ? element.entry.result.ref : element.entry.result.currentLabel,
         history: element.entry.result[side], parent: element }));
     }
