@@ -68,11 +68,12 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 - 文件列表位于 **Branches → Diff → 比较分支**，Diff 与 Local、Remote、Tags 同级，不新增 Source Control 视图或底部面板。执行 Show Diff with Working Tree 自动显示 Branches 并展开对应比较。使用原生紧凑树行，左侧显示文件图标、名称和目录，最右侧像 Changes 一样显示彩色状态标识（M 修改、A 新增、D 删除、R 重命名等），不混入路径文字；状态以选中分支与工作区的比较结果为准
 - Diff 分组行右侧有 **⋯（View & Sort）** 按钮，点击在**按钮正下方弹出锚定的原生下拉菜单**（与 Changes 的 ⋯ 溢出菜单同样式，不再是屏幕顶部的快速选择）：View as List / View as Tree、Sort Changes by Name / Path / Status，当前项行首带 ✓，其余项行首用等宽空白占位（figure space），选项文字左对齐。扩展菜单无法使用原生勾选槽，故以等宽文本占位近似对齐。默认列表、按路径排序；选择保存在当前工作区。树形模式按目录展开、目录优先，文件使用所选排序；仅改变展示，不修改 Git 文件。这些选项只在 ⋯ 菜单中，右键菜单不重复
 - 没有任何比较时 Diff 分组自动隐藏；打开第一个比较时出现，全部关闭后消失
-- 比较会话行显示为 `分支名 ↔ Working Tree`（与 Compare with Current 的对比标题同格式，工作区侧不是分支，直接显示 Working Tree），后面跟差异文件数 `N files`，不显示前置图标。会话行是专门的比较节点，右键不弹出 Checkout／Merge／Rebase／Compare／Rename／Delete 等分支操作；行右侧提供刷新和关闭图标，悬浮分别显示 Refresh Working Tree Diff、Close Working Tree Diff；列表不再放置操作行。支持多个本地／远程分支同时展开差异列表，各分支独立刷新和关闭，不替换其他分支的列表或关闭其他分支的 Diff Tab
-- 左侧为选中分支的提交快照，右侧为当前工作区实际文件；已暂存、未暂存和未忽略的新文件都纳入比较。Diff 会话悬浮只显示 Left（比较分支）、Right（Working Tree）和 Changed files（差异文件总数），不展示分支 hash、提交时间或跟踪配置；分支侧名称保留复制图标。Working Tree 不是当前分支的提交快照。
+- 比较会话行默认显示为 `分支名 ↔ Working Tree`，交换后显示 `Working Tree ↔ 分支名`；工作区侧不是分支。后面跟差异文件数 `N files`，不显示前置图标。会话行是专门的比较节点，右键不弹出 Checkout／Merge／Rebase／Compare／Rename／Delete 等分支操作；行右侧依次为 **刷新 → 交换 → 关闭**，悬浮分别显示 Refresh Working Tree Diff、Swap Comparison、Close Working Tree Diff。支持多个本地／远程分支同时展开差异列表，各会话独立保存方向、刷新和关闭，不影响其他会话或 Compare with Current 的 Tab。
+- 默认左侧为选中分支的提交快照，右侧为当前工作区实际文件；交换后左右反转。已暂存、未暂存和未忽略的新文件都纳入比较。Diff 会话悬浮只显示 Left、Right 和 Changed files（差异文件总数），随方向更新，不展示分支 hash、提交时间或跟踪配置；分支侧名称保留复制图标。Working Tree 不是当前分支的提交快照。
+- Swap Comparison 完整交换会话名称、悬浮左右信息、文件列表与目录路径、状态（A／D 互换、M 不变、重命名来源／目标互换）及原生文件 Diff 的左右内容，差异文件总数不变；再次交换恢复原方向，刷新后保留方向。已打开的该会话 Diff Tab 也会在原编辑器组重新打开为反向内容，保留各 Tab 原有的分支提交快照，不影响其他会话或普通文件。交换会等待正在打开的 Tab；关闭旧 Tab 时仍由 VS Code 提示未保存修改，取消则不提交方向变化。编辑器打开失败时尝试恢复旧 Tab，并明确报错；恢复失败也不会静默忽略。
 - 已打开且未保存的文件缓冲区也参与列表计算；列表需点击 Refresh 更新
-- 点击文件仍在主编辑区打开非预览的原生 Diff Tab，Diff 分组只展示文件列表；右侧使用真实文件 URI，可显示编辑器中未保存的内容；新增／删除文件的缺失侧为空
-- Refresh 会重新读取所选分支的 tip 和文件列表；已打开的 Diff 左侧仍保持其原来的提交快照
+- 点击文件仍在主编辑区打开非预览的原生 Diff Tab，Diff 分组只展示文件列表；工作区侧使用真实文件 URI，可显示编辑器中未保存的内容；新增／删除文件的缺失侧为空。交换后工作区在左侧时按原生 Diff 原始侧的只读行为查看，不强制保存或丢弃文件。
+- Refresh 会重新读取所选分支的 tip 和文件列表，保留会话方向；已打开的 Diff 分支侧仍保持其原来的提交快照
 - 关闭工作区差异列表时，同时关闭该分支本次比较打开的 Diff Tab（含刷新前的快照、其他编辑器组中的标签）；不关闭普通文件、其他分支或 Compare with Current 的标签。未保存修改仍由 VS Code 提示确认，不强制丢弃
 - 原 Compare with Current 仍只比较提交历史，两者相互独立
 - 不修改 index、不自动 stash、fetch 或保存文件；不支持完整子模块／特殊非文本对象比较

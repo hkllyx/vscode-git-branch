@@ -53,6 +53,17 @@ const worktreeDecorations = {
   }
 };
 
+function worktreeLabels(result) {
+  return result.reversed ? ['Working Tree', result.ref] : [result.ref, 'Working Tree'];
+}
+
+function reverseWorktreeResult(result) {
+  return { ...result, reversed: !result.reversed, files: result.files.map(file => ({
+    ...file, oldPath: file.newPath, newPath: file.oldPath,
+    status: file.status === 'A' ? 'D' : file.status === 'D' ? 'A' : file.status
+  })) };
+}
+
 // ─── Branch Tree ────────────────────────────────────────────────────────────
 
 class BranchTreeProvider {
@@ -71,6 +82,7 @@ class BranchTreeProvider {
 
   setWorkingTree(node, result) {
     const key = qualifiedRef(node);
+    if (this.workingTrees.get(key)?.result.reversed) result = reverseWorktreeResult(result);
     this.workingTrees.set(key, { key, node, result });
     this.lastWorkingTreeKey = key;
     this.refresh();
@@ -132,7 +144,7 @@ class BranchTreeProvider {
         path: '/' + filePath, query: element.file.status.slice(0, 1) });
       item.iconPath = new vscode.ThemeIcon('file');
       item.description = this.diffLayout === 'tree' || path.posix.dirname(filePath) === '.' ? '' : path.posix.dirname(filePath);
-      item.tooltip = `${filePath}\nStatus: ${element.file.status}\n${element.result.ref} ↔ Working Tree`;
+      item.tooltip = `${filePath}\nStatus: ${element.file.status}\n${worktreeLabels(element.result).join(' ↔ ')}`;
       item.contextValue = 'gb-worktree-file';
       item.command = { command: 'git-branch.openWorktreeDiff', title: 'Open Diff', arguments: [element] };
       return item;
@@ -198,10 +210,11 @@ class BranchTreeProvider {
     if (showingWorktree) {
       const count = showingWorktree.result.files.length;
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
-      item.label = `${item.label} ↔ Working Tree`;
+      const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
+      item.label = `${leftLabel} ↔ ${rightLabel}`;
       item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = 'gb-diff-session';
-      item.tooltip = `Left: ${showingWorktree.result.ref || element.ref}\nRight: Working Tree\nChanged files: ${count}`;
+      item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\nChanged files: ${count}`;
     }
     // Keep all fields in one Markdown paragraph with hard line breaks. appendText
     // on a multiline string creates paragraph gaps. Only actual branch names get copy links.
@@ -210,8 +223,9 @@ class BranchTreeProvider {
     item.tooltip.split('\n').forEach((line, index) => {
       if (index > 0) hover.appendMarkdown('  \n');
       hover.appendText(line);
-      const name = index === 0 && isBranchNode(element)
-        ? (showingWorktree ? showingWorktree.result.ref || element.ref : element.ref || element.label)
+      const name = showingWorktree
+        ? (index === (showingWorktree.result.reversed ? 1 : 0) ? showingWorktree.result.ref : undefined)
+        : index === 0 && isBranchNode(element) ? element.ref || element.label
         : line.startsWith('Tracking branch:') && isBranchNode(element) && !element.remote && element.upstream ? tracking : undefined;
       if (name) {
         const args = encodeURIComponent(JSON.stringify([name]))
@@ -331,19 +345,27 @@ function activate(context) {
   const worktreeRequests = new Map();
   const worktreeSessions = new Map();
 
+  function sessionTabs(session) {
+    return vscode.window.tabGroups.all.flatMap(group => group.tabs.filter(tab => {
+      if (!(tab.input instanceof vscode.TabInputTextDiff)) return false;
+      return [tab.input.original, tab.input.modified].some(uri => {
+        if (uri.scheme !== snapshotScheme) return false;
+        try { return JSON.parse(uri.query).worktreeSession === session.id; }
+        catch { return false; }
+      });
+    }).map(tab => ({ tab, group })));
+  }
+
   async function closeSessionTabs(session) {
-    const tabs = vscode.window.tabGroups.all.flatMap(group => group.tabs).filter(tab => {
-      if (!(tab.input instanceof vscode.TabInputTextDiff) || tab.input.original.scheme !== snapshotScheme) return false;
-      try { return JSON.parse(tab.input.original.query).worktreeSession === session.id; }
-      catch { return false; }
-    });
-    // Target exact comparison tabs across groups. VS Code keeps its normal unsaved-change prompts.
+    const tabs = sessionTabs(session).map(entry => entry.tab);
+    // Either side may carry the session marker after a swap. Keep normal unsaved-change prompts.
     if (tabs.length) return vscode.window.tabGroups.close(tabs, true);
     return true;
   }
 
   async function showWorkingTree(node) {
     const key = qualifiedRef(node);
+    if (worktreeSessions.get(key)?.swapping) return;
     const request = Symbol();
     worktreeRequests.set(key, request);
     await configureGitExecutable(git);
@@ -384,15 +406,73 @@ function activate(context) {
   }
 
   async function openDiff(file, session) {
-    if (session?.closed) return;
-    const title = `${path.basename(file.newPath || file.oldPath)} (${file.ref} ↔ ${file.rightLabel || 'HEAD'})`;
-    const right = file.worktree && file.newPath
+    if (session?.closed || session?.swapping) return;
+    let original = snapshotUri(file.left, file.oldPath, session);
+    let modified = file.worktree && file.newPath
       ? vscode.Uri.file(git.worktreePath(file.newPath)) : snapshotUri(file.right, file.newPath, session);
-    await vscode.commands.executeCommand('vscode.diff',
-      snapshotUri(file.left, file.oldPath, session), right, title,
+    let leftLabel = file.ref;
+    let rightLabel = file.rightLabel || 'HEAD';
+    if (file.worktree && file.reversed) {
+      original = file.oldPath ? vscode.Uri.file(git.worktreePath(file.oldPath)) : snapshotUri(null, null, session);
+      modified = snapshotUri(file.left, file.newPath, session);
+      [leftLabel, rightLabel] = ['Working Tree', file.ref];
+    }
+    const title = `${path.basename(file.newPath || file.oldPath)} (${leftLabel} ↔ ${rightLabel})`;
+    const opening = vscode.commands.executeCommand('vscode.diff', original, modified, title,
       { preview: false, viewColumn: vscode.ViewColumn.Active });
+    if (session) { session.pending ||= new Set(); session.pending.add(opening); }
+    try { await opening; }
+    finally { session?.pending?.delete(opening); }
     // Closing while vscode.diff was pending must not leave a late-opening tab behind.
     if (session?.closed) await closeSessionTabs(session);
+  }
+
+  async function swapWorkingTree(node) {
+    if (!isBranchNode(node)) return;
+    const active = branchTree.workingTreeFor(node);
+    const session = active && worktreeSessions.get(active.key);
+    if (!session || session.closed || session.swapping) return;
+    session.swapping = true;
+    worktreeRequests.delete(active.key); // Cancel a pending refresh before taking the snapshot.
+    let records = [], replacementsStarted = false;
+    const restoreClosedTabs = async () => {
+      for (const { tab, group } of records) {
+        if (vscode.window.tabGroups.all.some(g => g.tabs.includes(tab))) continue;
+        await vscode.commands.executeCommand('vscode.diff', tab.input.original, tab.input.modified,
+          tab.label, { preview: false, preserveFocus: true, viewColumn: group.viewColumn || vscode.ViewColumn.Active });
+      }
+    };
+    try {
+      await Promise.allSettled([...(session.pending || [])]);
+      records = sessionTabs(session);
+      if (records.length && !await vscode.window.tabGroups.close(records.map(entry => entry.tab), true)) {
+        await restoreClosedTabs();
+        vscode.window.showInformationMessage('Swap cancelled. Comparison direction was not changed.');
+        return;
+      }
+      const next = reverseWorktreeResult(active.result);
+      const labels = worktreeLabels(next);
+      replacementsStarted = true;
+      for (const { tab, group } of records) {
+        const original = tab.input.modified, modified = tab.input.original;
+        const uriPath = uri => uri.scheme === snapshotScheme ? JSON.parse(uri.query).file : uri.fsPath;
+        const filePath = uriPath(modified) || uriPath(original) || 'empty';
+        await vscode.commands.executeCommand('vscode.diff', original, modified,
+          `${path.basename(filePath)} (${labels.join(' ↔ ')})`,
+          { preview: false, preserveFocus: true, viewColumn: group.viewColumn || vscode.ViewColumn.Active });
+      }
+      // Commit the direction only after every existing tab has been reopened successfully.
+      active.result = next;
+      branchTree.refresh();
+    } catch (err) {
+      try {
+        if (replacementsStarted && !await closeSessionTabs(session)) throw new Error('Closing replacement tabs was cancelled.');
+        await restoreClosedTabs();
+      } catch (restoreError) {
+        vscode.window.showErrorMessage(`Swap recovery failed: ${restoreError.message}. Close and reopen this comparison.`);
+      }
+      vscode.window.showErrorMessage(`Swap failed: ${err.message}`);
+    } finally { session.swapping = false; }
   }
 
   async function createBranch(node, checkout) {
@@ -532,8 +612,10 @@ function activate(context) {
       try { await showWorkingTree(active.node); }
       catch (err) { vscode.window.showErrorMessage(`Working tree comparison failed: ${err.message}`); }
     }),
-    vscode.commands.registerCommand('git-branch.closeWorktree', async node => {
-      const active = branchTree.workingTreeFor(node);
+      vscode.commands.registerCommand('git-branch.swapWorktree', swapWorkingTree),
+      vscode.commands.registerCommand('git-branch.closeWorktree', async node => {
+        const active = branchTree.workingTreeFor(node);
+        if (active && worktreeSessions.get(active.key)?.swapping) return;
       if (node && !isBranchNode(node)) return;
       const key = active?.key || (node ? qualifiedRef(node) : branchTree.lastWorkingTreeKey);
       if (!key) return;
@@ -553,7 +635,7 @@ function activate(context) {
       if (element?.kind !== 'worktree-file' || element.result !== active?.result || !active.result.files.includes(element.file)) return;
       try {
         await openDiff({ ...element.file, left: active.result.left, right: null,
-            ref: active.result.ref, rightLabel: 'Working Tree', worktree: true }, worktreeSessions.get(active.key));
+              ref: active.result.ref, rightLabel: 'Working Tree', worktree: true, reversed: !!active.result.reversed }, worktreeSessions.get(active.key));
       } catch (err) { vscode.window.showErrorMessage(`Open diff failed: ${err.message}`); }
     }),
 
