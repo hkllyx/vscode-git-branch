@@ -174,14 +174,17 @@ class BranchTreeProvider {
       item.contextValue = 'gb-tag';
     } else if (element.current) {
       item.contextValue = 'gb-current';
-      if (!showingWorktree) {
-        const label = `* ${element.label}`;
-        item.label = { label, highlights: [[0, label.length]] };
-      }
     } else if (element.remote) {
       item.contextValue = 'gb-remote';
     } else {
       item.contextValue = 'gb-local';
+    }
+    if (!showingWorktree && isBranchNode(element)) {
+      if (element.current || element.primary) {
+        const icon = element.current && element.primary ? 'current-primary' : element.current ? 'current-branch' : 'primary-branch';
+        item.iconPath = vscode.Uri.file(path.join(__dirname, '..', 'media', `${icon}.svg`));
+      }
+      item.tooltip += `\nCurrent branch: ${element.current ? 'Yes' : 'No'}\nDefault branch: ${element.primary ? 'Yes (remote HEAD or main/master fallback)' : 'No'}`;
     }
     if (showingWorktree) {
       const count = showingWorktree.result.files.length;
@@ -235,7 +238,7 @@ class BranchTreeProvider {
       const locals = branches.filter(b => !b.remote).map(b => ({
         kind: 'branch', label: b.name, ref: b.name, hash: b.hash,
         commitDate: b.commitDate, upstream: b.upstream,
-        current: b.current, remote: false
+        current: b.current, primary: b.primary, remote: false
       }));
       const localNode = { kind: 'category', label: 'Local', expanded: true, children: locals };
 
@@ -247,7 +250,7 @@ class BranchTreeProvider {
         if (!groups.has(remoteName)) groups.set(remoteName, []);
         groups.get(remoteName).push({
           kind: 'branch', label: b.name.slice(remoteName.length + 1),
-          ref: b.name, hash: b.hash, current: false, remote: true,
+          ref: b.name, hash: b.hash, current: false, primary: b.primary, remote: true,
           commitDate: b.commitDate, upstream: b.upstream
         });
       }

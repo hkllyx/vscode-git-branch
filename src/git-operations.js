@@ -42,12 +42,40 @@ class GitOperations {
       if (error.code !== 1) throw error;
       current = undefined;
     }
-    const branches = output.trim().split(/\r?\n/).filter(Boolean).map(line => {
+    const records = output.trim().split(/\r?\n/).filter(Boolean).map(line => {
       const [ref, hash, symbolic, commitDate = '', upstream = ''] = line.split('\t');
       const remote = ref.startsWith('refs/remotes/');
       return { ref, hash, symbolic, commitDate, upstream, remote,
         current: ref === current, name: ref.slice(remote ? 13 : 11) };
-    }).filter(b => !b.symbolic);
+    });
+    const branches = records.filter(b => !b.symbolic);
+    const remoteDefaults = new Map();
+    for (const record of records) {
+      if (record.remote && record.symbolic && record.name.endsWith('/HEAD') && branches.some(b => b.ref === record.symbolic)) {
+        remoteDefaults.set(record.name.slice(0, -5), record.symbolic);
+      }
+    }
+    const remoteNames = new Set(branches.filter(b => b.remote).map(b => b.name.split('/')[0]));
+    for (const remote of remoteNames) {
+      if (!remoteDefaults.has(remote)) {
+        const fallback = ['main', 'master'].map(name => `refs/remotes/${remote}/${name}`).find(ref => branches.some(b => b.ref === ref));
+        if (fallback) remoteDefaults.set(remote, fallback);
+      }
+    }
+    // Local default branch: origin's default first; otherwise only an unambiguous remote default.
+    const defaults = [...new Set([...remoteDefaults.values()].map(ref => ref.slice('refs/remotes/'.length).split('/').slice(1).join('/')))];
+    const preferred = remoteDefaults.get('origin');
+    const preferredName = preferred ? preferred.slice('refs/remotes/origin/'.length) : defaults.length === 1 ? defaults[0] : undefined;
+    const locals = branches.filter(b => !b.remote);
+    let primaryLocal = preferredName && locals.find(b => b.name === preferredName);
+    if (!primaryLocal && preferred) {
+      const tracking = locals.filter(b => b.upstream === preferred);
+      if (tracking.length === 1) primaryLocal = tracking[0];
+    }
+    if (!primaryLocal && !preferredName) primaryLocal = ['main', 'master'].map(name => locals.find(b => b.name === name)).find(Boolean);
+    for (const branch of branches) {
+      branch.primary = branch.remote ? remoteDefaults.get(branch.name.split('/')[0]) === branch.ref : branch === primaryLocal;
+    }
     return { current, branches };
   }
 

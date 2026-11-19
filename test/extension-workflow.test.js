@@ -123,9 +123,11 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(tag.ref, 'feature/test');
     for (const node of [main, selected, remote, tag]) {
       const item = tree.getTreeItem(node);
-      assert.equal(typeof item.label === 'string' ? item.label : item.label.label, node.current ? `* ${node.label}` : node.label);
-      assert.equal(item.iconPath, undefined);
-      if (node.current) assert.deepEqual(item.label.highlights, [[0, item.label.label.length]]);
+      assert.equal(item.label, node.label);
+      if (node.current || node.primary) {
+        const expected = node.current && node.primary ? 'current-primary.svg' : node.current ? 'current-branch.svg' : 'primary-branch.svg';
+        assert.equal(path.basename(item.iconPath.fsPath), expected);
+      } else assert.equal(item.iconPath, undefined);
       assert.equal(item.description, undefined); // Branch/tag names have no trailing hash.
       assert.ok(item.tooltip.includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
       assert.ok(item.tooltip.includes(`Hash: ${node.hash}`));
