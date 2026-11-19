@@ -110,7 +110,40 @@ class GitOperations {
     const invalid = await this.validateName(name);
     if (invalid) throw new Error(invalid);
     const hash = await this.resolve(start);
-    await this.exec(['branch', '--', name, hash]);
+    const source = (await this.exec(['rev-parse', '--symbolic-full-name', '--verify', '--end-of-options', start])).trim();
+    const inherit = source.startsWith('refs/heads/') && !source.includes('\n');
+    const direct = source.startsWith('refs/remotes/') && !source.includes('\n');
+    // Local sources inherit their upstream; remote sources are themselves the upstream.
+    // Explicit modes prevent branch.autoSetupMerge from silently changing this behavior.
+    await this.exec(['branch', inherit ? '--track=inherit' : direct ? '--track=direct' : '--no-track',
+      '--', name, inherit || direct ? source : hash]);
+  }
+
+  /** Change upstream configuration only; never move a branch or check out files. */
+  async setTracking(name, upstream) {
+    if (typeof name !== 'string' || !name || name.startsWith('-') || name.includes('@{')) {
+      throw new Error('Select a valid local branch.');
+    }
+    await this.exec(['check-ref-format', '--branch', name]);
+    await this.exec(['show-ref', '--verify', `refs/heads/${name}`]);
+    if (upstream === null) {
+      // Clearing an already untracked branch is a harmless no-op.
+      try { await this.exec(['config', '--get', `branch.${name}.remote`]); } catch (error) {
+        if (error.code === 1) return;
+        throw error;
+      }
+      await this.exec(['branch', '--unset-upstream', '--', name]);
+      return;
+    }
+    if (typeof upstream !== 'string' || !/^refs\/(heads|remotes)\/.+/.test(upstream) || upstream.includes('@{')) {
+      throw new Error('Select a valid tracking branch.');
+    }
+    if (upstream === `refs/heads/${name}`) throw new Error('A branch cannot track itself.');
+    await this.exec(['show-ref', '--verify', upstream]);
+    const symbolic = (await this.exec(['for-each-ref', '--format=%(refname)%09%(symref)', upstream]))
+      .split(/\r?\n/).map(line => line.split('\t')).find(([ref]) => ref === upstream)?.[1];
+    if (symbolic) throw new Error('Select a branch, not a symbolic reference.');
+    await this.exec(['branch', `--set-upstream-to=${upstream}`, '--', name]);
   }
 
   /** Checkout accepts tree nodes (ref) and repository branch records (ref/name). */

@@ -531,7 +531,40 @@ function activate(context) {
       } catch (err) { vscode.window.showErrorMessage(`Open diff failed: ${err.message}`); }
     }),
 
-    vscode.commands.registerCommand('git-branch.rename', async node => {
+      vscode.commands.registerCommand('git-branch.setTracking', async node => {
+        if (!isBranchNode(node) || node.remote || node.diffSession) {
+          vscode.window.showInformationMessage('Right-click a local branch to set its tracking branch.');
+          return;
+        }
+        try {
+          await configureGitExecutable(git);
+          const { branches } = await git.branches();
+          const source = branches.find(branch => branch.ref === `refs/heads/${node.ref}`);
+          if (!source) throw new Error('Local branch no longer exists. Refresh the branch list.');
+          const items = [{ label: 'No Tracking', description: source.upstream ? 'Remove the current upstream' : 'Current', upstream: null },
+            ...branches.filter(branch => branch.ref !== source.ref).map(branch => ({
+              label: branch.name,
+              description: `${branch.remote ? 'Remote' : 'Local'}${branch.ref === source.upstream ? ' · Current' : ''}`,
+              upstream: branch.ref
+            }))];
+          const selected = await vscode.window.showQuickPick(items, {
+            title: `Set Tracking — ${node.ref}`,
+            placeHolder: 'Choose an upstream branch, or No Tracking to remove it',
+            matchOnDescription: true,
+            ignoreFocusOut: true
+          });
+          if (!selected) return;
+          await git.setTracking(node.ref, selected.upstream);
+          branchTree.refresh();
+          vscode.window.showInformationMessage(selected.upstream === null
+            ? `Tracking removed: ${node.ref}` : `Tracking set: ${node.ref} → ${selected.label}`);
+        } catch (err) {
+          branchTree.refresh();
+          vscode.window.showErrorMessage(`Set tracking failed: ${err.message}`);
+        }
+      }),
+
+      vscode.commands.registerCommand('git-branch.rename', async node => {
       if (node?.kind !== 'branch' || node.remote !== false || !node.ref) {
         vscode.window.showInformationMessage('Right-click a local branch to rename it.');
         return;

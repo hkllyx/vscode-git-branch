@@ -26,12 +26,25 @@ Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显�
 | Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支 |
 | Create                      | 有指定分支／标签时从它创建；没有则默认当前分支，不切换 |
 | Create and Checkout         | 使用相同起点创建新分支，并检出新分支                   |
+| Set Tracking                | 设置本地分支的跟踪分支，或选择 No Tracking 取消跟踪    |
 | Merge into Current          | 将选中分支合并到当前分支                               |
 | Rebase Current onto Target  | 将当前分支变基到选中分支                               |
 | Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异                 |
 | Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）         |
 | Rename                      | 重命名本地分支（含校验和二次确认）                     |
 | Delete                      | 先安全删除；未合并时可确认 Force Delete                |
+
+### 创建与跟踪分支
+
+Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
+
+- 从远程分支创建：新分支直接跟踪选中的远程分支，例如从 origin/main 创建 topic，跟踪 origin/main。
+- 从本地分支创建：继承来源分支的跟踪配置，不是跟踪来源本地分支本身；来源没有跟踪配置时，新分支也不配置跟踪。
+- 没有指定来源（命令面板或分组参数）：默认从当前分支创建，继承当前分支的跟踪配置。
+- 从标签、commit 或 detached HEAD 创建：这些起点没有跟踪配置，不按名称或相同 hash 猜测；创建后可以使用 Set Tracking。
+- 创建使用本地现有引用，不自动 fetch；与远程 Checkout 的先 fetch 行为不同。
+
+本地分支（含当前分支）右键可用 Set Tracking，选择已有本地／远程分支，或 No Tracking 取消跟踪。列表标注当前跟踪对象，排除自身、标签和符号引用；取消选择不修改配置。操作只修改 upstream，不移动提交、不检出、不 push，也不丢弃工作区修改。刷新后悬浮信息和提交差异计数反映新的跟踪关系。
 
 ### Compare with Current
 
@@ -84,7 +97,7 @@ code --install-extension hkllyx.git-branch-1.0.0.vsix
 ## 要求
 
 - VS Code 1.85+
-- Git（需支持 `git switch` 和 `git rev-parse --end-of-options`；本次回归验证版本为 2.47.1.windows.1）
+- Git（需支持 `git switch`、`git rev-parse --end-of-options` 和 `git branch --track=inherit`；本次回归验证版本为 2.47.1.windows.1）
 - 依赖内置 `vscode.git` 扩展（用于获取 Git 可执行路径）
 
 ## 安全
@@ -100,7 +113,7 @@ code --install-extension hkllyx.git-branch-1.0.0.vsix
 - 使用第一个工作区文件夹作为 Git 仓库根目录
 - 二进制文件显示提示文本，不支持图片 diff
 - 文本按 UTF-8 显示
-- 已存在本地跟踪分支时，远程 Checkout 会复用；多个本地分支跟踪同一远程时要求在 Local 中自行选择
+- 远程 Checkout 使用同名本地分支；其他名称的跟踪分支不会被自动改动
 - 不提供远程分支删除、自动推送、自动 stash 或冲突自动解决
 - Merge／Rebase 要求本地分支、干净工作区且没有正在进行的合并／变基；冲突时保留 Git 状态，需手动解决并继续或中止
 - Git 命令 30 秒超时，单次输出上限 32 MiB；Git hooks 或超大仓库可能超出限制

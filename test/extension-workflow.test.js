@@ -34,7 +34,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   const commands = new Map(), providers = new Map(), contextKeys = new Map();
   const messages = [], panels = [], diffs = [], patterns = [], inputOptions = [];
   const tabGroups = [{ tabs: [] }, { tabs: [] }], closedTabs = [];
-  let tree, diffTree, decorations, panelFocuses = 0, refreshes = 0, input, answer, choose = false;
+  let tree, diffTree, decorations, panelFocuses = 0, refreshes = 0, input, answer, trackingSelection, choose = false;
   const disposable = { dispose() {} };
   const mock = {
     EventEmitter: class { event = () => {}; fire() { refreshes++; } dispose() {} },
@@ -100,7 +100,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
         };
         panels.push(panel); return panel;
       },
-      showQuickPick: async items => choose ? items[0] : undefined
+      showQuickPick: async (items, options) => options?.title?.startsWith('Set Tracking')
+        ? trackingSelection?.(items, options) : choose ? items[0] : undefined
     }
   };
   const originalLoad = Module._load;
@@ -153,6 +154,25 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.match(tree.getTreeItem(tag).tooltip, /Tracking branch: Not applicable \(tag\)/);
     await assert.rejects(git.create('feature/test'), /already exists/);
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
+    const upstreamOf = async name => (await git.branches()).branches.find(b => b.ref === `refs/heads/${name}`).upstream;
+    // Set Tracking validates local nodes, excludes self/symbolic refs, and handles cancellation.
+    await run('setTracking', main);
+    assert.equal(await upstreamOf('main'), 'refs/remotes/origin/main');
+    trackingSelection = (items, options) => {
+      assert.equal(options.title, 'Set Tracking — feature/test');
+      assert.ok(!items.some(item => item.upstream === 'refs/heads/feature/test' || item.upstream?.endsWith('/HEAD')));
+      return items.find(item => item.upstream === 'refs/remotes/origin/remote/test');
+    };
+    await run('setTracking', selected);
+    assert.equal(await upstreamOf('feature/test'), 'refs/remotes/origin/remote/test');
+    trackingSelection = items => items.find(item => item.upstream === null);
+    await run('setTracking', selected);
+    assert.equal(await upstreamOf('feature/test'), '');
+    await run('setTracking', remote);
+    assert.match(messages.pop(), /Right-click a local branch/);
+    await run('setTracking', { ...selected, diffSession: true });
+    assert.match(messages.pop(), /Right-click a local branch/);
+    trackingSelection = undefined;
     input = 'from-selected'; await run('create', selected);
     assert.equal(await git.resolve('refs/heads/from-selected'), feature);
     input = 'from-remote'; await run('create', remote);
@@ -169,17 +189,25 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(await git.resolve('refs/heads/from-remote-group'), base);
     assert.equal(inputOptions.at(-1).prompt, 'New branch name (based on main)');
     assert.equal(await git.current(), 'main');
+    for (const [name, expected] of [
+      ['from-selected', ''], ['from-remote', 'refs/remotes/origin/remote/test'], ['from-tag', ''],
+      ['from-head', 'refs/remotes/origin/main'], ['from-group', 'refs/remotes/origin/main'],
+      ['from-remote-group', 'refs/remotes/origin/main']
+    ]) assert.equal(await upstreamOf(name), expected);
     input = undefined; await run('create', selected); // Input cancellation.
     await run('createAndCheckout', selected);
     assert.equal(await git.current(), 'main');
     for (const [suffix, node, hash] of [
       ['selected', selected, feature], ['remote', remote, feature], ['tag', tag, base],
-      ['head', undefined, base], ['group', roots[0], base]
+      ['main', main, base], ['head', undefined, base], ['group', roots[0], base]
     ]) {
       input = `checkout-${suffix}`;
       await run('createAndCheckout', node);
       assert.equal(await git.current(), input);
       assert.equal(await git.resolve('HEAD'), hash);
+      const expectedTracking = suffix === 'remote' ? 'refs/remotes/origin/remote/test'
+        : ['main', 'head', 'group'].includes(suffix) ? 'refs/remotes/origin/main' : '';
+      assert.equal(await upstreamOf(input), expectedTracking);
       await run('checkout', main);
     }
     // A rejected checkout must preserve the created branch and report the partial success.
