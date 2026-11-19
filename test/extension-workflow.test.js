@@ -142,7 +142,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       assert.equal(item.iconPath.color?.id, node.current && !node.remote ? 'charts.yellow' : undefined);
       assert.equal(item.description, undefined); // Branch/tag names have no trailing hash.
       assert.ok(item.tooltip instanceof mock.MarkdownString);
-      assert.deepEqual(item.tooltip.isTrusted, { enabledCommands: ['git-branch.copyBranchName'] });
+      assert.deepEqual(item.tooltip.isTrusted, { enabledCommands: node.kind === 'tag'
+        ? ['git-branch.copyBranchName'] : ['git-branch.copyBranchName', 'git-branch.copyCommitHash'] });
       assert.equal(item.tooltip.supportThemeIcons, true);
       assert.equal(item.tooltip.supportHtml, false);
       assert.ok(!item.tooltip.value.includes('\n\n')); // One compact paragraph, not spaced paragraphs.
@@ -151,8 +152,19 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       if (!node.remote && node.kind !== 'tag' && node.upstream) expectedCopyNames.push(node.upstream.replace(/^refs\/(heads|remotes)\//, ''));
       assert.deepEqual(copyNames(item), expectedCopyNames);
       assert.ok(hoverText(item).includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
-      assert.ok(hoverText(item).includes(`Hash: ${node.hash}`));
-      assert.ok(hoverText(item).includes(`Last commit: ${node.commitDate.replace('T', ' ')}`));
+      if (node.kind === 'tag') assert.ok(hoverText(item).includes(`Hash: ${node.hash}`));
+      assert.ok(hoverText(item).includes(`Last commit: ${node.kind === 'tag' ? '' : `${node.commitAuthor} · `}${node.commitDate.replace('T', ' ')}`));
+      if (node.kind !== 'tag') {
+        assert.equal(node.commitAuthor, 'Test');
+        assert.ok(!item.tooltip.value.includes(node.hash));
+        assert.ok(!hoverText(item).includes('Hash:'));
+        const commitLine = item.tooltip.value.split('  \n')[1];
+        assert.ok(hoverText(item).includes(`Last commit: Test · ${node.commitDate.replace('T', ' ')} · ${node.hash.slice(0, 7)}`));
+        assert.ok(commitLine.endsWith(`${node.hash.slice(0, 7)} [$(copy)](command:git-branch.copyCommitHash?${encodeURIComponent(JSON.stringify([node.hash.slice(0, 7)]))} "Copy short commit hash")`));
+        const link = /command:git-branch.copyCommitHash\?([^ ]+)/.exec(item.tooltip.value);
+        await commands.get('git-branch.copyCommitHash')(JSON.parse(decodeURIComponent(link[1]))[0]);
+        assert.equal(copied.pop(), node.hash.slice(0, 7));
+      }
       assert.doesNotMatch(hoverText(item), /Current branch:|Default branch:|commits; local refs only/);
     }
     assert.equal(main.commitDate, (await git.exec(['show', '-s', '--format=%cI', base])).trim());
@@ -176,7 +188,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await assert.rejects(git.create('feature/test'), /already exists/);
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
     const copyItem = tree.getTreeItem({ ...selected, ref: 'feature/[Copy](command:other)' });
-    assert.equal((copyItem.tooltip.value.match(/\]\(command:/g) || []).length, 1); // Only our real link is active.
+    assert.equal((copyItem.tooltip.value.match(/\]\(command:/g) || []).length, 2); // Only our name and short-hash links are active.
     assert.deepEqual(copyNames(copyItem), ['feature/[Copy](command:other)']);
     await run('copyBranchName', copyNames(copyItem)[0]);
     assert.equal(copied.pop(), 'feature/[Copy](command:other)'); // Name only, without labels or other fields.

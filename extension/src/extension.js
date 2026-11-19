@@ -252,8 +252,12 @@ class BranchTreeProvider {
     const tracking = element.upstream ? element.upstream.replace(/^refs\/(heads|remotes)\//, '') : 'Not configured';
     const details = [
       `${element.kind === 'tag' ? 'Tag' : 'Branch'} name: ${element.ref || element.label}`,
-      `Hash: ${element.hash || 'Unknown'}`,
-      `Last commit: ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'}`
+      ...(isBranchNode(element) ? [
+        `Last commit: ${element.commitAuthor || 'Unknown'} · ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'} · ${shortHash(element.hash) || 'Unknown'}`
+      ] : [
+        `Hash: ${element.hash || 'Unknown'}`,
+        `Last commit: ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'}`
+      ])
     ];
     if (isBranchNode(element) && !element.remote) details.push(`Tracking branch: ${tracking}`);
     item.tooltip = details.join('\n');
@@ -294,7 +298,8 @@ class BranchTreeProvider {
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;
     }
     // Keep all fields in one Markdown paragraph with hard line breaks. appendText
-    // on a multiline string creates paragraph gaps. Only actual branch names get copy links.
+    // on a multiline string creates paragraph gaps. Copy links target branch names
+    // and short commit hashes only, never the full tooltip text.
     const hover = new vscode.MarkdownString();
     hover.supportThemeIcons = true;
     item.tooltip.split('\n').forEach((line, index) => {
@@ -311,8 +316,13 @@ class BranchTreeProvider {
           .replace(/[!'()*]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
         hover.appendMarkdown(` [$(copy)](command:git-branch.copyBranchName?${args} "Copy branch name")`);
       }
+      if (!showingWorktree && isBranchNode(element) && index === 1 && element.hash) {
+        const args = encodeURIComponent(JSON.stringify([shortHash(element.hash)]));
+        hover.appendMarkdown(` [$(copy)](command:git-branch.copyCommitHash?${args} "Copy short commit hash")`);
+      }
     });
-    hover.isTrusted = { enabledCommands: ['git-branch.copyBranchName'] };
+    hover.isTrusted = { enabledCommands: !showingWorktree && isBranchNode(element)
+      ? ['git-branch.copyBranchName', 'git-branch.copyCommitHash'] : ['git-branch.copyBranchName'] };
     hover.supportHtml = false;
     item.tooltip = hover;
     return item;
@@ -437,7 +447,7 @@ class BranchTreeProvider {
       // Local
       const locals = branches.filter(b => !b.remote).map(b => ({
         kind: 'branch', label: b.name, ref: b.name, hash: b.hash,
-        commitDate: b.commitDate, upstream: b.upstream,
+        commitDate: b.commitDate, commitAuthor: b.commitAuthor, upstream: b.upstream,
         ahead: b.ahead, behind: b.behind, trackingMissing: b.trackingMissing,
         current: b.current, primary: b.primary, remote: false
       }));
@@ -452,7 +462,7 @@ class BranchTreeProvider {
         groups.get(remoteName).push({
           kind: 'branch', label: b.name.slice(remoteName.length + 1),
           ref: b.name, hash: b.hash, current: false, primary: b.primary, remote: true,
-          commitDate: b.commitDate, upstream: b.upstream
+          commitDate: b.commitDate, commitAuthor: b.commitAuthor, upstream: b.upstream
         });
       }
       const remoteChildren = [...groups.entries()].map(([name, children]) => ({
