@@ -161,15 +161,14 @@ class BranchTreeProvider {
     const item = new vscode.TreeItem(element.diffSession && element.remote ? element.ref : element.label, showingWorktree
       ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
     item.id = `${element.diffSession ? 'diff-' : ''}${element.kind}:${element.remote ? 'remote' : 'local'}:${element.ref}`;
-    const tracking = element.kind === 'tag' ? 'Not applicable (tag)'
-      : element.remote ? 'Not applicable (remote branch)'
-      : element.upstream ? element.upstream.replace(/^refs\/(heads|remotes)\//, '') : 'Not configured';
-    item.tooltip = [
+    const tracking = element.upstream ? element.upstream.replace(/^refs\/(heads|remotes)\//, '') : 'Not configured';
+    const details = [
       `${element.kind === 'tag' ? 'Tag' : 'Branch'} name: ${element.ref || element.label}`,
       `Hash: ${element.hash || 'Unknown'}`,
-      `Last commit: ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'}`,
-      `Tracking branch: ${tracking}`
-    ].join('\n');
+      `Last commit: ${element.commitDate ? element.commitDate.replace('T', ' ') : 'Unknown'}`
+    ];
+    if (isBranchNode(element) && !element.remote) details.push(`Tracking branch: ${tracking}`);
+    item.tooltip = details.join('\n');
     if (element.kind === 'tag') {
       item.contextValue = 'gb-tag';
     } else if (element.current) {
@@ -202,7 +201,7 @@ class BranchTreeProvider {
       item.label = `${item.label} ↔ Working Tree`;
       item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = 'gb-diff-session';
-      item.tooltip += `\nWorking Tree Diff: ${count} changed ${count === 1 ? 'file' : 'files'} (selected branch ↔ working tree)`;
+      item.tooltip = `Left: ${showingWorktree.result.ref || element.ref}\nRight: Working Tree\nChanged files: ${count}`;
     }
     // Keep all fields in one Markdown paragraph with hard line breaks. appendText
     // on a multiline string creates paragraph gaps. Only actual branch names get copy links.
@@ -211,7 +210,8 @@ class BranchTreeProvider {
     item.tooltip.split('\n').forEach((line, index) => {
       if (index > 0) hover.appendMarkdown('  \n');
       hover.appendText(line);
-      const name = index === 0 && isBranchNode(element) ? (element.ref || element.label)
+      const name = index === 0 && isBranchNode(element)
+        ? (showingWorktree ? showingWorktree.result.ref || element.ref : element.ref || element.label)
         : line.startsWith('Tracking branch:') && isBranchNode(element) && !element.remote && element.upstream ? tracking : undefined;
       if (name) {
         const args = encodeURIComponent(JSON.stringify([name]))

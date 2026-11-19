@@ -171,8 +171,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.match(hoverText(missing), /upstream ref is missing locally/);
     assert.equal(tree.getTreeItem({ ...selected, ahead: 10, behind: 20 }).description, undefined); // No upstream.
     assert.equal(tree.getTreeItem({ ...remote, upstream: main.upstream, ahead: 10, behind: 20 }).description, undefined);
-    assert.match(hoverText(tree.getTreeItem(remote)), /Tracking branch: Not applicable \(remote branch\)/);
-    assert.match(hoverText(tree.getTreeItem(tag)), /Tracking branch: Not applicable \(tag\)/);
+    assert.doesNotMatch(hoverText(tree.getTreeItem(remote)), /Tracking branch:|Tracking status:/);
+    assert.doesNotMatch(hoverText(tree.getTreeItem(tag)), /Tracking branch:|Tracking status:/);
     await assert.rejects(git.create('feature/test'), /already exists/);
     const run = (id, node) => commands.get(`git-branch.${id}`)(node);
     const copyItem = tree.getTreeItem({ ...selected, ref: 'feature/[Copy](command:other)' });
@@ -368,7 +368,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
     assert.equal(tree.getTreeItem(worktreeBranch).iconPath, undefined);
     assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
-    assert.match(hoverText(tree.getTreeItem(worktreeBranch)), /Working Tree Diff: 1 changed file/);
+    assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\nChanged files: 1`);
+    assert.deepEqual(copyNames(tree.getTreeItem(worktreeBranch)), [worktreeBranch.ref]);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
     const menus = require('../package.json').contributes.menus['view/item/context'];
     for (const id of ['refreshWorktree', 'closeWorktree']) {
@@ -416,6 +417,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     selected = sessions.find(n => n.ref === selected.ref && !n.remote);
     remote = sessions.find(n => n.ref === remote.ref && n.remote);
     assert.equal(tree.getTreeItem(remote).label, `${remote.ref} ↔ Working Tree`);
+    const remoteCount = tree.workingTreeFor(remote).result.files.length;
+    assert.equal(hoverText(tree.getTreeItem(remote)), `Left: ${remote.ref}\nRight: Working Tree\nChanged files: ${remoteCount}`);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session');
       assert.equal(tree.getTreeItem(branch).iconPath, undefined);
