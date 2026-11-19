@@ -90,6 +90,23 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     await assert.rejects(git.resolve('refs/heads/should-not-rename'));
     const keybinding = require('../package.json').contributes.keybindings[0];
     assert.equal(keybinding.key, 'f2'); assert.match(keybinding.when, /listFocus/);
+    assert.match(keybinding.when, /focusedView == git-branch\.branches/);
+    assert.match(keybinding.when, /!inputFocus/);
+    assert.equal(contexts.get('git-branch.multiSelection'), true);
+    const menus = require('../package.json').contributes.menus['view/item/context'];
+    for (const id of ['checkout', 'create', 'createAndCheckout', 'merge', 'rebase', 'setTracking', 'rename', 'compare', 'worktree']) {
+      assert.ok(menus.find(menu => menu.command === `git-branch.${id}`).when.includes('!git-branch.multiSelection'), id);
+    }
+    assert.ok(!menus.find(menu => menu.command === 'git-branch.update').when.includes('!git-branch.multiSelection'));
+    const savedUpdate = tree.git.update;
+    const updatedNames = [];
+    tree.git.update = async node => { updatedNames.push(node.ref); if (node.ref === 'left') throw new Error('Update failed for this branch'); return 'Fetched'; };
+    await run('update', left, [left, right]);
+    assert.deepEqual(updatedNames, ['left', 'right']);
+    assert.ok(messages.includes('Update: 1 succeeded, 1 failed.'));
+    await run('update', right);
+    assert.ok(messages.includes('Update: 1 succeeded, 0 failed.'));
+    tree.git.update = savedUpdate;
     await run('compareSelected', left, [left, right]);
     const group = (await tree.getChildren()).find(node => node.compareGroup);
     let session = (await tree.getChildren(group))[0];

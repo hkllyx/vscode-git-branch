@@ -193,6 +193,60 @@ class GitOperations {
     }
   }
 
+  /** Fetch the selected upstream, then fast-forward without checking out other branches. */
+  async update(branch, hasUnsavedChanges = false) {
+    if (branch?.kind !== 'branch' || typeof branch.ref !== 'string' || !branch.ref ||
+        typeof branch.remote !== 'boolean' || branch.diffSession) throw new Error('Select a branch to update.');
+    const ref = `${branch.remote ? 'refs/remotes/' : 'refs/heads/'}${branch.ref}`;
+    await this.exec(['check-ref-format', ref]);
+    await this.resolve(ref);
+    let upstream, remote, merge;
+    if (branch.remote) {
+      const names = (await this.exec(['remote'])).trim().split(/\r?\n/).filter(Boolean).sort((a, b) => b.length - a.length);
+      remote = names.find(name => branch.ref.startsWith(`${name}/`));
+      if (!remote) throw new Error('Remote is not configured.');
+      merge = `refs/heads/${branch.ref.slice(remote.length + 1)}`;
+      upstream = ref;
+    } else {
+      const record = (await this.branches()).branches.find(item => item.ref === ref);
+      if (!record?.upstream) throw new Error('No tracking branch configured. Use Set Tracking first.');
+      upstream = record.upstream;
+      remote = (await this.exec(['config', '--get', `branch.${branch.ref}.remote`])).trim();
+      merge = (await this.exec(['config', '--get', `branch.${branch.ref}.merge`])).trim();
+    }
+    await this.exec(['check-ref-format', merge]);
+    if (remote !== '.') {
+      if (!upstream.startsWith('refs/remotes/')) throw new Error('Unsupported upstream destination; no refs changed.');
+      await this.exec(['fetch', '--no-tags', '--', remote, `+${merge}:${upstream}`]);
+    }
+    if (branch.remote) return 'Fetched';
+    const target = await this.resolve(upstream);
+    const original = await this.resolve(ref);
+    // Preserve ahead-only history. Divergence is never resolved by reset, merge or rebase.
+    if (Number((await this.exec(['rev-list', '--count', `${original}..${target}`, '--'])).trim()) === 0) return 'Already up to date';
+    if (Number((await this.exec(['rev-list', '--count', `${target}..${original}`, '--'])).trim()) > 0) {
+      throw new Error('Local and tracking branches have diverged. Update only allows fast-forward; local commits were preserved.');
+    }
+    if (await this.current() === branch.ref) {
+      if (hasUnsavedChanges || (await this.exec(['status', '--porcelain'])).trim()) {
+        throw new Error('Save and commit or stash working tree changes before updating the current branch.');
+      }
+      for (const state of ['MERGE_HEAD', 'rebase-merge', 'rebase-apply']) {
+        const location = (await this.exec(['rev-parse', '--git-path', state])).trim();
+        try { await fs.access(path.resolve(this.cwd, location)); }
+        catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+        throw new Error('A merge or rebase is in progress. Finish or abort it before updating.');
+      }
+      if (await this.current() !== branch.ref || await this.resolve(ref) !== original) throw new Error('Branch changed during Update; retry.');
+      await this.exec(['merge', '--ff-only', '--no-edit', '--', target]);
+    } else {
+      // Non-forcing fetch into a local ref checks fast-forward and refuses branches
+      // checked out in any worktree. It leaves this worktree, index and HEAD intact.
+      await this.exec(['fetch', '--no-tags', '--no-write-fetch-head', '--', '.', `${target}:${ref}`]);
+    }
+    return 'Updated (fast-forward)';
+  }
+
   /** Rename a local branch. */
   async rename(oldName, newName) {
     const invalid = await this.validateName(newName);

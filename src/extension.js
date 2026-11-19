@@ -482,11 +482,13 @@ function activate(context) {
     const items = selection(node, nodes);
     return items.length && items.every(item => isBranchNode(item) && !item.diffSession) ? items : [];
   };
-  if (branchView.onDidChangeSelection) context.subscriptions.push(branchView.onDidChangeSelection(event => {
-    const items = event.selection;
+  const syncSelection = items => {
+    vscode.commands.executeCommand('setContext', 'git-branch.multiSelection', items.length > 1);
     vscode.commands.executeCommand('setContext', 'git-branch.singleLocal', items.length === 1 && isBranchNode(items[0]) && !items[0].remote && !items[0].diffSession);
     vscode.commands.executeCommand('setContext', 'git-branch.twoBranches', items.length === 2 && items.every(item => isBranchNode(item) && !item.diffSession));
-  }));
+  };
+  syncSelection(branchView.selection || []);
+  if (branchView.onDidChangeSelection) context.subscriptions.push(branchView.onDidChangeSelection(event => syncSelection(event.selection)));
 
   const compareRequests = new Map();
   async function showCompare(leftNode, rightNode, existingKey) {
@@ -641,6 +643,34 @@ function activate(context) {
     }
   }
 
+  let updating = false;
+  async function updateBranches(node, nodes) {
+    const items = selectedBranches(node, nodes);
+    if (!items.length) { vscode.window.showInformationMessage('Select one or more branches to update.'); return; }
+    if (updating) { vscode.window.showInformationMessage('An Update is already running.'); return; }
+    updating = true;
+    const succeeded = [], failed = [];
+    try {
+      for (const item of items) {
+        try {
+          await configureGitExecutable(git);
+          const unsaved = (vscode.workspace.textDocuments || []).some(doc => {
+            if (!doc.isDirty || doc.uri.scheme !== 'file') return false;
+            const relative = path.relative(root, doc.uri.fsPath);
+            return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+          });
+          const status = await git.update(item, unsaved);
+          succeeded.push(`${item.ref}: ${status}`);
+        } catch (error) { failed.push(`${item.ref}: ${error.message}`); }
+        finally { branchTree.refresh(); }
+      }
+      const summary = `Update: ${succeeded.length} succeeded, ${failed.length} failed.`;
+      const details = [...succeeded, ...failed.map(text => `Failed: ${text}`)].join('\n');
+      const choice = await vscode.window.showInformationMessage(summary, 'Details');
+      if (choice === 'Details') await vscode.window.showInformationMessage(summary, { modal: true, detail: details });
+    } finally { updating = false; }
+  }
+
   // ── Commands ──
 
   context.subscriptions.push(
@@ -666,6 +696,7 @@ function activate(context) {
       branchTree.refresh();
     }),
 
+    vscode.commands.registerCommand('git-branch.update', updateBranches),
     vscode.commands.registerCommand('git-branch.create', node => createBranch(node, false)),
     vscode.commands.registerCommand('git-branch.createAndCheckout', node => createBranch(node, true)),
 
