@@ -45,8 +45,12 @@ const worktreeStatuses = {
   T: ['Type changed', 'gitDecoration.modifiedResourceForeground'],
   U: ['Unmerged', 'gitDecoration.conflictingResourceForeground']
 };
+const commitDecorationScheme = 'git-branch-merge-commit';
 const worktreeDecorations = {
   provideFileDecoration(uri) {
+    if (uri.scheme === commitDecorationScheme) return {
+      tooltip: 'Merge commit', color: new vscode.ThemeColor('descriptionForeground'), propagate: false
+    };
     if (uri.scheme !== worktreeDecorationScheme || !Object.hasOwn(worktreeStatuses, uri.query)) return undefined;
     const status = worktreeStatuses[uri.query];
     if (!status) return undefined;
@@ -65,6 +69,30 @@ function changeSummary(files, stats) {
   return `${count} ${count === 1 ? 'file' : 'files'} changed, ${stats.insertions} insertions(+), ${stats.deletions} deletions(-)`
     + (stats.binaryFiles ? `; ${stats.binaryFiles} binary ${stats.binaryFiles === 1 ? 'file' : 'files'} (line counts unavailable)` : '')
     + (stats.unsupportedFiles ? `; ${stats.unsupportedFiles} submodule/special files (line counts unavailable)` : '');
+}
+
+function commitHover(commit, details, error) {
+  const data = details || commit;
+  const hover = new vscode.MarkdownString();
+  hover.supportThemeIcons = true;
+  const hash = shortHash(data.hash);
+  hover.appendText(`${data.author} · ${formatGitDate(data.date)} · ${hash || 'Unknown'}`);
+  if (hash) {
+    const args = encodeURIComponent(JSON.stringify([hash]));
+    hover.appendMarkdown(` [$(copy)](command:git-branch.copyCommitHash?${args} "Copy short commit hash")`);
+  }
+  const merge = (data.parents?.length || 0) > 1 || data.merge;
+  const summary = details ? changeSummary(details.files, details.stats) : 'File statistics unavailable';
+  const lines = [summary + (merge ? '; Merge commit (first-parent changes)' : ''), '',
+    ...(details ? details.message : commit.subject).split('\n'),
+    ...(error ? [`Commit details unavailable: ${error.message}`] : [])];
+  for (const line of lines) {
+    hover.appendMarkdown('  \n');
+    hover.appendText(line || '\u00a0');
+  }
+  hover.isTrusted = { enabledCommands: ['git-branch.copyCommitHash'] };
+  hover.supportHtml = false;
+  return hover;
 }
 
 function reverseDiffData(result) {
@@ -89,9 +117,11 @@ class BranchTreeProvider {
     this.git = git;
     this.workingTrees = new Map();
     this.comparisons = new Map();
+    this.branchHistories = new Map();
     this.nextOpenedOrder = 0;
     this.lastWorkingTreeKey = null;
     this.savedSettings = {};
+    this.disposed = false;
     this._onDidChange = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChange.event;
   }
@@ -103,7 +133,60 @@ class BranchTreeProvider {
   }
 
   refresh() { this._onDidChange.fire(); }
-  dispose() { this._onDidChange.dispose(); }
+  dispose() { this.disposed = true; this.branchHistories.clear(); this._onDidChange.dispose(); }
+
+  commitEntry(key) { return this.comparisons.get(key) || this.branchHistories.get(key); }
+
+  historyChildren(entry, parent) {
+    const children = entry.history.commits.map(commit => ({ kind: 'compare-commit', commit,
+      key: entry.key, entry, parent }));
+    if (entry.history.commits.length < entry.history.total) children.push({
+      kind: 'branch-history-more', key: entry.key, entry, parent
+    });
+    return children;
+  }
+
+  async branchChildren(node) {
+    const ref = qualifiedRef(node), key = `history:${ref}`;
+    let requestEntry;
+    try {
+      const hash = await this.git.resolve(ref);
+      if (this.disposed) return [];
+      let entry = this.branchHistories.get(key);
+      if (!entry || entry.hash !== hash) {
+        entry = { key, hash, node, settings: { layout: 'list', sort: 'path' } };
+        this.branchHistories.set(key, entry);
+      }
+      requestEntry = entry;
+      if (!entry.history) {
+        entry.pending ||= this.git.branchHistory(hash);
+        entry.history = await entry.pending;
+      }
+      if (this.branchHistories.get(key) !== entry) return [];
+      return this.historyChildren(entry, node);
+    } catch (error) {
+      // Failed loads are retryable by expanding again or refreshing the tree.
+      const entry = this.branchHistories.get(key);
+      if (this.disposed || (requestEntry && entry !== requestEntry)) return [];
+      if (!requestEntry || !requestEntry.history) this.branchHistories.delete(key);
+      vscode.window.showErrorMessage(`Load branch commits failed: ${error.message}`);
+      return [];
+    }
+  }
+
+  async loadBranchHistory(node) {
+    const entry = this.branchHistories.get(node?.key);
+    if (!entry || entry !== node.entry || !entry.history || entry.loading) return;
+    entry.loading = true;
+    try {
+      const page = await this.git.branchHistory(entry.hash, entry.history.commits.length);
+      if (this.branchHistories.get(entry.key) !== entry) return;
+      entry.history.commits.push(...page.commits);
+      this.refresh();
+    } catch (error) {
+      if (this.branchHistories.get(entry.key) === entry) vscode.window.showErrorMessage(`Load branch commits failed: ${error.message}`);
+    } finally { entry.loading = false; }
+  }
 
   setWorkingTree(node, result, openedOrder) {
     const key = node.diffKey || qualifiedRef(node);
@@ -183,11 +266,21 @@ class BranchTreeProvider {
     }
     if (element.kind === 'compare-commit') {
       const item = new vscode.TreeItem(element.commit.subject, vscode.TreeItemCollapsibleState.Collapsed);
-      item.id = `${element.key}:${element.parent.side}:${element.commit.hash}`;
+      item.id = `${element.key}:${element.parent.side || 'history'}:${element.commit.hash}`;
       item.description = `${element.commit.author} · ${formatGitDate(element.commit.date)}`;
-      item.iconPath = new vscode.ThemeIcon('git-commit');
+      const merge = element.commit.merge || element.commit.parents?.length > 1;
+      item.iconPath = merge ? new vscode.ThemeIcon('git-merge', new vscode.ThemeColor('descriptionForeground'))
+        : new vscode.ThemeIcon('git-commit');
+      if (merge) item.resourceUri = vscode.Uri.from({ scheme: commitDecorationScheme, path: '/' + element.commit.hash });
       // Full messages and file statistics are loaded lazily when the hover resolves.
       item.contextValue = 'gb-compare-commit';
+      return item;
+    }
+    if (element.kind === 'branch-history-more') {
+      const item = new vscode.TreeItem('Load more commits', vscode.TreeItemCollapsibleState.None);
+      item.contextValue = 'gb-history-more';
+      item.iconPath = new vscode.ThemeIcon('chevron-down');
+      item.command = { command: 'git-branch.loadBranchHistory', title: 'Load more commits', arguments: [element] };
       return item;
     }
     if (element.kind === 'compare-more') {
@@ -256,7 +349,8 @@ class BranchTreeProvider {
     // Each compared branch independently expands to its working-tree differences.
     const showingWorktree = element.diffSession && isBranchNode(element) && this.workingTreeFor(element);
     const item = new vscode.TreeItem(element.diffSession && element.remote ? element.ref : element.label, showingWorktree
-      ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.None);
+      ? vscode.TreeItemCollapsibleState.Expanded : isBranchNode(element) && !element.diffSession
+        ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     item.id = element.diffKey || `${element.diffSession ? 'diff-' : ''}${element.kind}:${element.remote ? 'remote' : 'local'}:${element.ref}`;
     const tracking = element.upstream ? element.upstream.replace(/^refs\/(heads|remotes)\//, '') : 'Not configured';
     const details = [
@@ -352,35 +446,16 @@ class BranchTreeProvider {
   }
 
   async resolveTreeItem(item, element, token) {
-    if (element.kind !== 'compare-commit' || token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
+    if (element.kind !== 'compare-commit' || token?.isCancellationRequested || this.commitEntry(element.key) !== element.entry) return item;
     let details;
     try { details = await this.commitDetailsFor(element.entry, element.commit.hash); }
     catch (error) {
-      if (token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
-      const hover = new vscode.MarkdownString();
-      hover.appendText(`${element.commit.author} · ${formatGitDate(element.commit.date)}\n${element.commit.subject}\nCommit details unavailable: ${error.message}`);
-      item.tooltip = hover;
+      if (token?.isCancellationRequested || this.commitEntry(element.key) !== element.entry) return item;
+      item.tooltip = commitHover(element.commit, undefined, error);
       return item;
     }
-    if (token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
-    const hover = new vscode.MarkdownString();
-    hover.supportThemeIcons = true;
-    // One Markdown paragraph, like branch hovers. NBSP-only spacer lines keep
-    // an actual blank row without introducing Markdown paragraph margins.
-    const lines = [`${details.author} · ${formatGitDate(details.date)}`, '', ...details.message.split('\n'), '',
-      changeSummary(details.files, details.stats)];
-    lines.forEach((line, index) => {
-      if (index > 0) hover.appendMarkdown('  \n');
-      hover.appendText(line || '\u00a0');
-    });
-    hover.appendMarkdown('  \n');
-    const hash = shortHash(details.hash);
-    const args = encodeURIComponent(JSON.stringify([hash]));
-    hover.appendText(hash);
-    hover.appendMarkdown(` [$(copy)](command:git-branch.copyCommitHash?${args} "Copy short commit hash")`);
-    hover.isTrusted = { enabledCommands: ['git-branch.copyCommitHash'] };
-    hover.supportHtml = false;
-    item.tooltip = hover;
+    if (token?.isCancellationRequested || this.commitEntry(element.key) !== element.entry) return item;
+    item.tooltip = commitHover(element.commit, details);
     return item;
   }
 
@@ -407,19 +482,19 @@ class BranchTreeProvider {
       return children;
     }
     if (element.kind === 'compare-commit') {
-      if (this.comparisons.get(element.key) !== element.entry) return [];
+      if (this.commitEntry(element.key) !== element.entry) return [];
       try {
         const details = await this.commitDetailsFor(element.entry, element.commit.hash);
-        if (this.comparisons.get(element.key) !== element.entry) return [];
+        if (this.commitEntry(element.key) !== element.entry) return [];
         return this.diffChildren(element.entry, element, '', details);
       } catch (error) {
-        if (this.comparisons.get(element.key) !== element.entry) return [];
+        if (this.commitEntry(element.key) !== element.entry) return [];
         vscode.window.showErrorMessage(`Load commit failed: ${error.message}`);
         return [];
       }
     }
     if (element.kind === 'compare-folder') {
-      return this.comparisons.get(element.key) === element.entry
+      return this.commitEntry(element.key) === element.entry
         ? this.diffChildren(element.entry, element, element.directory, element.details) : [];
     }
     if (element.kind === 'category') return element.children || [];
@@ -433,6 +508,7 @@ class BranchTreeProvider {
       return comparison.result.files.length ? this.diffChildren(comparison, element)
         : [{ kind: 'worktree-empty', key: comparison.key, parent: element }];
     }
+    if (isBranchNode(element) && !element.diffSession) return this.branchChildren(element);
     return [];
   }
 
@@ -455,6 +531,12 @@ class BranchTreeProvider {
         this.git.branches(),
         this.git.tags()
       ]);
+
+      // Drop cached histories whose branch was deleted, renamed or moved.
+      const tips = new Map(branches.map(branch => [`history:${branch.ref}`, branch.hash]));
+      for (const [key, entry] of this.branchHistories) {
+        if (tips.get(key) !== entry.hash) this.branchHistories.delete(key);
+      }
 
       // Local
       const locals = branches.filter(b => !b.remote).map(b => ({
@@ -914,8 +996,9 @@ function activate(context) {
       } catch (error) { vscode.window.showErrorMessage(`Load commits failed: ${error.message}`); }
       finally { node.history.loading = false; }
     }),
+    vscode.commands.registerCommand('git-branch.loadBranchHistory', node => branchTree.loadBranchHistory(node)),
     vscode.commands.registerCommand('git-branch.openCompareDiff', async element => {
-      if (element?.kind !== 'compare-file' || branchTree.comparisons.get(element.key) !== element.entry || !element.details.files.includes(element.file)) return;
+      if (element?.kind !== 'compare-file' || branchTree.commitEntry(element.key) !== element.entry || !element.details.files.includes(element.file)) return;
       try { await openDiff({ ...element.file, left: element.details.left, right: element.details.right,
         ref: element.details.left ? shortHash(element.details.left) : 'Empty tree', rightLabel: shortHash(element.details.right) }, worktreeSessions.get(element.key)); }
       catch (error) { vscode.window.showErrorMessage(`Open diff failed: ${error.message}`); }

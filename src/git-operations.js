@@ -427,16 +427,29 @@ class GitOperations {
   async uniqueCommits(include, exclude, skip = 0) {
     if (![include, exclude].every(hash => /^[a-f0-9]{40,64}$/.test(hash)) ||
         !Number.isSafeInteger(skip) || skip < 0) throw new Error('Invalid comparison range');
-    const range = `${exclude}..${include}`;
+    return this.commitPage(`${exclude}..${include}`, skip);
+  }
+
+  /** Full reachable branch history, pinned to one immutable tip for pagination. */
+  async branchHistory(hash, skip = 0) {
+    if (!/^[a-f0-9]{40,64}$/.test(hash) || !Number.isSafeInteger(skip) || skip < 0) {
+      throw new Error('Invalid branch history snapshot');
+    }
+    return this.commitPage(hash, skip);
+  }
+
+  async commitPage(range, skip) {
     const [output, count] = await Promise.all([
       this.exec(['log', '--topo-order', '--no-decorate', '--no-show-signature', '-z',
-        '--format=%H%x00%an%x00%aI%x00%s', '--max-count=200', `--skip=${skip}`, range, '--']),
+        '--format=%H%x00%an%x00%aI%x00%s%x00%P', '--max-count=200', `--skip=${skip}`, range, '--']),
       this.exec(['rev-list', '--count', range, '--'])
     ]);
     const tokens = output.split('\0');
     const commits = [];
-    for (let i = 0; i + 3 < tokens.length; i += 4) {
-      commits.push({ hash: tokens[i], author: tokens[i + 1], date: tokens[i + 2], subject: tokens[i + 3] });
+    for (let i = 0; i + 4 < tokens.length; i += 5) {
+      const parents = tokens[i + 4] ? tokens[i + 4].split(' ') : [];
+      commits.push({ hash: tokens[i], author: tokens[i + 1], date: tokens[i + 2], subject: tokens[i + 3],
+        parents, merge: parents.length > 1 });
     }
     return { commits, total: Number(count.trim()) };
   }

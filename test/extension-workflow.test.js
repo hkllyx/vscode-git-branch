@@ -331,8 +331,11 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.deepEqual(commitItem.tooltip.isTrusted, { enabledCommands: ['git-branch.copyCommitHash'] });
     assert.equal(commitItem.tooltip.supportThemeIcons, true);
     assert.ok(!commitItem.tooltip.value.includes('\n\n')); // No paragraph margins.
-    assert.ok(hoverText(commitItem).startsWith(`Test · ${formatGitDate(commits[0].commit.date)}\n\u00a0\nfeature`));
-    assert.ok(commitItem.tooltip.value.includes('  \n\u00a0  \n2 files changed'));
+    const hoverLines = commitItem.tooltip.value.split('  \n');
+    assert.ok(hoverLines[0].replace(/\\([\\`*_{}\[\]()<>#+\-.!])/g, '$1')
+      .startsWith(`Test · ${formatGitDate(commits[0].commit.date)} · ${feature.slice(0, 7)} [$(copy)]`));
+    assert.ok(hoverText(commitItem).includes('\n2 files changed, 2 insertions(+), 1 deletions(-)\n\u00a0\nfeature'));
+    assert.ok(hoverLines[2] === '\u00a0'); // Compact blank row before the full message.
     assert.ok(commitItem.tooltip.value.includes(`${feature.slice(0, 7)} [$(copy)](command:git-branch.copyCommitHash?`));
     assert.ok(!commitItem.tooltip.value.includes(`[${feature.slice(0, 7)}](`));
     const hashLink = /command:git-branch.copyCommitHash\?([^ ]+)/.exec(commitItem.tooltip.value);
@@ -396,7 +399,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('worktree', worktreeBranch);
     assert.equal(panels.length, panelCount);
     assert.ok(panelFocuses > 0);
-    assert.deepEqual(await tree.getChildren(worktreeBranch), []);
+    const branchHistory = await tree.getChildren(worktreeBranch);
+    assert.ok(branchHistory.length > 0 && branchHistory.every(node => node.kind === 'compare-commit'));
     assert.equal(tree.getTreeItem(worktreeBranch).description, undefined);
     const scmTree = tree;
     const diffGroup = (await tree.getChildren()).find(n => n.comparisonsGroup);
@@ -455,7 +459,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     // Multiple lists and requests coexist, including local/remote branches with equal tips.
     await Promise.all([run('worktree', selected), run('worktree', remote)]);
     assert.equal((await diffTree.getChildren()).length, 3);
-    assert.deepEqual(await scmTree.getChildren(selected), []);
+    const selectedHistory = await scmTree.getChildren(selected);
+    assert.ok(selectedHistory.length > 0 && selectedHistory.every(node => node.kind === 'compare-commit'));
     const sessions = await diffTree.getChildren();
     selected = sessions.find(n => n.ref === selected.ref && !n.remote);
     remote = sessions.find(n => n.ref === remote.ref && n.remote);
