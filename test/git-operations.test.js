@@ -274,6 +274,12 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.ok(views.some(v => v.id === 'git-branch.branches'));
   assert.ok(!views.some(v => v.id === 'git-branch.comparison'));
     assert.ok(cmds.includes('git-branch.openDiff'));
+    assert.ok(cmds.includes('git-branch.push'));
+    const pushMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.push');
+    assert.ok(pushMenu.when.includes('!git-branch.multiSelection'));
+    const pushPattern = new RegExp(pushMenu.when.split(' =~ /')[1].slice(0, -1));
+    for (const value of ['gb-local', 'gb-current']) assert.ok(pushPattern.test(value));
+    for (const value of ['gb-remote', 'gb-tag', 'gb-category', 'gb-diff-session']) assert.ok(!pushPattern.test(value));
     const openFileCommand = manifest.contributes.commands.find(item => item.command === 'git-branch.openCommitWorkingFile');
     assert.equal(openFileCommand.icon, '$(go-to-file)');
     const openFileMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === openFileCommand.command);

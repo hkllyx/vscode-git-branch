@@ -198,6 +198,53 @@ class GitOperations {
     }
   }
 
+  /** Resolve one explicit push destination; never rely on push.default or wildcard refspecs. */
+  async pushTarget(branch, publishRemote) {
+    if (branch?.kind !== 'branch' || typeof branch.ref !== 'string' || !branch.ref ||
+        branch.remote !== false || branch.diffSession) throw new Error('Select one local branch to push.');
+    const source = `refs/heads/${branch.ref}`;
+    await this.exec(['check-ref-format', source]);
+    await this.resolve(source);
+    const values = async key => {
+      try { return (await this.exec(['config', '--get-all', key])).trim().split(/\r?\n/).filter(Boolean); }
+      catch (error) { if (error.code === 1) return []; throw error; }
+    };
+    const [remotesOutput, remoteConfig, mergeConfig] = await Promise.all([
+      this.exec(['remote']), values(`branch.${branch.ref}.remote`), values(`branch.${branch.ref}.merge`)
+    ]);
+    const remotes = remotesOutput.trim().split(/\r?\n/).filter(Boolean);
+    if (!remotes.length) throw new Error('No remote configured. Add a Git remote first.');
+    const tracked = remoteConfig.length || mergeConfig.length;
+    let remote, destination;
+    if (tracked) {
+      if (publishRemote) throw new Error('Tracking configuration changed. Run Push again.');
+      if (remoteConfig.length !== 1 || mergeConfig.length !== 1) throw new Error('Invalid or multiple tracking destinations. Use Set Tracking first.');
+      remote = remoteConfig[0]; destination = mergeConfig[0];
+      if (remote === '.') throw new Error('This branch tracks a local branch. Set a remote tracking branch before pushing.');
+    } else {
+      if (!publishRemote) return { source, remotes, publish: true };
+      remote = publishRemote; destination = source;
+    }
+    if (!remotes.includes(remote)) throw new Error('The push remote is no longer configured.');
+    if (!destination.startsWith('refs/heads/')) throw new Error('Push destination must be a remote branch.');
+    await this.exec(['check-ref-format', destination]);
+    return { source, remote, destination, publish: !tracked };
+  }
+
+  async push(branch, publishRemote) {
+    const target = await this.pushTarget(branch, publishRemote);
+    if (!target.remote) throw new Error('Select a remote to publish this branch.');
+    // Mirror remotes may affect all refs even with an explicit refspec; refuse them.
+    try {
+      if ((await this.exec(['config', '--bool', '--get', `remote.${target.remote}.mirror`])).trim() === 'true') {
+        throw new Error('Mirror remotes are not supported for single-branch Push.');
+      }
+    } catch (error) { if (error.code !== 1) throw error; }
+    await this.exec(['push', '--no-force', '--no-follow-tags', '--recurse-submodules=no',
+      ...(target.publish ? ['--set-upstream'] : []), '--', target.remote, `${target.source}:${target.destination}`]);
+    return `${branch.ref} → ${target.remote}/${target.destination.slice('refs/heads/'.length)}`;
+  }
+
   /** Fetch the selected upstream, then fast-forward without checking out other branches. */
   async update(branch, hasUnsavedChanges = false) {
     if (branch?.kind !== 'branch' || typeof branch.ref !== 'string' || !branch.ref ||

@@ -911,6 +911,31 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.update', updateBranches),
+    vscode.commands.registerCommand('git-branch.push', async (node, nodes) => {
+      const items = selectedBranches(node, nodes);
+      if (items.length !== 1 || items[0].remote) {
+        vscode.window.showInformationMessage('Select one local branch to push.');
+        return;
+      }
+      try {
+        await configureGitExecutable(git);
+        const target = await git.pushTarget(items[0]);
+        let remote;
+        if (target.publish) {
+          if (target.remotes.length === 1) remote = target.remotes[0];
+          else {
+            const choice = await vscode.window.showQuickPick(target.remotes.map(name => ({
+              label: name, remote: name, description: `Publish ${items[0].ref}`
+            })), { title: `Push ${items[0].ref}`, placeHolder: 'Select a remote for the new branch' });
+            if (!choice) return;
+            remote = choice.remote;
+          }
+        }
+        const result = await git.push(items[0], remote);
+        branchTree.refresh();
+        vscode.window.showInformationMessage(`Pushed: ${result}`);
+      } catch (error) { vscode.window.showErrorMessage(`Push failed: ${error.message}`); }
+    }),
     vscode.commands.registerCommand('git-branch.create', node => createBranch(node, false)),
     vscode.commands.registerCommand('git-branch.createAndCheckout', node => createBranch(node, true)),
 
