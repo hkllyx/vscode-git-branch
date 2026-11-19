@@ -158,7 +158,7 @@ class BranchTreeProvider {
       item.iconPath = new vscode.ThemeIcon('git-compare');
       item.contextValue = `gb-compare-session-${element.entry.settings.layout}-${element.entry.settings.sort}`;
       const total = result.selected.total + result.current.total;
-      item.description = total ? `· ${total} ${total === 1 ? 'commit' : 'commits'}` : 'Commits';
+      item.description = total ? `${total} ${total === 1 ? 'commit' : 'commits'}` : 'Commits';
       item.tooltip = `Left: ${result.ref}\nRight: ${result.currentLabel}\nLeft only: ${result.selected.total} commits\nRight only: ${result.current.total} commits`;
       return item;
     }
@@ -166,7 +166,7 @@ class BranchTreeProvider {
       const item = new vscode.TreeItem(`${element.side === 'selected' ? 'Left' : 'Right'} only`, vscode.TreeItemCollapsibleState.Expanded);
       item.tooltip = `${element.label}\n${element.history.total} exclusive commits`;
       item.id = `${element.key}:${element.side}`;
-      item.description = `· ${element.history.total} commits`;
+      item.description = `${element.history.total} commits`;
       item.iconPath = new vscode.ThemeIcon('git-branch', new vscode.ThemeColor(element.side === 'selected'
         ? 'gitDecoration.addedResourceForeground' : 'gitDecoration.modifiedResourceForeground'));
       item.contextValue = 'gb-compare-side';
@@ -297,7 +297,7 @@ class BranchTreeProvider {
         light: vscode.Uri.file(path.join(__dirname, '..', 'media', 'branch-diff-light.svg')),
         dark: vscode.Uri.file(path.join(__dirname, '..', 'media', 'branch-diff.svg'))
       };
-      item.description = `· ${count} ${count === 1 ? 'file' : 'files'}`;
+      item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;
     }
