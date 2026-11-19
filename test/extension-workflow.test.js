@@ -117,12 +117,15 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let selected = roots[0].children.find(n => n.ref === 'feature/test');
     assert.equal(tree.getTreeItem(main).contextValue, 'gb-current');
     assert.equal(tree.getTreeItem(selected).contextValue, 'gb-local');
+    for (const group of [...roots, roots[1].children[0]]) assert.equal(tree.getTreeItem(group).iconPath, undefined);
     let remote = roots[1].children[0].children[0];
     const tag = roots[2].children[0];
     assert.equal(tag.ref, 'feature/test');
     for (const node of [main, selected, remote, tag]) {
       const item = tree.getTreeItem(node);
-      assert.equal(item.label, node.label);
+      assert.equal(typeof item.label === 'string' ? item.label : item.label.label, node.current ? `* ${node.label}` : node.label);
+      assert.equal(item.iconPath, undefined);
+      if (node.current) assert.deepEqual(item.label.highlights, [[0, item.label.label.length]]);
       assert.equal(item.description, undefined); // Branch/tag names have no trailing hash.
       assert.ok(item.tooltip.includes(`${node.kind === 'tag' ? 'Tag' : 'Branch'} name: ${node.ref}`));
       assert.ok(item.tooltip.includes(`Hash: ${node.hash}`));
@@ -255,7 +258,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let children = await tree.getChildren(worktreeBranch);
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session');
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
-    assert.equal(tree.getTreeItem(worktreeBranch).iconPath.id, 'git-compare');
+    assert.equal(tree.getTreeItem(worktreeBranch).iconPath, undefined);
     assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
     assert.match(tree.getTreeItem(worktreeBranch).tooltip, /Working Tree Diff: 1 changed file/);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
@@ -307,7 +310,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(tree.getTreeItem(remote).label, `${remote.ref} ↔ Working Tree`);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session');
-      assert.equal(tree.getTreeItem(branch).iconPath.id, 'git-compare');
+      assert.equal(tree.getTreeItem(branch).iconPath, undefined);
       assert.match(tree.getTreeItem(branch).label, / ↔ Working Tree$/);
       assert.match(tree.getTreeItem(branch).description, /^\d+ files?$/);
     }

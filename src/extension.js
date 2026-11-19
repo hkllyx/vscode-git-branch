@@ -154,7 +154,6 @@ class BranchTreeProvider {
     if (element.kind === 'remote-group') {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = 'gb-remote-group';
-      item.iconPath = new vscode.ThemeIcon('cloud');
       return item;
     }
     // Each compared branch independently expands to its working-tree differences.
@@ -172,16 +171,16 @@ class BranchTreeProvider {
       `Tracking branch: ${tracking}`
     ].join('\n');
     if (element.kind === 'tag') {
-      item.iconPath = new vscode.ThemeIcon('tag');
       item.contextValue = 'gb-tag';
     } else if (element.current) {
-      item.iconPath = new vscode.ThemeIcon('star-full');
       item.contextValue = 'gb-current';
+      if (!showingWorktree) {
+        const label = `* ${element.label}`;
+        item.label = { label, highlights: [[0, label.length]] };
+      }
     } else if (element.remote) {
-      item.iconPath = new vscode.ThemeIcon('git-branch');
       item.contextValue = 'gb-remote';
     } else {
-      item.iconPath = new vscode.ThemeIcon('git-branch');
       item.contextValue = 'gb-local';
     }
     if (showingWorktree) {
@@ -189,7 +188,6 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       item.label = `${item.label} ↔ Working Tree`;
       item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
-      item.iconPath = new vscode.ThemeIcon('git-compare');
       item.contextValue = 'gb-diff-session';
       item.tooltip += `\nWorking Tree Diff: ${count} changed ${count === 1 ? 'file' : 'files'} (selected branch ↔ working tree)`;
     }
