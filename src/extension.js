@@ -90,6 +90,7 @@ class BranchTreeProvider {
     this.git = git;
     this.workingTrees = new Map();
     this.comparisons = new Map();
+    this.nextOpenedOrder = 0;
     this.lastWorkingTreeKey = null;
     this.savedSettings = {};
     this._onDidChange = new vscode.EventEmitter();
@@ -105,11 +106,13 @@ class BranchTreeProvider {
   refresh() { this._onDidChange.fire(); }
   dispose() { this._onDidChange.dispose(); }
 
-  setWorkingTree(node, result) {
+  setWorkingTree(node, result, openedOrder) {
     const key = node.diffKey || qualifiedRef(node);
     if (this.workingTrees.get(key)?.result.reversed) result = reverseWorktreeResult(result);
     const previous = this.workingTrees.get(key);
-    this.workingTrees.set(key, { key, node, result, settings: previous?.settings || this.settingsFor(key) });
+    this.workingTrees.set(key, { key, node, result,
+      openedOrder: previous?.openedOrder ?? openedOrder ?? this.nextOpenedOrder++,
+      settings: previous?.settings || this.settingsFor(key) });
     this.lastWorkingTreeKey = key;
     this.refresh();
   }
@@ -380,9 +383,11 @@ class BranchTreeProvider {
   async getChildren(element) {
     if (!element) return this.getRootNodes();
     if (element.comparisonsGroup) return [
-      ...[...this.workingTrees.values()].map(entry => ({ ...entry.node, diffSession: true, parent: element })),
-      ...[...this.comparisons.values()].map(entry => ({ kind: 'compare-session', key: entry.key, entry, parent: element }))
-    ];
+      ...[...this.workingTrees.values()].map(entry => ({ order: entry.openedOrder,
+        node: { ...entry.node, diffSession: true, parent: element } })),
+      ...[...this.comparisons.values()].map(entry => ({ order: entry.openedOrder,
+        node: { kind: 'compare-session', key: entry.key, entry, parent: element } }))
+    ].sort((a, b) => a.order - b.order).map(item => item.node);
     if (element.kind === 'compare-session') {
       if (this.comparisons.get(element.key) !== element.entry) return [];
       const sides = ['selected', 'current'].filter(side => element.entry.result[side].total > 0);
@@ -537,6 +542,8 @@ function activate(context) {
   async function showWorkingTree(node) {
     const key = node.diffKey || qualifiedRef(node);
     if (worktreeSessions.get(key)?.swapping) return;
+    // Reserve order before asynchronous Git work, not when it finishes.
+    const openedOrder = branchTree.workingTrees.get(key)?.openedOrder ?? branchTree.nextOpenedOrder++;
     const request = Symbol();
     worktreeRequests.set(key, request);
     await configureGitExecutable(git);
@@ -550,7 +557,7 @@ function activate(context) {
     if (worktreeRequests.get(key) !== request) return;
     result.ref = node.ref;
     if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });
-    branchTree.setWorkingTree(node, result);
+    branchTree.setWorkingTree(node, result, openedOrder);
     await vscode.commands.executeCommand('git-branch.branches.focus');
     const group = (await branchTree.getRootNodes()).find(item => item.comparisonsGroup);
     await branchView.reveal({ ...node, diffSession: true, parent: group }, { expand: true, select: true, focus: false });
@@ -583,6 +590,7 @@ function activate(context) {
   async function showCompare(leftNode, rightNode, existingKey) {
     const leftRef = qualifiedRef(leftNode), rightRef = rightNode ? qualifiedRef(rightNode) : 'HEAD';
     const key = existingKey || `compare:${JSON.stringify([leftRef, rightRef])}`;
+    const openedOrder = branchTree.comparisons.get(key)?.openedOrder ?? branchTree.nextOpenedOrder++;
     const request = Symbol();
     compareRequests.set(key, request);
     await configureGitExecutable(git);
@@ -598,6 +606,7 @@ function activate(context) {
       [result.ref, result.currentLabel] = [result.currentLabel, result.ref];
     }
     const entry = { key, leftNode, rightNode, result, reversed: !!previous?.reversed,
+      openedOrder: previous?.openedOrder ?? openedOrder,
       settings: previous?.settings || branchTree.settingsFor(key) };
     branchTree.comparisons.set(key, entry);
     if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });

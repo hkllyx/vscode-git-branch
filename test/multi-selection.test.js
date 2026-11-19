@@ -217,6 +217,19 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(entries.length, 3);
     const historySession = entries.find(node => node.kind === 'compare-session');
     const fileSessions = entries.filter(node => node.diffSession);
+    const sessionKey = node => node.kind === 'compare-session' ? node.key : tree.workingTreeFor(node).key;
+    const openingOrder = entries.map(sessionKey);
+    const currentOrder = async () => (await tree.getChildren(combined[0])).map(sessionKey);
+    await run('worktree', remote); // A Diff opened after a Compare must stay after it.
+    const remoteDiff = (await tree.getChildren(combined[0])).at(-1);
+    const remoteDiffKey = sessionKey(remoteDiff);
+    openingOrder.push(remoteDiffKey);
+    assert.deepEqual(await currentOrder(), openingOrder);
+    assert.equal((await tree.getChildren(combined[0]))[2].kind, 'compare-session');
+    assert.ok((await tree.getChildren(combined[0]))[3].diffSession);
+    await run('refreshWorktree', fileSessions[0]);
+    await run('worktree', left); // Opening an existing session only refreshes it.
+    assert.deepEqual(await currentOrder(), openingOrder);
     await run('diffTree', historySession);
     await run('diffSortStatus', historySession);
     await run('diffTree', fileSessions[0]);
@@ -245,12 +258,46 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     await run('refreshCompare', historySession);
     const refreshed = tree.comparisons.get(historySession.key);
     assert.deepEqual(refreshed.settings, { layout: 'tree', sort: 'status' });
+    assert.deepEqual(await currentOrder(), openingOrder); // Compare swap/refresh retain position.
     await run('closeCompare', historySession);
     assert.ok((await tree.getChildren()).some(node => node.comparisonsGroup));
     await run('compare', local('main'), [local('main'), left]);
     assert.deepEqual(tree.comparisons.get(historySession.key).settings, { layout: 'tree', sort: 'status' });
+    const reopenedOrder = [openingOrder[0], openingOrder[1], remoteDiffKey, historySession.key];
+    assert.deepEqual(await currentOrder(), reopenedOrder); // Closed/reopened Compare goes to the end.
+    await run('closeWorktree', fileSessions[0]);
+    await run('worktree', left, [left, remote]);
+    assert.deepEqual(await currentOrder(), [openingOrder[1], remoteDiffKey, historySession.key, openingOrder[0]]);
     await run('compare', left, [left, roots[0]]);
     assert.equal(tree.comparisons.size, 1);
+    // Slow Diff loading must not move it after a later, faster Compare request.
+    await run('closeWorktree', remoteDiff);
+    const originalWorktreeCompare = GitOperations.prototype.worktreeCompare;
+    let releaseDiff, markStarted;
+    const blocked = new Promise(resolve => { releaseDiff = resolve; });
+    const started = new Promise(resolve => { markStarted = resolve; });
+    GitOperations.prototype.worktreeCompare = async function (...args) {
+      markStarted();
+      await blocked;
+      return originalWorktreeCompare.apply(this, args);
+    };
+    let pendingDiff;
+    try {
+      pendingDiff = run('worktree', remote);
+      await started;
+      await run('compareSelected', left, [left, right]);
+      const laterCompare = (await tree.getChildren(combined[0])).at(-1);
+      assert.equal(laterCompare.kind, 'compare-session');
+      releaseDiff();
+      await pendingDiff;
+      const afterConcurrentOpen = await currentOrder();
+      assert.ok(afterConcurrentOpen.indexOf(remoteDiffKey) < afterConcurrentOpen.indexOf(laterCompare.key));
+      await run('closeCompare', laterCompare);
+    } finally {
+      releaseDiff();
+      if (pendingDiff) await pendingDiff;
+      GitOperations.prototype.worktreeCompare = originalWorktreeCompare;
+    }
     const missing = { ...left, ref: 'missing', label: 'missing' };
     answers = ['Delete', undefined];
     await run('delete', left, [left, missing, local('delete-a'), local('main'), local('delete-b')]);
