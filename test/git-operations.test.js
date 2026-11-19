@@ -285,12 +285,15 @@ test('manifest: commands, views, menus are wired', async () => {
   for (const value of ['gb-local', 'gb-current', 'gb-remote']) assert.ok(worktreePattern.test(value));
   for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!worktreePattern.test(value));
 
-  // Current/default branch markers are separate; branch text is not highlighted.
+  // Current branches use the same branch glyph, highlighted without coloring text.
   const bundle = await fs.readFile(path.join(__dirname, '../src/extension.js'), 'utf8');
   assert.ok(!bundle.includes('git.branchCompare'));
   assert.ok(!bundle.includes('star-full'));
   assert.ok(!bundle.includes('highlights:'));
-  assert.ok(bundle.includes("'current-primary'"));
+  assert.ok(bundle.includes("new vscode.ThemeIcon('git-branch', new vscode.ThemeColor('charts.yellow'))"));
+  assert.ok(bundle.includes("new vscode.ThemeIcon('tag')"));
+  assert.ok(bundle.includes("new vscode.ThemeIcon('git-compare')"));
+  assert.ok(!bundle.includes("'current-primary'"));
   assert.ok(bundle.includes('gb-current'));
   assert.ok(bundle.includes('gb-local'));
   assert.ok(bundle.includes('gb-remote'));

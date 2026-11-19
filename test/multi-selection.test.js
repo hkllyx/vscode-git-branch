@@ -116,7 +116,10 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     const group = (await tree.getChildren()).find(node => node.comparisonsGroup);
     let session = (await tree.getChildren(group))[0];
     assert.equal(tree.getTreeItem(session).label, 'left ↔ right');
+    assert.equal(tree.getTreeItem(session).iconPath.id, 'git-compare');
+    assert.equal(tree.getTreeItem(group).iconPath.id, 'git-compare');
     let sides = await tree.getChildren(session);
+    assert.ok(sides.every(side => tree.getTreeItem(side).iconPath.id === 'git-branch'));
     assert.deepEqual(sides.map(node => node.history.total), [1, 1]);
     assert.deepEqual(sides.map(node => tree.getTreeItem(node).label), ['Left only', 'Right only']);
     assert.match(tree.getTreeItem(sides[0]).tooltip, /left/);

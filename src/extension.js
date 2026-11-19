@@ -155,6 +155,7 @@ class BranchTreeProvider {
       const { result } = element.entry;
       const item = new vscode.TreeItem(`${result.ref} ↔ ${result.currentLabel}`, vscode.TreeItemCollapsibleState.Expanded);
       item.id = element.key;
+      item.iconPath = new vscode.ThemeIcon('git-compare');
       item.contextValue = `gb-compare-session-${element.entry.settings.layout}-${element.entry.settings.sort}`;
       const total = result.selected.total + result.current.total;
       item.description = total ? `· ${total} ${total === 1 ? 'commit' : 'commits'}` : 'Commits';
@@ -166,7 +167,7 @@ class BranchTreeProvider {
       item.tooltip = `${element.label}\n${element.history.total} exclusive commits`;
       item.id = `${element.key}:${element.side}`;
       item.description = `· ${element.history.total} commits`;
-      item.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor(element.side === 'selected'
+      item.iconPath = new vscode.ThemeIcon('git-branch', new vscode.ThemeColor(element.side === 'selected'
         ? 'gitDecoration.addedResourceForeground' : 'gitDecoration.modifiedResourceForeground'));
       item.contextValue = 'gb-compare-side';
       return item;
@@ -175,6 +176,7 @@ class BranchTreeProvider {
       const item = new vscode.TreeItem(element.commit.subject, vscode.TreeItemCollapsibleState.Collapsed);
       item.id = `${element.key}:${element.parent.side}:${element.commit.hash}`;
       item.description = `${element.commit.author} · ${element.commit.date}`;
+      item.iconPath = new vscode.ThemeIcon('git-commit');
       // Full messages and file statistics are loaded lazily when the hover resolves.
       item.contextValue = 'gb-compare-commit';
       return item;
@@ -182,6 +184,7 @@ class BranchTreeProvider {
     if (element.kind === 'compare-more') {
       const item = new vscode.TreeItem('Load more commits', vscode.TreeItemCollapsibleState.None);
       item.contextValue = 'gb-compare-more';
+      item.iconPath = new vscode.ThemeIcon('chevron-down');
       item.command = { command: 'git-branch.loadCompare', title: 'Load more commits', arguments: [element.parent] };
       return item;
     }
@@ -218,13 +221,17 @@ class BranchTreeProvider {
       return item;
     }
     if (element.kind === 'worktree-empty' || element.kind === 'compare-empty') {
-      return new vscode.TreeItem('No differences', vscode.TreeItemCollapsibleState.None);
+      const item = new vscode.TreeItem('No differences', vscode.TreeItemCollapsibleState.None);
+      item.iconPath = new vscode.ThemeIcon('check');
+      return item;
     }
     if (element.kind === 'category') {
       const item = new vscode.TreeItem(element.label, element.expanded
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = element.comparisonsGroup ? 'gb-comparisons-group' : 'gb-category';
+      item.iconPath = new vscode.ThemeIcon(element.comparisonsGroup ? 'git-compare'
+        : element.label === 'Tags' ? 'tag' : element.label === 'Remote' ? 'remote' : 'repo');
       if (element.comparisonsGroup) {
         item.id = 'comparisons-group';
         item.tooltip = 'File and commit comparisons';
@@ -234,6 +241,7 @@ class BranchTreeProvider {
     if (element.kind === 'remote-group') {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = 'gb-remote-group';
+      item.iconPath = new vscode.ThemeIcon('remote');
       return item;
     }
     // Each compared branch independently expands to its working-tree differences.
@@ -251,6 +259,7 @@ class BranchTreeProvider {
     item.tooltip = details.join('\n');
     if (element.kind === 'tag') {
       item.contextValue = 'gb-tag';
+      item.iconPath = new vscode.ThemeIcon('tag');
     } else if (element.current) {
       item.contextValue = 'gb-current';
     } else if (element.remote) {
@@ -259,10 +268,9 @@ class BranchTreeProvider {
       item.contextValue = 'gb-local';
     }
     if (!showingWorktree && isBranchNode(element)) {
-      if (element.current || element.primary) {
-        const icon = element.current && element.primary ? 'current-primary' : element.current ? 'current-branch' : 'primary-branch';
-        item.iconPath = vscode.Uri.file(path.join(__dirname, '..', 'media', `${icon}.svg`));
-      }
+      item.iconPath = element.current && !element.remote
+        ? new vscode.ThemeIcon('git-branch', new vscode.ThemeColor('charts.yellow'))
+        : new vscode.ThemeIcon('git-branch');
       if (!element.remote && element.upstream) {
         if (element.trackingMissing) {
           item.tooltip += '\nTracking status: upstream ref is missing locally; counts unavailable (not in sync)';
@@ -280,6 +288,7 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
       item.label = `${leftLabel} ↔ ${rightLabel}`;
+      item.iconPath = new vscode.ThemeIcon('git-compare');
       item.description = `· ${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;
