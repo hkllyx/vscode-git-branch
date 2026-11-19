@@ -20,7 +20,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
   await git.create('feature/test'); await git.checkout({ ref: 'feature/test' });
   await fs.writeFile(path.join(cwd, 'file.txt'), 'feature\n');
   await fs.writeFile(path.join(cwd, '中文 added.txt'), 'added\n');
-  await git.exec(['add', '.']); await git.exec(['commit', '-m', 'feature']);
+  await git.exec(['add', '.']); await git.exec(['commit', '-m', 'feature', '-m', 'Full body <script>\n[unsafe](command:evil)']);
   const feature = await git.resolve('HEAD');
   await git.checkout({ ref: 'main' });
   // Branch and tag share a name but point at different commits.
@@ -300,6 +300,21 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(first.entry.result.right, base);
     const sides = await tree.getChildren(first);
     const commits = await tree.getChildren(sides[0]);
+    const commitItem = tree.getTreeItem(commits[0]);
+    assert.equal(commitItem.description, `${commits[0].commit.author} · ${commits[0].commit.date}`);
+    assert.equal(commitItem.iconPath, undefined);
+    assert.equal(commitItem.tooltip, undefined);
+    await tree.resolveTreeItem(commitItem, commits[0], { isCancellationRequested: false });
+    assert.ok(commitItem.tooltip.value.includes('Full body'));
+    assert.ok(!commitItem.tooltip.value.includes('<script>'));
+    assert.ok(!commitItem.tooltip.value.includes('[unsafe](command:evil)'));
+    assert.ok(hoverText(commitItem).includes('2 files changed, 2 insertions(+), 1 deletions(-)'));
+    assert.deepEqual(commitItem.tooltip.isTrusted, { enabledCommands: ['git-branch.copyCommitHash'] });
+    const hashLink = /command:git-branch.copyCommitHash\?([^ ]+)/.exec(commitItem.tooltip.value);
+    await run('copyCommitHash', JSON.parse(decodeURIComponent(hashLink[1]))[0]);
+    assert.equal(copied.pop(), feature.slice(0, 7));
+    await run('copyCommitHash', 'invalid');
+    assert.equal(copied.length, 0);
     const commitFiles = await tree.getChildren(commits[0]);
     assert.equal(commitFiles[0].details.hash, feature);
     assert.equal(commitFiles[0].details.left, base);
@@ -370,7 +385,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
     assert.equal(tree.getTreeItem(worktreeBranch).iconPath, undefined);
     assert.equal(tree.getTreeItem(worktreeBranch).description, '· 1 file');
-    assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\nChanged files: 1`);
+    assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\n1 file changed, 1 insertions(+), 1 deletions(-)`);
     assert.deepEqual(copyNames(tree.getTreeItem(worktreeBranch)), [worktreeBranch.ref]);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
     const menus = require('../package.json').contributes.menus['view/item/context'];
@@ -420,7 +435,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     remote = sessions.find(n => n.ref === remote.ref && n.remote);
     assert.equal(tree.getTreeItem(remote).label, `${remote.ref} ↔ Working Tree`);
     const remoteCount = tree.workingTreeFor(remote).result.files.length;
-    assert.equal(hoverText(tree.getTreeItem(remote)), `Left: ${remote.ref}\nRight: Working Tree\nChanged files: ${remoteCount}`);
+    const remoteStats = tree.workingTreeFor(remote).result.stats;
+    assert.equal(hoverText(tree.getTreeItem(remote)), `Left: ${remote.ref}\nRight: Working Tree\n${remoteCount} files changed, ${remoteStats.insertions} insertions(+), ${remoteStats.deletions} deletions(-)`);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session-list-path');
       assert.equal(tree.getTreeItem(branch).iconPath, undefined);

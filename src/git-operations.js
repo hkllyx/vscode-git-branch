@@ -4,6 +4,7 @@ const { promisify } = require('node:util');
 const run = promisify(execFile);
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const os = require('node:os');
 
 class GitOperations {
   constructor(cwd, executable = 'git') {
@@ -305,7 +306,10 @@ class GitOperations {
     const files = parseDiff(await this.exec([
       'diff', '--name-status', '-z', '--find-renames', left, right, '--'
     ]));
-    return { left, right, ref, files };
+    const stats = parseNumstat(await this.exec([
+      'diff', '--numstat', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', left, right, '--'
+    ]));
+    return { left, right, ref, files, stats };
   }
 
   /** Safe lexical path resolution for Git-provided worktree paths. */
@@ -367,8 +371,45 @@ class GitOperations {
       else byPath.set(doc.file, { status: existing?.status.startsWith('R') ? existing.status : oldPath ? 'M' : 'A',
         oldPath, newPath: doc.file, untracked: untracked.has(doc.file) });
     }
-    return { left, right: null, ref, worktree: true, currentLabel: 'Working Tree',
-      files: [...byPath.values()].sort((a, b) => (a.newPath || a.oldPath).localeCompare(b.newPath || b.oldPath)) };
+    const files = [...byPath.values()].sort((a, b) => (a.newPath || a.oldPath).localeCompare(b.newPath || b.oldPath));
+    const stats = await this.worktreeStats(left, files, dirtyDocuments);
+    return { left, right: null, ref, worktree: true, currentLabel: 'Working Tree', files, stats };
+  }
+
+  /** Compare the same file pairs as the list, including untracked and unsaved text.
+   * Temporary snapshots never touch the repository's index or working files. */
+  async worktreeStats(left, files, dirtyDocuments) {
+    if (!files.length) return { insertions: 0, deletions: 0, binaryFiles: 0 };
+    const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'git-branch-stats-'));
+    try {
+      const before = path.join(temporary, 'before'), after = path.join(temporary, 'after');
+      await fs.mkdir(before); await fs.mkdir(after);
+      const dirty = new Map(dirtyDocuments.filter(doc => typeof doc.text === 'string').map(doc => [doc.file, doc.text]));
+      const tree = await this.exec(['ls-tree', '-r', '-z', left, '--']);
+      const submodules = new Set(tree.split('\0').filter(entry => entry.startsWith('160000 ')).map(entry => entry.slice(entry.indexOf('\t') + 1)));
+      let unsupportedFiles = 0;
+      for (const [index, file] of files.entries()) {
+        const name = String(index);
+        const currentPath = file.newPath && this.worktreePath(file.newPath);
+        const currentStat = currentPath && !dirty.has(file.newPath) ? await fs.lstat(currentPath) : undefined;
+        if (submodules.has(file.oldPath) || currentStat?.isDirectory()) { unsupportedFiles++; continue; }
+        if (file.oldPath) await fs.writeFile(path.join(before, name), await this.exec(['show', `${left}:${file.oldPath}`], 'buffer'));
+        if (file.newPath) {
+          const data = dirty.has(file.newPath) ? Buffer.from(dirty.get(file.newPath), 'utf8')
+            : currentStat.isSymbolicLink() ? Buffer.from(await fs.readlink(currentPath), 'utf8') : await fs.readFile(currentPath);
+          await fs.writeFile(path.join(after, name), data);
+        }
+      }
+      let output;
+      try { output = await this.exec(['diff', '--no-index', '--numstat', '-z', '--no-renames', '--no-ext-diff', '--no-textconv', '--', before, after]); }
+      catch (error) {
+        if (error.code !== 1 || typeof error.stdout !== 'string') throw error;
+        output = error.stdout;
+      }
+      return { ...parseNumstat(output), ...(unsupportedFiles ? { unsupportedFiles } : {}) };
+    } finally {
+      await fs.rm(temporary, { recursive: true, force: true });
+    }
   }
 
   /** Commits reachable only from include, with bounded, paginated output. */
@@ -409,8 +450,11 @@ class GitOperations {
     const files = parseDiff(await this.exec(parent
       ? ['diff', '--name-status', '-z', '--find-renames', parent, commit, '--']
       : ['diff-tree', '--root', '--no-commit-id', '-r', '--name-status', '-z', '--find-renames', commit, '--']));
+    const stats = parseNumstat(await this.exec(parent
+      ? ['diff', '--numstat', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', parent, commit, '--']
+      : ['diff-tree', '--root', '--no-commit-id', '-r', '--numstat', '-z', '--find-renames', '--no-ext-diff', '--no-textconv', commit, '--']));
     return { hash: commit, parents: parents ? parents.split(' ') : [], author, email, date,
-      message: message.trimEnd(), left: parent, right: commit, files };
+      message: message.trimEnd(), left: parent, right: commit, files, stats };
   }
 
   /** Get file content at a commit (empty string if path is null). */
@@ -453,4 +497,21 @@ function parseDiff(output) {
   return files;
 }
 
-module.exports = { GitOperations, parseDiff };
+/** Sum Git's NUL-delimited numstat, consuming rename path pairs separately. */
+function parseNumstat(output) {
+  const stats = { insertions: 0, deletions: 0, binaryFiles: 0 };
+  const tokens = output.split('\0');
+  for (let index = 0; index < tokens.length && tokens[index]; index++) {
+    const match = /^(\d+|-)\t(\d+|-)\t([\s\S]*)$/.exec(tokens[index]);
+    if (!match) throw new Error('Malformed Git numstat output');
+    if (!match[3]) {
+      if (tokens[index + 1] === undefined || tokens[index + 2] === undefined) throw new Error('Malformed Git numstat rename');
+      index += 2;
+    }
+    if (match[1] === '-' || match[2] === '-') stats.binaryFiles++;
+    else { stats.insertions += Number(match[1]); stats.deletions += Number(match[2]); }
+  }
+  return stats;
+}
+
+module.exports = { GitOperations, parseDiff, parseNumstat };

@@ -58,8 +58,17 @@ function worktreeLabels(result) {
   return result.reversed ? labels.reverse() : labels;
 }
 
+function changeSummary(files, stats) {
+  const count = files.length;
+  if (!stats) return `${count} ${count === 1 ? 'file' : 'files'} changed; line statistics unavailable`;
+  return `${count} ${count === 1 ? 'file' : 'files'} changed, ${stats.insertions} insertions(+), ${stats.deletions} deletions(-)`
+    + (stats.binaryFiles ? `; ${stats.binaryFiles} binary ${stats.binaryFiles === 1 ? 'file' : 'files'} (line counts unavailable)` : '')
+    + (stats.unsupportedFiles ? `; ${stats.unsupportedFiles} submodule/special files (line counts unavailable)` : '');
+}
+
 function reverseWorktreeResult(result) {
   return { ...result, reversed: !result.reversed,
+    ...(result.stats ? { stats: { ...result.stats, insertions: result.stats.deletions, deletions: result.stats.insertions } } : {}),
     ...(!result.worktree ? { left: result.right, right: result.left } : {}),
     files: result.files.map(file => ({
     ...file, oldPath: file.newPath, newPath: file.oldPath,
@@ -165,8 +174,8 @@ class BranchTreeProvider {
     if (element.kind === 'compare-commit') {
       const item = new vscode.TreeItem(element.commit.subject, vscode.TreeItemCollapsibleState.Collapsed);
       item.id = `${element.key}:${element.parent.side}:${element.commit.hash}`;
-      item.description = `${shortHash(element.commit.hash)} · ${element.commit.author}`;
-      item.tooltip = `${element.commit.subject}\n${element.commit.hash}\n${element.commit.author}\n${element.commit.date}\nFiles compare first parent → commit`;
+      item.description = `${element.commit.author} · ${element.commit.date}`;
+      // Full messages and file statistics are loaded lazily when the hover resolves.
       item.contextValue = 'gb-compare-commit';
       return item;
     }
@@ -273,7 +282,7 @@ class BranchTreeProvider {
       item.label = `${leftLabel} ↔ ${rightLabel}`;
       item.description = `· ${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
-      item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\nChanged files: ${count}`;
+      item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;
     }
     // Keep all fields in one Markdown paragraph with hard line breaks. appendText
     // on a multiline string creates paragraph gaps. Only actual branch names get copy links.
@@ -295,6 +304,44 @@ class BranchTreeProvider {
       }
     });
     hover.isTrusted = { enabledCommands: ['git-branch.copyBranchName'] };
+    hover.supportHtml = false;
+    item.tooltip = hover;
+    return item;
+  }
+
+  async resolveTreeItem(item, element, token) {
+    if (element.kind !== 'compare-commit' || token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
+    element.entry.details ||= new Map();
+    let pending = element.entry.details.get(element.commit.hash);
+    if (!pending) {
+      pending = this.git.commitDetails(element.commit.hash);
+      element.entry.details.set(element.commit.hash, pending);
+    }
+    let details;
+    try { details = await pending; }
+    catch (error) {
+      if (element.entry.details.get(element.commit.hash) === pending) element.entry.details.delete(element.commit.hash);
+      if (token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
+      const hover = new vscode.MarkdownString();
+      hover.appendText(`${element.commit.author} · ${element.commit.date}\n${element.commit.subject}\nCommit details unavailable: ${error.message}`);
+      item.tooltip = hover;
+      return item;
+    }
+    if (token?.isCancellationRequested || this.comparisons.get(element.key) !== element.entry) return item;
+    const hover = new vscode.MarkdownString();
+    hover.appendText(`${details.author} · ${details.date}`);
+    hover.appendMarkdown('\n\n');
+    details.message.split('\n').forEach((line, index) => {
+      if (index > 0) hover.appendMarkdown('  \n');
+      hover.appendText(line);
+    });
+    hover.appendMarkdown('\n\n');
+    hover.appendText(changeSummary(details.files, details.stats));
+    hover.appendMarkdown('\n\n');
+    const hash = shortHash(details.hash);
+    const args = encodeURIComponent(JSON.stringify([hash]));
+    hover.appendMarkdown(`[${hash}](command:git-branch.copyCommitHash?${args} "Copy short commit hash")`);
+    hover.isTrusted = { enabledCommands: ['git-branch.copyCommitHash'] };
     hover.supportHtml = false;
     item.tooltip = hover;
     return item;
@@ -688,6 +735,11 @@ function activate(context) {
 
   context.subscriptions.push(
     branchView, branchTree,
+    vscode.commands.registerCommand('git-branch.copyCommitHash', async text => {
+      if (typeof text !== 'string' || !/^[a-f0-9]{7,64}$/.test(text)) return;
+      try { await vscode.env.clipboard.writeText(text); }
+      catch (err) { vscode.window.showErrorMessage(`Copy failed: ${err.message}`); }
+    }),
     vscode.commands.registerCommand('git-branch.copyBranchName', async text => {
       if (typeof text !== 'string' || text.length > 65536) return;
       try { await vscode.env.clipboard.writeText(text); }

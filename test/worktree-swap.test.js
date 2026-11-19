@@ -89,6 +89,7 @@ test('complete worktree swap: status, paths, existing tabs, groups, refresh, can
     await run('worktree', node); await run('worktree', other);
     const active = () => tree.workingTreeFor(node);
     const originals = active().result.files;
+    const originalStats = active().result.stats;
     assert.deepEqual(new Set(originals.map(f => f.status[0])), new Set(['A', 'D', 'M', 'R']));
     let fileNodes = await tree.getChildren({ ...node, diffSession: true });
     for (const file of fileNodes) await run('openWorktreeDiff', file);
@@ -102,6 +103,7 @@ test('complete worktree swap: status, paths, existing tabs, groups, refresh, can
     const openCount = openings.length;
     await run('swapWorktree', node);
     assert.equal(active().result.reversed, true);
+    assert.deepEqual(active().result.stats, { ...originalStats, insertions: originalStats.deletions, deletions: originalStats.insertions });
     assert.equal(tree.getTreeItem({ ...node, diffSession: true }).label, 'Working Tree ↔ main');
     assert.ok(tree.getTreeItem({ ...node, diffSession: true }).tooltip.value.startsWith('Left: Working Tree  \nRight: main'));
     assert.equal(tree.workingTreeFor(other).result.reversed, undefined);
@@ -151,6 +153,7 @@ test('complete worktree swap: status, paths, existing tabs, groups, refresh, can
     await run('swapWorktree', node);
     assert.equal(active().result.reversed, false);
     assert.deepEqual(active().result.files, originals);
+    assert.deepEqual(active().result.stats, originalStats);
     assert.equal(tree.getTreeItem({ ...node, diffSession: true }).label, 'main ↔ Working Tree');
     await run('diffTree', { ...node, diffSession: true });
     const normalTree = await tree.getChildren({ ...node, diffSession: true });
