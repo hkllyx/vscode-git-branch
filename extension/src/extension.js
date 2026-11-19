@@ -385,10 +385,14 @@ function activate(context) {
       const specified = isBranchNode(node) || (node?.kind === 'tag' && !!node.ref);
       const current = specified ? undefined : await git.current();
       const startPoint = specified ? qualifiedRef(node) : 'HEAD';
-      const startLabel = specified ? node.ref : (current || 'HEAD (detached)');
-      const name = await vscode.window.showInputBox({
-        title: `${checkout ? 'Create and Checkout' : 'Create Branch'} (from ${startLabel})`,
-        prompt: `New branch name (based on ${startLabel})`,
+        const startLabel = specified ? node.ref : (current || 'HEAD (detached)');
+        const suggestedName = specified
+          ? (node.remote ? node.ref.slice(node.ref.indexOf('/') + 1) : node.ref)
+          : (current || '');
+        const name = await vscode.window.showInputBox({
+          title: `${checkout ? 'Create and Checkout' : 'Create Branch'} (from ${startLabel})`,
+          prompt: `New branch name (based on ${startLabel})`,
+          value: suggestedName,
         ignoreFocusOut: true,
         validateInput: v => git.validateName(v)
       });

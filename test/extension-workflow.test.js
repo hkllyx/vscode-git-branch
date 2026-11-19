@@ -204,10 +204,13 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     trackingSelection = undefined;
     input = 'from-selected'; await run('create', selected);
     assert.equal(await git.resolve('refs/heads/from-selected'), feature);
+    assert.equal(inputOptions.at(-1).value, 'feature/test');
     input = 'from-remote'; await run('create', remote);
     assert.equal(await git.resolve('refs/heads/from-remote'), feature);
+    assert.equal(inputOptions.at(-1).value, 'remote/test'); // Exclude origin/, preserve branch path.
     input = 'from-tag'; await run('create', tag);
     assert.equal(await git.resolve('refs/heads/from-tag'), base);
+    assert.equal(inputOptions.at(-1).value, 'feature/test');
     input = 'from-head'; await run('create');
     assert.equal(await git.resolve('refs/heads/from-head'), base);
     assert.equal(inputOptions.at(-1).title, 'Create Branch (from main)');
@@ -217,6 +220,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     input = 'from-remote-group'; await run('create', roots[1].children[0]);
     assert.equal(await git.resolve('refs/heads/from-remote-group'), base);
     assert.equal(inputOptions.at(-1).prompt, 'New branch name (based on main)');
+    assert.equal(inputOptions.at(-1).value, 'main');
     assert.equal(await git.current(), 'main');
     for (const [name, expected] of [
       ['from-selected', ''], ['from-remote', 'refs/remotes/origin/remote/test'], ['from-tag', ''],
@@ -232,6 +236,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     ]) {
       input = `checkout-${suffix}`;
       await run('createAndCheckout', node);
+      assert.equal(inputOptions.at(-1).value, suffix === 'remote' ? 'remote/test'
+        : ['selected', 'tag'].includes(suffix) ? 'feature/test' : 'main');
       assert.equal(await git.current(), input);
       assert.equal(await git.resolve('HEAD'), hash);
       const expectedTracking = suffix === 'remote' ? 'refs/remotes/origin/remote/test'
