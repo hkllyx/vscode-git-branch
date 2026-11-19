@@ -11,13 +11,6 @@ function shortHash(hash) {
   return hash ? hash.slice(0, 7) : '';
 }
 
-function themedSvgIcon(name) {
-  return {
-    light: vscode.Uri.file(path.join(__dirname, '..', 'media', `${name}-light.svg`)),
-    dark: vscode.Uri.file(path.join(__dirname, '..', 'media', `${name}.svg`))
-  };
-}
-
 function isBranchNode(node) {
   return node?.kind === 'branch' && typeof node.ref === 'string' && !!node.ref &&
     typeof node.remote === 'boolean';
@@ -240,10 +233,8 @@ class BranchTreeProvider {
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = element.comparisonsGroup ? 'gb-comparisons-group' : 'gb-category';
-      // Parent collections share their children's visual language with layered detail.
-      item.iconPath = element.comparisonsGroup ? themedSvgIcon('comparisons-group')
-        : element.label === 'Tags' ? themedSvgIcon('tags-group')
-        : element.label === 'Remote' ? themedSvgIcon('remote-group') : new vscode.ThemeIcon('repo');
+      item.iconPath = new vscode.ThemeIcon(element.comparisonsGroup ? 'compare-changes'
+        : element.label === 'Tags' ? 'tag' : element.label === 'Remote' ? 'cloud' : 'repo');
       if (element.comparisonsGroup) {
         item.id = 'comparisons-group';
         item.tooltip = 'File and commit comparisons';
@@ -304,7 +295,7 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
       item.label = `${leftLabel} ↔ ${rightLabel}`;
-      item.iconPath = themedSvgIcon('branch-diff');
+      item.iconPath = new vscode.ThemeIcon('diff-multiple');
       item.description = `${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\n${changeSummary(showingWorktree.result.files, showingWorktree.result.stats)}`;

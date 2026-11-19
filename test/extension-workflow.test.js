@@ -129,15 +129,11 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let selected = roots[0].children.find(n => n.ref === 'feature/test');
     assert.equal(tree.getTreeItem(main).contextValue, 'gb-current');
     assert.equal(tree.getTreeItem(selected).contextValue, 'gb-local');
-    for (const [group, icon] of [[roots[0], 'repo'], [roots[1].children[0], 'cloud']]) {
-      assert.equal(tree.getTreeItem(group).iconPath.id, icon);
-    }
-    for (const [group, name] of [[roots[1], 'remote-group'], [roots[2], 'tags-group']]) {
-      const icon = tree.getTreeItem(group).iconPath;
-      assert.equal(path.basename(icon.dark.fsPath), `${name}.svg`);
-      assert.equal(path.basename(icon.light.fsPath), `${name}-light.svg`);
-      await fs.access(icon.dark.fsPath);
-      await fs.access(icon.light.fsPath);
+    for (const [group, icon] of [[roots[0], 'repo'], [roots[1], 'cloud'], [roots[2], 'tag'], [roots[1].children[0], 'cloud']]) {
+      const item = tree.getTreeItem(group);
+      assert.ok(item.iconPath instanceof mock.ThemeIcon);
+      assert.equal(item.iconPath.id, icon);
+      assert.equal(item.iconPath.color, undefined); // Inherit native theme/selection colors.
     }
     let remote = roots[1].children[0].children[0];
     const tag = roots[2].children[0];
@@ -315,9 +311,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('compare', selected);
     const compareRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
     const first = (await tree.getChildren(compareRoot))[0];
-    assert.equal(path.basename(tree.getTreeItem(compareRoot).iconPath.dark.fsPath), 'comparisons-group.svg');
-    await fs.access(tree.getTreeItem(compareRoot).iconPath.dark.fsPath);
-    await fs.access(tree.getTreeItem(compareRoot).iconPath.light.fsPath);
+    assert.equal(tree.getTreeItem(compareRoot).iconPath.id, 'compare-changes');
     assert.equal(tree.getTreeItem(first).iconPath.id, 'git-compare');
     assert.notEqual(tree.getTreeItem(compareRoot).iconPath.id, tree.getTreeItem(first).iconPath.id);
     assert.equal(first.entry.result.left, feature);
@@ -413,8 +407,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     let children = await tree.getChildren(worktreeBranch);
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session-list-path');
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
-    assert.equal(path.basename(tree.getTreeItem(worktreeBranch).iconPath.dark.fsPath), 'branch-diff.svg');
-    assert.equal(path.basename(tree.getTreeItem(worktreeBranch).iconPath.light.fsPath), 'branch-diff-light.svg');
+    assert.equal(tree.getTreeItem(worktreeBranch).iconPath.id, 'diff-multiple');
+    assert.equal(tree.getTreeItem(worktreeBranch).iconPath.color, undefined);
     assert.equal(tree.getTreeItem(worktreeBranch).description, '1 file');
     assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\n1 file changed, 1 insertions(+), 1 deletions(-)`);
     assert.deepEqual(copyNames(tree.getTreeItem(worktreeBranch)), [worktreeBranch.ref]);
@@ -470,7 +464,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(hoverText(tree.getTreeItem(remote)), `Left: ${remote.ref}\nRight: Working Tree\n${remoteCount} files changed, ${remoteStats.insertions} insertions(+), ${remoteStats.deletions} deletions(-)`);
     for (const branch of [worktreeBranch, selected, remote]) {
       assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session-list-path');
-      assert.equal(path.basename(tree.getTreeItem(branch).iconPath.dark.fsPath), 'branch-diff.svg');
+      assert.equal(tree.getTreeItem(branch).iconPath.id, 'diff-multiple');
       assert.match(tree.getTreeItem(branch).label, / ↔ Working Tree$/);
       assert.match(tree.getTreeItem(branch).description, /^\d+ files?$/);
     }

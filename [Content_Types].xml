@@ -5,7 +5,6 @@
   <Default Extension="md" ContentType="text/markdown" />
   <Default Extension="js" ContentType="application/javascript" />
   <Default Extension="txt" ContentType="text/plain" />
-  <Default Extension="svg" ContentType="image/svg+xml" />
   <Override PartName="/extension/package.json" ContentType="application/json" />
   <Override PartName="/extension/README.md" ContentType="text/markdown" />
   <Override PartName="/extension/src/extension.js" ContentType="application/javascript" />

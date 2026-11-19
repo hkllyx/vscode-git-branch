@@ -199,12 +199,7 @@ test('manifest: commands, views, menus are wired', async () => {
   const cmds = manifest.contributes.commands.map(c => c.command);
   for (const command of ['git-branch.closeCompare', 'git-branch.closeWorktree']) {
     const item = manifest.contributes.commands.find(c => c.command === command);
-    assert.deepEqual(item.icon, { light: 'media/close-small-light.svg', dark: 'media/close-small.svg' });
-    for (const asset of Object.values(item.icon)) {
-      const svg = await fs.readFile(path.join(__dirname, '..', asset), 'utf8');
-      assert.match(svg, /viewBox="0 0 16 16"/);
-      assert.match(svg, /m4\.5 4\.5 7 7m0-7-7 7/);
-    }
+    assert.equal(item.icon, '$(close)');
   }
   for (const item of manifest.contributes.commands) {
     assert.ok(!item.title.includes('...') && !item.title.includes('…'));

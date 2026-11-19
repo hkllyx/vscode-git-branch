@@ -11,7 +11,7 @@
 - **Tags** — 标签列表
 - **Comparisons** — 文件与提交比较统一分组，Diff 和 Compare 按首次打开的先后顺序混排，先打开的在前；刷新、重复打开现有比较或交换方向不改变位置，关闭后重新打开排到末尾。比较名后显示 `N files` 或 `N commits`（数量为 1 时用单数），项目名称与描述之间不加 `·`，独立展开，没有会话时隐藏。只合并外层，不添加 Files／Commits 中间层
 
-本地／远程分支统一用 `git-branch` 图标；Tag 用普通、不高亮的 `tag` 标签图标；文件 Diff 比较项用 16px「文本行＋双向箭头」SVG 图标，提交历史 Branch Compare 项用 `git-compare`，不展开也可区分两种比较；提交用 `git-commit`。父级分组与子项采用同类图形、细节区分：Local 用 `repo`；Remote 分组用叠放云朵，origin 等远程名用原生 `cloud` 单云朵；Tags 分组用叠放标签，标签项用 `tag` 单标签；Comparisons 分组用「两侧面板＋双向箭头」，突出对比含义。自定义 SVG 均为 16px 无底色线条，提供浅色／深色主题版本；其余使用原生 ThemeIcon。文件／目录保留原有图标和状态标识。只高亮当前分支图标，不高亮名称。保留展开箭头及右侧按钮，分支／标签名后不显示 hash。
+本地／远程分支统一用原生 `git-branch` 图标；Tags 分组和标签项都用 `tag`；Remote 分组与 origin 等远程名都用 `cloud`；Local 分组用 `repo`。Comparisons 分组用 `compare-changes`，文件 Show Diff 项用 `diff-multiple`，提交历史 Branch Compare 项用 `git-compare`，提交用 `git-commit`。所有图标均使用 VS Code 内置 ThemeIcon／Codicon，不使用或打包自定义 SVG；样式、大小及默认颜色由编辑器统一控制，适配明暗主题、选中状态和产品图标主题。文件／目录保留原有图标和状态标识。保留当前分支图标的主题黄色高亮、Left／Right 来源的主题区分色，不高亮分支名称。保留展开箭头及右侧按钮，分支／标签名后不显示 hash。
 当前分支由本地 HEAD 判断；detached HEAD 不标记当前分支。默认主分支不再使用独立的星星或组合标记。
 Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显示创建按钮和「…」更多菜单；Create / Create and Checkout 通过分支右键或命令面板使用。
 分支悬浮提示显示名称、最后提交和追踪分支；Last commit 同一行显示 `提交人 · 提交时间 · 7 位短 hash`，时间含时区偏移，短 hash 后显示复制图标，点击仅复制短 hash，不单独显示 Hash 行。本地分支未配置追踪时明确标注，远程分支／标签不显示 Tracking branch 行。标签保持显示完整 hash 和时间，附注标签的 hash 和时间取其对应提交。不再显示 Current branch／Default branch；Tracking status 仅显示 ahead／behind 数量，不重复跟踪分支名和说明。分支、标签与 Diff 会话使用原生 Markdown 悬浮框，各字段紧凑换行，不使用段落间距。分支名称和已配置的跟踪分支名称行尾也显示复制图标，各自只复制对应分支名，不复制字段标签或整段信息；不适用／未配置的跟踪项不显示复制图标，也没有底部 Copy 行。带复制链接的悬浮框支持鼠标移入；仓库文字经过转义，仅授权内部复制命令，不使用 WebView。
@@ -87,7 +87,7 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 - 本地分支、当前分支和远程分支均可右键使用；不创建或切换 Git worktree
 - 文件列表位于 **Branches → Comparisons → 比较项**，Comparisons 与 Local、Remote、Tags 同级，不新增 Source Control 视图或底部面板。执行比较自动显示 Branches 并展开对应会话。原生紧凑树显示文件图标、名称和目录，最右侧像 Changes 一样显示彩色 M／A／D／R 状态。
 - 分组行没有按钮；每个比较项后依次显示 **刷新 → 关闭 → ⋯（More Actions）**。⋯ 在按钮处弹出原生锚定菜单：Swap Comparison；View as List／View as Tree；Sort by Name／Path／Status，三组以分隔线区分，不添加 View & Sort 中间层，也不在右键重复展示。
-- 当前选项用行首 `✓ `，对勾当作标题文本的一部分；所有菜单标题直接左对齐，未选中项不加占位空格。扩展菜单不能使用内置勾选槽，仍受原生菜单边距限制。默认列表、按路径排序；每个 Files／Commits 会话独立保存设置到工作区，刷新、交换、关闭后重新比较保留设置。只调整文件展示，不修改 Git。Diff／Compare 关闭按钮使用居中的小号细线叉号，保持原生按钮点击区域及悬浮提示。
+- 当前选项用行首 `✓ `，对勾当作标题文本的一部分；所有菜单标题直接左对齐，未选中项不加占位空格。扩展菜单不能使用内置勾选槽，仍受原生菜单边距限制。默认列表、按路径排序；每个 Files／Commits 会话独立保存设置到工作区，刷新、交换、关闭后重新比较保留设置。只调整文件展示，不修改 Git。Diff／Compare 的刷新、关闭、更多按钮统一使用原生 `refresh`／`close`／`ellipsis`，不单独调整大小或写死颜色。
 - 没有任何文件或提交比较时 Comparisons 自动隐藏；最后一个会话关闭后消失。
 - 会话默认显示 `分支名 ↔ Working Tree · N files`，交换后显示 `Working Tree ↔ 分支名 · N files`，数量为 1 时用 `1 file`，前置对比图标。会话不是分支节点，右键不弹出分支操作。支持多个工作区／双分支文件比较及提交比较同时存在，各会话独立刷新、关闭及设置。
 - 默认左侧为选中分支的提交快照，右侧为当前工作区实际文件；交换后左右反转。已暂存、未暂存和未忽略的新文件都纳入比较。Diff 会话悬浮显示 Left、Right 和 `N files changed, X insertions(+), Y deletions(-)`，随方向更新；交换时增删行数量互换。不展示分支 hash、提交时间或跟踪配置；分支侧名称保留复制图标。Working Tree 不是当前分支的提交快照。

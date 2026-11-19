@@ -10,11 +10,8 @@ const xml = fs.readFileSync(path.join(base, 'extension.vsixmanifest'), 'utf8');
 if (!xml.includes(`Version="${manifest.version}" Publisher="${manifest.publisher}"`)) {
   throw new Error('VSIX manifest publisher/version differs from package.json');
 }
-const groupIcons = ['tags-group', 'remote-group', 'comparisons-group', 'close-small']
-  .flatMap(name => [`media/${name}.svg`, `media/${name}-light.svg`]);
 // Refresh the tracked staging copy from authoritative source on every build.
-for (const relative of ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js', 'src/comparison-view.js', 'media/branch-diff.svg',
-  'media/branch-diff-light.svg', 'media/current-branch.svg', 'media/primary-branch.svg', 'media/current-primary.svg', ...groupIcons]) {
+for (const relative of ['package.json', 'README.md', 'src/extension.js', 'src/git-operations.js', 'src/comparison-view.js']) {
   const destination = path.join(base, 'extension', relative);
   fs.mkdirSync(path.dirname(destination), { recursive: true });
   fs.copyFileSync(path.join(base, relative), destination);
@@ -27,13 +24,7 @@ const mappings = [
   ['README.md', 'extension/README.md'],
   ['src/extension.js', 'extension/src/extension.js'],
   ['src/git-operations.js', 'extension/src/git-operations.js'],
-  ['src/comparison-view.js', 'extension/src/comparison-view.js'],
-  ['media/branch-diff.svg', 'extension/media/branch-diff.svg'],
-  ['media/branch-diff-light.svg', 'extension/media/branch-diff-light.svg'],
-  ['media/current-branch.svg', 'extension/media/current-branch.svg'],
-  ['media/primary-branch.svg', 'extension/media/primary-branch.svg'],
-  ['media/current-primary.svg', 'extension/media/current-primary.svg'],
-  ...groupIcons.map(relative => [relative, `extension/${relative}`])
+  ['src/comparison-view.js', 'extension/src/comparison-view.js']
 ];
 // Use Windows .NET ZIP support without installing dependencies or leaving temp directories.
 const entries = mappings.map(([source, entry]) =>
