@@ -190,8 +190,8 @@ class BranchTreeProvider {
           item.tooltip += '\nTracking status: upstream ref is missing locally; counts unavailable (not in sync)';
         } else if (Number.isInteger(element.ahead) && Number.isInteger(element.behind)) {
           const differences = [];
-          if (element.behind > 0) differences.push(`↓${element.behind}`);
-          if (element.ahead > 0) differences.push(`↑${element.ahead}`);
+          if (element.behind > 0) differences.push(`${element.behind}↓`);
+          if (element.ahead > 0) differences.push(`${element.ahead}↑`);
           if (differences.length) item.description = differences.join(' ');
           item.tooltip += `\nTracking status: ${element.ahead} ahead, ${element.behind} behind ${tracking} (commits; local refs only)`;
         }

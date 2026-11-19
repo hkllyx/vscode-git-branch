@@ -138,7 +138,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(main.upstream, 'refs/remotes/origin/main');
     assert.match(tree.getTreeItem(main).tooltip, /Tracking branch: origin\/main/);
     assert.match(tree.getTreeItem(selected).tooltip, /Tracking branch: Not configured/);
-    for (const [ahead, behind, expected] of [[2, 1, '↓1 ↑2'], [3, 0, '↑3'], [0, 4, '↓4'], [0, 0, undefined]]) {
+    for (const [ahead, behind, expected] of [[1, 1, '1↓ 1↑'], [2, 1, '1↓ 2↑'], [3, 0, '3↑'], [0, 4, '4↓'], [0, 0, undefined]]) {
       const item = tree.getTreeItem({ ...main, ahead, behind, trackingMissing: false });
       assert.equal(item.description, expected);
       assert.equal(item.label, main.label);
