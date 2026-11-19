@@ -58,7 +58,7 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 
 - Compare 结果在 **Branches → Comparisons** 原生树中显示，不打开 WebView；与文件比较共用外层分组，各会话独立。
 - 每个会话下按实际分支名显示两组，描述显示 `N commits`，名称与描述之间不加分隔点，分别显示对应分支的独有提交；悬浮显示完整来源分支名和数量。共同提交不显示，独有提交为零的一侧不显示；两侧均为零时仅显示 `No differences`，与文件比较一致。两组用主题绿色／主题修改色分支图标辅助区分；交换后名称、提交列表和来源同步更新，不使用 Left only／Right only。
-- 提交行右侧简要信息为 `提交人 · 提交时间`（转换到系统时区，统一 `yyyy-MM-dd HH:mm:ss`，不含 T／时区后缀），不显示短 hash。普通提交用原生 `git-commit`；Merge commit 根据实际父提交数大于 1 判断，不靠消息关键词，使用原生 `git-merge` 图标和主题 `descriptionForeground` 弱化图标/名称，适配明暗主题。悬浮第一行显示 `提交人 · 提交时间 · 7 位短 hash`，hash 后显示复制图标；第二行显示 `N files changed, X insertions(+), Y deletions(-)`；紧接着显示完整 Commit 消息的非空行，正文空行收紧为普通换行，不增加统计后的空白行。Merge 的统计行另标注 `Merge commit (first-parent changes)`。行距与分支悬浮一致，不使用 Markdown 段落外边距。点击复制图标仅复制短 hash；仓库文字经过 Markdown 转义，仅授权内部复制命令。悬浮及展开文件共享按需加载的详情缓存；失败明确显示详情不可用，不伪造统计。
+- 提交行右侧简要信息为 `提交人 · 提交时间`（转换到系统时区，统一 `yyyy-MM-dd HH:mm:ss`，不含 T／时区后缀），不显示短 hash。普通提交用原生 `git-commit`；Merge commit 根据实际父提交数大于 1 判断，不靠消息关键词，使用原生 `git-merge` 图标和主题 `descriptionForeground` 弱化图标/名称，适配明暗主题。悬浮第一行显示 `提交人 · 提交时间 · 7 位短 hash`，hash 后显示复制图标；第二行显示 `N files changed, X insertions(+), Y deletions(-)`；紧接着显示完整 Commit 消息的非空行，正文空行收紧为普通换行，不增加统计后的空白行。Merge 的统计行不附加类型说明，仍按首父提交计算差异。行距与分支悬浮一致，不使用 Markdown 段落外边距。点击复制图标仅复制短 hash；仓库文字经过 Markdown 转义，仅授权内部复制命令。悬浮及展开文件共享按需加载的详情缓存；失败明确显示详情不可用，不伪造统计。
 - 展开提交按需读取文件列表，文件后显示 M／A／D／R 等状态；点击打开固定（非预览）的原生文件 Diff Tab。
 - 单提交文件 Diff 固定为 **第一个父提交 → 当前提交**；根提交缺失侧为空。交换比较分支只交换来源分组、两侧历史和会话标签，不反转提交自身的变更含义，已打开的单提交 Tab 也保持父 → 提交。
 - 每侧初始加载最多 200 个提交，更多时显示 Load more commits；展开文件时才读取提交详情。

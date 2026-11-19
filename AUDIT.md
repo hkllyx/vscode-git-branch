@@ -33,7 +33,7 @@
 - Commit 悬浮统一为作者、系统时区时间和可复制 7 位 hash 同行，下一行显示文件及增删行统计，紧接着显示完整消息的非空行；去掉统计后的空行和正文空白行，以普通换行保持紧凑，原始 Git 消息不变。失败保留复制入口并明确统计不可用。
 - Compare 来源分组直接显示实际分支名，不使用 Left only/Right only；提交数量保持为独立 description，颜色区分与交换行为保留，零提交来源仍隐藏。
 - Local/Remote 分支支持懒加载完整可达历史，每页最多 200 条，固定 tip 分页；展开提交复用首父文件差异和原生 Diff Tab，不创建 Comparisons 会话、不修改仓库。
-- Merge commit 根据父提交数判断，使用原生 git-merge 图标和主题 descriptionForeground 弱化色；统计和文件差异仍取首父，悬浮明确标注。消息包含 Merge 的普通提交不会误判。
+- Merge commit 根据父提交数判断，使用原生 git-merge 图标和主题 descriptionForeground 弱化色；统计和文件差异仍取首父，统计行不再附加 Merge commit 类型说明。消息包含 Merge 的普通提交不会误判。
 - 历史缓存随分支 tip 变化、删除、重命名或 dispose 失效；旧分页/详情/文件节点不可复用，异步旧请求失败不能驱逐替换后的新缓存或弹过期错误。
 
 ### 验证

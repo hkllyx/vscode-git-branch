@@ -131,7 +131,8 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
     assert.ok(lines[0].replace(/\\([\\`*_{}\[\]()<>#+\-.!])/g, '$1')
       .startsWith(`Test · ${formatGitDate(commits[0].commit.date)} · ${mergeHash.slice(0, 7)} [$(copy)]`));
     assert.equal(lines[1].replace(/\\([\\`*_{}\[\]()<>#+\-.!])/g, '$1'),
-      '1 file changed, 1 insertions(+), 0 deletions(-); Merge commit (first-parent changes)');
+      '1 file changed, 1 insertions(+), 0 deletions(-)');
+    assert.ok(!mergeItem.tooltip.value.includes('Merge commit (first-parent changes)'));
     assert.equal(lines[2], 'Join histories');
     assert.ok(lines.every(line => line.trim() && !line.includes('\u00a0')));
     assert.ok(mergeItem.tooltip.value.includes('Full body'));

@@ -81,12 +81,11 @@ function commitHover(commit, details, error) {
     const args = encodeURIComponent(JSON.stringify([hash]));
     hover.appendMarkdown(` [$(copy)](command:git-branch.copyCommitHash?${args} "Copy short commit hash")`);
   }
-  const merge = (data.parents?.length || 0) > 1 || data.merge;
   const summary = details ? changeSummary(details.files, details.stats) : 'File statistics unavailable';
   // Compact native hover: omit spacer rows, but preserve every nonblank message line.
   const messageLines = (details ? details.message : commit.subject).split(/\r?\n/)
     .filter(line => line.trim().length > 0);
-  const lines = [summary + (merge ? '; Merge commit (first-parent changes)' : ''),
+  const lines = [summary,
     ...messageLines, ...(error ? [`Commit details unavailable: ${error.message}`] : [])];
   for (const line of lines) {
     hover.appendMarkdown('  \n');
