@@ -120,7 +120,9 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.deepEqual(sides.map(node => node.history.total), [1, 1]);
     assert.deepEqual(sides.map(node => tree.getTreeItem(node).label), ['Left only', 'Right only']);
     assert.match(tree.getTreeItem(sides[0]).tooltip, /left/);
-    assert.equal(tree.getTreeItem(session).description, 'Commits · 2');
+    assert.equal(tree.getTreeItem(session).description, '· 2 commits');
+    assert.equal(tree.getTreeItem({ ...session, entry: { ...session.entry, result: { ...session.entry.result,
+      selected: { total: 7 }, current: { total: 8 } } } }).description, '· 15 commits');
     assert.notEqual(tree.getTreeItem(sides[0]).iconPath.color.id, tree.getTreeItem(sides[1]).iconPath.color.id);
     let commits = await tree.getChildren(sides[0]);
     assert.equal(commits[0].commit.hash, leftHash);
@@ -144,6 +146,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     // Zero-commit sides are hidden without changing left/right identities.
     await run('compareSelected', left, [left, local('main')]);
     let oneSided = (await tree.getChildren(group))[0];
+    assert.equal(tree.getTreeItem(oneSided).description, '· 1 commit');
     let visibleSides = await tree.getChildren(oneSided);
     assert.equal(visibleSides.length, 1);
     assert.equal(tree.getTreeItem(visibleSides[0]).label, 'Left only');

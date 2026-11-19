@@ -369,7 +369,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal(tree.getTreeItem(worktreeBranch).contextValue, 'gb-diff-session-list-path');
     assert.equal(tree.getTreeItem(worktreeBranch).label, `${worktreeBranch.label} ↔ Working Tree`);
     assert.equal(tree.getTreeItem(worktreeBranch).iconPath, undefined);
-    assert.equal(tree.getTreeItem(worktreeBranch).description, 'Files · 1');
+    assert.equal(tree.getTreeItem(worktreeBranch).description, '· 1 file');
     assert.equal(hoverText(tree.getTreeItem(worktreeBranch)), `Left: ${worktreeBranch.ref}\nRight: Working Tree\nChanged files: 1`);
     assert.deepEqual(copyNames(tree.getTreeItem(worktreeBranch)), [worktreeBranch.ref]);
     assert.ok(!children.some(n => n.kind === 'worktree-action'));
@@ -425,7 +425,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
       assert.equal(tree.getTreeItem(branch).contextValue, 'gb-diff-session-list-path');
       assert.equal(tree.getTreeItem(branch).iconPath, undefined);
       assert.match(tree.getTreeItem(branch).label, / ↔ Working Tree$/);
-      assert.match(tree.getTreeItem(branch).description, /^Files · \d+$/);
+      assert.match(tree.getTreeItem(branch).description, /^· \d+ files?$/);
     }
     const selectedFile = (await tree.getChildren(selected)).find(n => n.kind === 'worktree-file');
     const remoteFile = (await tree.getChildren(remote)).find(n => n.kind === 'worktree-file');

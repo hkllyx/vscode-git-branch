@@ -184,7 +184,7 @@ test('complete worktree swap: status, paths, existing tabs, groups, refresh, can
     tree.setWorkingTree(node, { ...active().result, reversed: false, files: [] });
     await run('swapWorktree', node);
     assert.equal(active().result.reversed, false);
-    assert.equal(tree.getTreeItem({ ...node, diffSession: true }).description, 'Files · 0');
+    assert.equal(tree.getTreeItem({ ...node, diffSession: true }).description, '· 0 files');
     assert.equal((await tree.getChildren({ ...node, diffSession: true }))[0].kind, 'worktree-empty');
     await run('swapWorktree', node);
     assert.equal(active().result.reversed, true);

@@ -148,7 +148,7 @@ class BranchTreeProvider {
       item.id = element.key;
       item.contextValue = `gb-compare-session-${element.entry.settings.layout}-${element.entry.settings.sort}`;
       const total = result.selected.total + result.current.total;
-      item.description = total ? `Commits · ${total}` : 'Commits';
+      item.description = total ? `· ${total} ${total === 1 ? 'commit' : 'commits'}` : 'Commits';
       item.tooltip = `Left: ${result.ref}\nRight: ${result.currentLabel}\nLeft only: ${result.selected.total} commits\nRight only: ${result.current.total} commits`;
       return item;
     }
@@ -271,7 +271,7 @@ class BranchTreeProvider {
       // Comparison session, not a branch: compare-style label/icon and no branch context menu.
       const [leftLabel, rightLabel] = worktreeLabels(showingWorktree.result);
       item.label = `${leftLabel} ↔ ${rightLabel}`;
-      item.description = `Files · ${count}`;
+      item.description = `· ${count} ${count === 1 ? 'file' : 'files'}`;
       item.contextValue = `gb-diff-session-${showingWorktree.settings.layout}-${showingWorktree.settings.sort}`;
       item.tooltip = `Left: ${leftLabel}\nRight: ${rightLabel}\nChanged files: ${count}`;
     }
