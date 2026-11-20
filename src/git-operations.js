@@ -299,6 +299,154 @@ class GitOperations {
     return 'Updated (fast-forward)';
   }
 
+  /** Configured remotes with their fetch URL; used for group menus and Open on Remote. */
+  async remotes() {
+    const names = (await this.exec(['remote'])).trim().split(/\r?\n/).filter(Boolean);
+    const list = [];
+    for (const name of names) {
+      let url;
+      try { url = (await this.exec(['remote', 'get-url', '--', name])).trim() || undefined; } catch { url = undefined; }
+      list.push({ name, url });
+    }
+    return list;
+  }
+
+  /** Fetch one remote or all remotes. Prune is opt-in; tags are not fetched implicitly. */
+  async fetch(remote, { prune = false } = {}) {
+    if (remote !== undefined && (typeof remote !== 'string' || !remote || remote.startsWith('-') || /[\s~^:?*[\\]/.test(remote))) {
+      throw new Error('Select a valid remote.');
+    }
+    const args = ['fetch', '--no-tags', '--no-recurse-submodules'];
+    if (prune) args.push('--prune');
+    args.push('--', remote || '--all');
+    await this.exec(args);
+    return remote || 'all remotes';
+  }
+
+  /** Fetch tags from one remote without fetching branch refs. */
+  async fetchTags(remote) {
+    if (remote !== undefined && (typeof remote !== 'string' || !remote || remote.startsWith('-') || /[\s~^:?*[\\]/.test(remote))) {
+      throw new Error('Select a valid remote.');
+    }
+    await this.exec(['fetch', '--tags', '--no-recurse-submodules', '--', remote || '--all']);
+    return remote || 'all remotes';
+  }
+
+  /** Remove one configured remote together with its remote-tracking refs. */
+  async removeRemoteConfig(remote) {
+    if (typeof remote !== 'string' || !remote || remote.startsWith('-') || /[\s~^:?*[\\]/.test(remote)) {
+      throw new Error('Select a valid remote.');
+    }
+    const names = (await this.exec(['remote'])).trim().split(/\r?\n/).filter(Boolean);
+    if (!names.includes(remote)) throw new Error(`Remote '${remote}' is not configured.`);
+    await this.exec(['remote', 'remove', '--', remote]);
+    return remote;
+  }
+
+  /** Push every local tag to one remote. Never force, never push branches. */
+  async pushAllTags(remote) {
+    const remotes = await this.remotes();
+    if (!remotes.length) throw new Error('No remote configured. Add a Git remote first.');
+    const target = remote || (remotes.length === 1 ? remotes[0].name : undefined);
+    if (!target) throw new Error('Select a remote to push tags to.');
+    if (!remotes.some(item => item.name === target)) throw new Error(`Remote '${target}' is not configured.`);
+    try {
+      if ((await this.exec(['config', '--bool', '--get', `remote.${target}.mirror`])).trim() === 'true') {
+        throw new Error('Mirror remotes are not supported for Push Tags.');
+      }
+    } catch (error) { if (error.code !== 1) throw error; }
+    await this.exec(['push', '--tags', '--no-recurse-submodules', '--', target]);
+    return target;
+  }
+
+  /** Create a lightweight tag at a commit; nothing is checked out. */
+  async createTag(name, start = 'HEAD') {
+    if (typeof name !== 'string' || !name || name.startsWith('-') || name.includes('@{')) {
+      throw new Error('Enter a valid tag name.');
+    }
+    await this.exec(['check-ref-format', `refs/tags/${name}`]);
+    if ((await this.exec(['for-each-ref', '--format=%(refname)', `refs/tags/${name}`])).trim()) {
+      throw new Error(`Tag '${name}' already exists.`);
+    }
+    const hash = await this.resolve(start);
+    await this.exec(['tag', '--', name, hash]);
+    return hash;
+  }
+
+  /** Delete one local tag. Remote tags are never touched implicitly. */
+  async removeTag(name) {
+    if (typeof name !== 'string' || !name || name.startsWith('-')) throw new Error('Select a valid tag.');
+    await this.exec(['show-ref', '--verify', `refs/tags/${name}`]);
+    await this.exec(['tag', '--delete', '--', name]);
+    return name;
+  }
+
+  /** Delete one tag on one remote. The caller must confirm the network mutation. */
+  async removeRemoteTag(name, remote) {
+    if (typeof name !== 'string' || !name || name.startsWith('-')) throw new Error('Select a valid tag.');
+    const remotes = await this.remotes();
+    if (!remotes.length) throw new Error('No remote configured. Add a Git remote first.');
+    const target = remote || (remotes.length === 1 ? remotes[0].name : undefined);
+    if (!target) throw new Error('Select a remote to delete the tag from.');
+    if (!remotes.some(item => item.name === target)) throw new Error(`Remote '${target}' is not configured.`);
+    await this.exec(['push', '--delete', '--no-recurse-submodules', '--', target, `refs/tags/${name}`]);
+    return `${target}/${name}`;
+  }
+
+  /** Merge/rebase helpers used by the extra branch menus. */
+  async cherryPick(hash) {
+    if (typeof hash !== 'string' || !/^[a-f0-9]{7,64}$/i.test(hash)) throw new Error('Select a valid commit.');
+    if (!(await this.current())) throw new Error('Check out a local branch before cherry-picking (HEAD is detached).');
+    if ((await this.exec(['status', '--porcelain'])).trim()) {
+      throw new Error('Commit or stash working-tree changes before cherry-picking.');
+    }
+    await this.exec(['cherry-pick', '--no-edit', hash]);
+    return hash.slice(0, 7);
+  }
+
+  /** Rebase one local branch onto another ref; the branch is checked out by Git. */
+  async rebaseBranchOnto(branch, baseRef) {
+    if (typeof branch !== 'string' || !branch || branch.startsWith('-')) throw new Error('Select a local branch.');
+    await this.exec(['show-ref', '--verify', `refs/heads/${branch}`]);
+    if ((await this.exec(['status', '--porcelain'])).trim()) {
+      throw new Error('Commit or stash working-tree changes before rebasing.');
+    }
+    const base = await this.resolve(baseRef);
+    await this.exec(['rebase', base, '--', branch]);
+    return branch;
+  }
+
+  /** Push one tag to one remote without force. */
+  async pushTag(name, remote) {
+    if (typeof name !== 'string' || !name || name.startsWith('-')) throw new Error('Select a valid tag.');
+    const remotes = await this.remotes();
+    if (!remotes.length) throw new Error('No remote configured. Add a Git remote first.');
+    const target = remote || (remotes.length === 1 ? remotes[0].name : undefined);
+    if (!target) throw new Error('Select a remote to push the tag to.');
+    if (!remotes.some(item => item.name === target)) throw new Error(`Remote '${target}' is not configured.`);
+    await this.exec(['push', '--no-force', '--no-recurse-submodules', '--', target, `refs/tags/${name}:refs/tags/${name}`]);
+    return `${target}/${name}`;
+  }
+
+  /** Detached checkout of one commit without resetting working files. */
+  async checkoutDetached(hash) {
+    if (typeof hash !== 'string' || !/^[a-f0-9]{7,64}$/i.test(hash)) throw new Error('Select a valid commit.');
+    if ((await this.exec(['status', '--porcelain'])).trim()) {
+      throw new Error('Commit or stash working tree changes before checking out a commit.');
+    }
+    await this.exec(['switch', '--detach', hash]);
+    return hash;
+  }
+
+  /** Pull only the checked-out branch: fetch its upstream, then fast-forward. */
+  async pull(branch, hasUnsavedChanges = false) {
+    if (branch?.kind !== 'branch' || branch.remote !== false || typeof branch.ref !== 'string' || !branch.ref || branch.diffSession) {
+      throw new Error('Select one local branch to pull.');
+    }
+    if (await this.current() !== branch.ref) throw new Error('Pull updates only the checked-out branch. Use Update for other branches.');
+    return this.update(branch, hasUnsavedChanges);
+  }
+
   /** Rename a local branch. */
   async rename(oldName, newName) {
     const invalid = await this.validateName(newName);

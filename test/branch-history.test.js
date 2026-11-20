@@ -107,7 +107,7 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
     delete require.cache[require.resolve('../src/extension')];
     await require('../src/extension').activate(context);
     const run = (id, ...args) => commands.get(`git-branch.${id}`)(...args);
-    let roots = await tree.getChildren();
+    let roots = await tree.groups();
     let main = roots[0].children.find(node => node.ref === 'main');
     const remote = roots[1].children[0].children[0];
     assert.equal(tree.getTreeItem(main).collapsibleState, 1);
@@ -117,7 +117,7 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
     assert.equal(commits[0].commit.hash, mergeHash);
     assert.equal(await tree.getParent(commits[0]), main);
     assert.equal((await tree.getChildren(remote))[0].commit.hash, mergeHash);
-    assert.ok(!(await tree.getChildren()).some(node => node.comparisonsGroup));
+    assert.ok(!(await tree.groups()).some(node => node.comparisonsGroup));
     const mergeItem = tree.getTreeItem(commits[0]);
     assert.equal(mergeItem.iconPath.id, 'git-merge');
     assert.equal(mergeItem.iconPath.color.id, 'descriptionForeground');
@@ -190,7 +190,7 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
     assert.equal(JSON.parse(diffs[0][0].query).hash, parent);
     assert.equal(JSON.parse(diffs[0][1].query).hash, mergeHash);
     await run('compare', main, [main, roots[0].children.find(node => node.ref === 'base')]);
-    const group = (await tree.getChildren()).find(node => node.comparisonsGroup);
+    const group = (await tree.groups()).find(node => node.comparisonsGroup);
     const comparison = (await tree.getChildren(group))[0];
     const side = (await tree.getChildren(comparison))[0];
     assert.equal(tree.getTreeItem((await tree.getChildren(side))[0]).iconPath.id, 'git-merge');
@@ -212,7 +212,7 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
     assert.equal(loads, 2); // Cached expansion does not reload the history page.
     const oldCommit = commits[0], oldFiles = await tree.getChildren(oldCommit);
     await git.exec(['commit', '--allow-empty', '-m', 'New tip']);
-    roots = await tree.getChildren();
+    roots = await tree.groups();
     main = roots[0].children.find(node => node.ref === 'main');
     assert.deepEqual(await tree.getChildren(oldCommit), []);
     await run('openCompareDiff', oldFiles[0]);
@@ -232,7 +232,7 @@ test('native branch history, merge dimming, compact copy hover, files, paging an
     const oldLoading = tree.getChildren(main);
     await started;
     await git.exec(['commit', '--allow-empty', '-m', 'Another new tip']);
-    roots = await tree.getChildren();
+    roots = await tree.groups();
     main = roots[0].children.find(node => node.ref === 'main');
     tree.git.branchHistory = originalHistory;
     const replacement = await tree.getChildren(main);

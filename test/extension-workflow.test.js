@@ -113,7 +113,9 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
         panels.push(panel); return panel;
       },
       showQuickPick: async (items, options) => options?.title?.startsWith('Set Tracking')
-        ? trackingSelection?.(items, options) : choose ? items[0] : undefined
+        ? trackingSelection?.(items, options)
+        : options?.title?.startsWith('Create Branch') ? items[0]
+          : choose ? items[0] : undefined
     }
   };
   const originalLoad = Module._load;
@@ -123,7 +125,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await require('../src/extension').activate(context);
     for (const { command } of require('../package.json').contributes.commands) assert.ok(commands.has(command));
     assert.ok(patterns.some(p => p.pattern.includes('packed-refs')));
-    let roots = await tree.getChildren();
+    let roots = await tree.groups();
     assert.deepEqual(roots.map(r => r.label), ['Local', 'Remote', 'Tags']); // Diff hidden until a comparison opens.
     assert.equal(roots[1].children[0].children.length, 1); // Hide symbolic origin/HEAD.
     const main = roots[0].children.find(n => n.ref === 'main');
@@ -310,7 +312,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await run('checkout', main); await run('checkout', remote); // Existing tracking branch.
     assert.equal(await git.current(), 'remote/test'); await run('checkout', main);
     await run('compare', selected);
-    const compareRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
+    const compareRoot = (await tree.groups()).find(node => node.comparisonsGroup);
     const first = (await tree.getChildren(compareRoot))[0];
     assert.equal(tree.getTreeItem(compareRoot).iconPath.id, 'compare-changes');
     assert.equal(tree.getTreeItem(first).iconPath.id, 'git-compare');
@@ -384,10 +386,10 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     await git.exec(['add', '.']); await git.exec(['commit', '-m', 'rebase source']);
     const rebaseHead = await git.resolve('HEAD'); await git.checkout({ ref: 'main' });
     await git.exec(['tag', 'rebase-source', base]);
-    roots = await tree.getChildren();
+    roots = await tree.groups();
     answer = 'Rebase'; await run('rebase', roots[0].children.find(n => n.ref === 'rebase-source'));
     await git.exec(['merge-base', '--is-ancestor', rebaseHead, 'HEAD']);
-    roots = await tree.getChildren();
+    roots = await tree.groups();
     const panelCount = panels.length;
     await run('compare', roots[0].children.find(n => n.current));
     await run('compare', { ...main, current: false }); // Stale node still cannot compare current branch.
@@ -403,9 +405,9 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.ok(branchHistory.length > 0 && branchHistory.every(node => node.kind === 'compare-commit'));
     assert.equal(tree.getTreeItem(worktreeBranch).description, undefined);
     const scmTree = tree;
-    const diffGroup = (await tree.getChildren()).find(n => n.comparisonsGroup);
+    const diffGroup = (await tree.groups()).find(n => n.comparisonsGroup);
     assert.equal(diffGroup.label, 'Comparisons');
-    assert.equal(tree.getTreeItem(diffGroup).contextValue, 'gb-comparisons-group');
+    assert.match(tree.getTreeItem(diffGroup).contextValue, /^gb-comparisons-group/);
     diffTree = { getChildren: async () => (await scmTree.getChildren(diffGroup)).filter(node => node.diffSession) };
     worktreeBranch = (await diffTree.getChildren())[0];
     assert.equal(await tree.getParent(worktreeBranch), diffGroup);
@@ -549,7 +551,7 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     assert.equal((await tree.getChildren(selected)).length, 4);
     assert.equal(tree.getTreeItem((await tree.getChildren(selected))[1]).description, '');
     tree.clearWorkingTree('refs/heads/' + selected.ref);
-    assert.ok(!(await tree.getChildren()).some(n => n.comparisonsGroup)); // Hidden after the final session closes.
+    assert.ok(!(await tree.groups()).some(n => n.comparisonsGroup)); // Hidden after the final session closes.
     for (const id of ['checkout', 'compare', 'worktree', 'merge', 'rebase']) {
       await run(id, tag); await run(id, undefined);
     }

@@ -106,7 +106,7 @@ test('Remote delete command asks about locals, skips the current branch and neve
     delete require.cache[require.resolve('../src/extension')];
     await require('../src/extension').activate(context);
     const run = (id, ...args) => commands.get(`git-branch.${id}`)(...args);
-    const roots = await tree.getChildren();
+    const roots = await tree.groups();
     const remoteNode = name => roots[1].children[0].children.find(node => node.ref === `origin/${name}`);
     answers = ['Delete', 'Keep Local Branches'];
     await run('delete', remoteNode('topic'));
@@ -129,7 +129,7 @@ test('Remote delete command asks about locals, skips the current branch and neve
     await git.exec(['push', 'origin', 'refs/heads/mixed:refs/heads/mixed']);
     await git.exec(['fetch', 'origin']);
     await run('refresh');
-    const freshRoots = await tree.getChildren();
+    const freshRoots = await tree.groups();
     const mixedRemote = freshRoots[1].children[0].children.find(node => node.ref === 'origin/mixed');
     const mixedLocal = freshRoots[0].children.find(item => item.ref === 'mixed');
     assert.ok(mixedRemote && mixedLocal);

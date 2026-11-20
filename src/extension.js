@@ -18,10 +18,31 @@ function isBranchNode(node) {
     typeof node.remote === 'boolean';
 }
 
+/** Branches and tags both resolve to a single commit, so both can host diff sessions. */
+function isDiffableRef(node) {
+  return isBranchNode(node) || (node?.kind === 'tag' && typeof node.ref === 'string' && !!node.ref && !node.diffSession);
+}
+
 function qualifiedRef(node) {
+  if (typeof node?.rawRef === 'string' && node.rawRef) return node.rawRef;
   if (node?.kind === 'tag') return `refs/tags/${node.ref}`;
   if (!isBranchNode(node)) throw new Error('Right-click a branch to perform this operation.');
   return `${node.remote ? 'refs/remotes/' : 'refs/heads/'}${node.ref}`;
+}
+
+/** Turn a configured remote URL into a browsable web base, or undefined. */
+function remoteWebBase(url) {
+  if (typeof url !== 'string' || !url.trim()) return undefined;
+  const value = url.trim();
+  const scp = /^(?:[^@/\s]+@)?([^:/\s]+):([^:]+)$/.exec(value);
+  if (!value.includes('://') && scp) return `https://${scp[1]}/${scp[2].replace(/\.git$/, '')}`;
+  try {
+    const parsed = new URL(value);
+    if (!['https:', 'http:', 'ssh:', 'git:', 'git+ssh:'].includes(parsed.protocol)) return undefined;
+    const pathname = parsed.pathname.replace(/\.git$/, '').replace(/\/+$/, '');
+    if (!pathname || pathname === '/') return undefined;
+    return `https://${parsed.hostname}${pathname}`;
+  } catch { return undefined; }
 }
 
 async function configureGitExecutable(git) {
@@ -123,6 +144,9 @@ class BranchTreeProvider {
     this.nextOpenedOrder = 0;
     this.lastWorkingTreeKey = null;
     this.savedSettings = {};
+    this.groupSettings = {};
+    this.expandedGroups = {};
+    this.remoteUrls = new Map();
     this.disposed = false;
     this._onDidChange = new vscode.EventEmitter();
     this.onDidChangeTreeData = this._onDidChange.event;
@@ -202,7 +226,7 @@ class BranchTreeProvider {
   }
 
   workingTreeFor(node) {
-    if (node && !isBranchNode(node)) return undefined;
+    if (node && !isDiffableRef(node)) return undefined;
     return this.workingTrees.get(node ? node.diffKey || qualifiedRef(node) : this.lastWorkingTreeKey);
   }
 
@@ -298,7 +322,7 @@ class BranchTreeProvider {
         : new vscode.ThemeIcon('git-commit');
       if (merge) item.resourceUri = vscode.Uri.from({ scheme: commitDecorationScheme, path: '/' + element.commit.hash });
       // Full messages and file statistics are loaded lazily when the hover resolves.
-      item.contextValue = 'gb-compare-commit';
+      item.contextValue = 'gb-commit';
       return item;
     }
     if (element.kind === 'branch-history-more') {
@@ -352,11 +376,36 @@ class BranchTreeProvider {
       item.iconPath = new vscode.ThemeIcon('check');
       return item;
     }
+    if (element.kind === 'root') {
+      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
+      item.id = 'root';
+      item.contextValue = 'gb-root';
+      item.iconPath = new vscode.ThemeIcon('repo');
+      const hover = new vscode.MarkdownString();
+      hover.supportThemeIcons = true;
+      hover.appendText(element.label);
+      hover.appendMarkdown('  \n');
+      hover.appendText(this.git.cwd);
+      const args = encodeURIComponent(JSON.stringify([element.label]));
+      hover.appendMarkdown(` [$(copy)](command:git-branch.copyText?${args} "Copy repository name")`);
+      hover.isTrusted = { enabledCommands: ['git-branch.copyText'] };
+      item.tooltip = hover;
+      return item;
+    }
     if (element.kind === 'category') {
-      const item = new vscode.TreeItem(element.label, element.expanded
+      const saved = this.expandedGroups?.[element.label];
+      const expanded = typeof saved === 'boolean' ? saved
+        : typeof this.expansion === 'boolean' ? this.expansion : !!element.expanded;
+      const item = new vscode.TreeItem(element.label, expanded
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed);
-      item.contextValue = element.comparisonsGroup ? 'gb-comparisons-group' : 'gb-category';
+      // Encode the current sort in the context value so the anchored Sort menu can
+      // show a ✓ on the active option, exactly like the Diff session menu.
+      const order = this.sortOrder(element.label);
+      item.contextValue = (element.comparisonsGroup ? 'gb-comparisons-group'
+        : element.label === 'Local' ? 'gb-category-local'
+          : element.label === 'Remote' ? 'gb-category-remote' : 'gb-category-tags')
+        + (order ? `-sort-${order}` : '');
       item.iconPath = new vscode.ThemeIcon(element.comparisonsGroup ? 'compare-changes'
         : element.label === 'Tags' ? 'tag' : element.label === 'Remote' ? 'cloud' : 'repo');
       if (element.comparisonsGroup) {
@@ -369,10 +418,11 @@ class BranchTreeProvider {
       const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Collapsed);
       item.contextValue = 'gb-remote-group';
       item.iconPath = new vscode.ThemeIcon('cloud');
+      item.tooltip = element.url ? `${element.label}\n${element.url}` : element.label;
       return item;
     }
-    // Each compared branch independently expands to its working-tree differences.
-    const showingWorktree = element.diffSession && isBranchNode(element) && this.workingTreeFor(element);
+    // Each compared branch/tag independently expands to its working-tree differences.
+    const showingWorktree = element.diffSession && isDiffableRef(element) && this.workingTreeFor(element);
     const item = new vscode.TreeItem(element.diffSession && element.remote ? element.ref : element.label, showingWorktree
       ? vscode.TreeItemCollapsibleState.Expanded : isBranchNode(element) && !element.diffSession
         ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
@@ -486,12 +536,22 @@ class BranchTreeProvider {
 
   async getChildren(element) {
     if (!element) return this.getRootNodes();
-    if (element.comparisonsGroup) return [
-      ...[...this.workingTrees.values()].map(entry => ({ order: entry.openedOrder,
-        node: { ...entry.node, diffSession: true, parent: element } })),
-      ...[...this.comparisons.values()].map(entry => ({ order: entry.openedOrder,
-        node: { kind: 'compare-session', key: entry.key, entry, parent: element } }))
-    ].sort((a, b) => a.order - b.order).map(item => item.node);
+    if (element.kind === 'root') return element.children || [];
+    if (element.comparisonsGroup) {
+      const entries = [
+        ...[...this.workingTrees.values()].map(entry => ({ order: entry.openedOrder,
+          node: { ...entry.node, diffSession: true, parent: element } })),
+        ...[...this.comparisons.values()].map(entry => ({ order: entry.openedOrder,
+          node: { kind: 'compare-session', key: entry.key, entry, parent: element } }))
+      ];
+      const order = this.groupSettings.Comparisons?.order;
+      const label = node => node.kind === 'compare-session' ? node.entry.result.ref
+        : node.diffSession ? `${node.ref} ↔ Working Tree` : node.label;
+      const sorted = order === 'name'
+        ? entries.sort((a, b) => label(a.node).localeCompare(label(b.node)))
+        : entries.sort((a, b) => a.order - b.order);
+      return sorted.map(item => item.node);
+    }
     if (element.kind === 'compare-session') {
       if (this.comparisons.get(element.key) !== element.entry) return [];
       const sides = ['selected', 'current'].filter(side => element.entry.result[side].total > 0);
@@ -528,7 +588,7 @@ class BranchTreeProvider {
       const active = this.workingTrees.get(element.key);
       return active?.result === element.result ? this.diffChildren(active, element, element.directory) : [];
     }
-    const comparison = element.diffSession && isBranchNode(element) && this.workingTreeFor(element);
+    const comparison = element.diffSession && isDiffableRef(element) && this.workingTreeFor(element);
     if (comparison) {
       return comparison.result.files.length ? this.diffChildren(comparison, element)
         : [{ kind: 'worktree-empty', key: comparison.key, parent: element }];
@@ -541,13 +601,23 @@ class BranchTreeProvider {
     if (element.parent) return element.parent;
     if (element.kind?.startsWith('worktree-')) return this.workingTrees.get(element.key)?.node;
     const roots = await this.getRootNodes();
-    for (const root of roots) {
-      for (const child of root.children) {
-        if (child.kind === element.kind && child.ref === element.ref && child.remote === element.remote && child.label === element.label) return root;
-        if (child.kind === 'remote-group' && child.children.some(n => n.ref === element.ref && n.remote === element.remote)) return child;
+    const root = roots.find(node => node.kind === 'root');
+    if (!root) return undefined;
+    if (element.kind === 'root') return undefined;
+    if (element.kind === 'category') return root;
+    for (const group of root.children) {
+      for (const child of group.children || []) {
+        if (child === element) return group;
+        if (child.kind === 'remote-group' && child.children.includes(element)) return child;
       }
     }
     return undefined;
+  }
+
+  /** The four groups live under one root node; menus and reveal need them flat. */
+  async groups() {
+    const roots = await this.getRootNodes();
+    return roots.flatMap(node => node.kind === 'root' ? node.children || [] : [node]);
   }
 
   async getRootNodes() {
@@ -574,6 +644,10 @@ class BranchTreeProvider {
 
       // Remote — grouped by remote name
       const remotes = branches.filter(b => b.remote);
+      if (remotes.length) {
+        try { this.remoteUrls = new Map((await this.git.remotes()).map(remote => [remote.name, remote.url])); }
+        catch { /* keep previous URLs; grouping still works without them */ }
+      } else this.remoteUrls = new Map();
       const groups = new Map();
       for (const b of remotes) {
         const remoteName = b.name.split('/')[0];
@@ -585,7 +659,7 @@ class BranchTreeProvider {
         });
       }
       const remoteChildren = [...groups.entries()].map(([name, children]) => ({
-        kind: 'remote-group', label: name, children
+        kind: 'remote-group', label: name, url: this.remoteUrls.get(name), children
       }));
       const remoteNode = { kind: 'category', label: 'Remote', expanded: false, children: remoteChildren };
 
@@ -595,13 +669,63 @@ class BranchTreeProvider {
       }));
       const tagNode = { kind: 'category', label: 'Tags', expanded: false, children: tagChildren };
 
-      const roots = [localNode, remoteNode, tagNode];
-      if (this.workingTrees.size || this.comparisons.size) roots.push({ kind: 'category', label: 'Comparisons', comparisonsGroup: true, expanded: true, children: [] });
-      return roots;
+      const children = [localNode, remoteNode, tagNode];
+      if (this.workingTrees.size || this.comparisons.size) children.push({
+        kind: 'category', label: 'Comparisons', comparisonsGroup: true, expanded: true, children: []
+      });
+      this.sortGroups(children);
+      return [{ kind: 'root', label: await this.rootLabel(), expanded: true, children }];
     } catch (err) {
       vscode.window.showErrorMessage(`Git Branch: ${err.message}`);
       return [];
     }
+  }
+
+  /** Repository folder name, matching the built-in Git view. */
+  async rootLabel() {
+    return path.basename(this.git.cwd) || 'Branches';
+  }
+
+  /** Apply the persisted sort order to every group; comparisons stay by open order. */
+  sortGroups(groups) {
+    const byName = (a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' });
+    const byDate = (a, b) => String(b.commitDate || '').localeCompare(String(a.commitDate || ''))
+      || byName(a, b);
+    for (const group of groups) {
+      if (!group.children || group.comparisonsGroup) continue;
+      const order = this.groupSettings[group.label]?.order;
+      if (group.label === 'Remote') {
+        group.children.sort(byName);
+        for (const remote of group.children) {
+          if (order === 'date') remote.children.sort(byDate);
+          else remote.children.sort(byName);
+        }
+        continue;
+      }
+      if (order === 'date') group.children.sort(byDate);
+      else group.children.sort(byName);
+    }
+  }
+
+  /** Expand or collapse the whole tree; VS Code only offers collapse natively. */
+  setExpansion(state) {
+    this.expansion = state;
+    this.expandedGroups = {};
+    this.refresh();
+  }
+
+  /** Expand/collapse one group; VS Code's own collapse-all must not be undone by it. */
+  setGroupExpansion(group, state) {
+    if (!group) { this.setExpansion(state); return; }
+    this.expandedGroups = { ...this.expandedGroups, [group]: state };
+    this.expansion = undefined;
+    this.refresh();
+  }
+
+  /** Menu label showing the current sort of one group. */
+  sortOrder(group) {
+    if (group === 'Comparisons') return this.groupSettings.Comparisons?.order || 'opened';
+    return this.groupSettings[group]?.order || 'name';
   }
 }
 
@@ -622,6 +746,8 @@ function activate(context) {
   // its target, even when a different tree item is selected.
   const savedSettings = context.workspaceState?.get('git-branch.comparisonSettings');
   if (savedSettings && typeof savedSettings === 'object' && !Array.isArray(savedSettings)) branchTree.savedSettings = { ...savedSettings };
+  const savedSort = context.workspaceState?.get('git-branch.groupSort');
+  if (savedSort && typeof savedSort === 'object' && !Array.isArray(savedSort)) branchTree.groupSettings = { ...savedSort };
   let lastComparison = null;
   const worktreeRequests = new Map();
   const worktreeSessions = new Map();
@@ -664,7 +790,7 @@ function activate(context) {
     if (!worktreeSessions.has(key)) worktreeSessions.set(key, { id: randomUUID(), closed: false });
     branchTree.setWorkingTree(node, result, openedOrder);
     await vscode.commands.executeCommand('git-branch.branches.focus');
-    const group = (await branchTree.getRootNodes()).find(item => item.comparisonsGroup);
+    const group = (await branchTree.groups()).find(item => item.comparisonsGroup);
     await branchView.reveal({ ...node, diffSession: true, parent: group }, { expand: true, select: true, focus: false });
   }
 
@@ -682,6 +808,11 @@ function activate(context) {
   const selectedBranches = (node, nodes) => {
     const items = selection(node, nodes);
     return items.length && items.every(item => isBranchNode(item) && !item.diffSession) ? items : [];
+  };
+  /** Compare/Diff accept branches and tags; tags only as a single or pair ref. */
+  const selectedRefs = (node, nodes) => {
+    const items = selection(node, nodes);
+    return items.length && items.every(item => isDiffableRef(item)) ? items : [];
   };
   const syncSelection = items => {
     vscode.commands.executeCommand('setContext', 'git-branch.multiSelection', items.length > 1);
@@ -719,7 +850,7 @@ function activate(context) {
     lastComparison = result;
     branchTree.refresh();
     await vscode.commands.executeCommand('git-branch.branches.focus');
-    const parent = (await branchTree.getRootNodes()).find(item => item.comparisonsGroup);
+    const parent = (await branchTree.groups()).find(item => item.comparisonsGroup);
     await branchView.reveal({ kind: 'compare-session', key, entry, parent }, { expand: true, select: true, focus: false });
   }
 
@@ -810,38 +941,508 @@ function activate(context) {
     } finally { session.swapping = false; }
   }
 
+  /** Shared helpers for the group, root and tag menus. */
+  async function copyToClipboard(text) {
+    if (typeof text !== 'string' || !text) return;
+    try { await vscode.env.clipboard.writeText(text); }
+    catch (error) { vscode.window.showErrorMessage(`Copy failed: ${error.message}`); }
+  }
+
+  async function quickPickRemote(title) {
+    const remotes = await git.remotes();
+    if (!remotes.length) {
+      vscode.window.showInformationMessage('No remote configured. Add a Git remote first.');
+      return undefined;
+    }
+    if (remotes.length === 1) return remotes[0].name;
+    const picked = await vscode.window.showQuickPick(
+      remotes.map(item => ({ label: item.name, description: item.url, remote: item.name })),
+      { title, placeHolder: 'Select a remote', ignoreFocusOut: true });
+    return picked?.remote;
+  }
+
+  /** Host-aware branch page URL; falls back to the repository page. */
+  function branchWebUrl(base, branch) {
+    if (!base || !branch) return base;
+    const host = new URL(base).hostname;
+    const encoded = branch.split('/').map(encodeURIComponent).join('/');
+    if (/(^|\.)gitlab\./i.test(host)) return `${base}/-/tree/${encoded}`;
+    if (/(^|\.)bitbucket\./i.test(host)) return `${base}/src/${encoded}`;
+    if (/(^|\.)(gitee|gitea)\./i.test(host)) return `${base}/src/branch/${encoded}`;
+    return `${base}/tree/${encoded}`;
+  }
+
+  async function openOnRemote(node) {
+    try {
+      await configureGitExecutable(git);
+      let remoteName;
+      let branchName;
+      // The root menu opens the repository page itself, without a branch path.
+      const repositoryOnly = !node || node.kind === 'root';
+      if (node?.kind === 'remote-group') remoteName = node.label;
+      else if (node?.kind === 'branch' && node.remote) {
+        remoteName = node.ref.split('/')[0];
+        branchName = node.ref.slice(remoteName.length + 1);
+      } else if (node?.kind === 'branch' && !node.remote) {
+        branchName = node.ref;
+        const configured = node.upstream?.startsWith('refs/remotes/')
+          ? node.upstream.slice('refs/remotes/'.length) : undefined;
+        remoteName = configured ? configured.split('/')[0] : undefined;
+      } else if (node?.kind === 'tag') branchName = undefined;
+      else if (!repositoryOnly) return;
+      if (!remoteName) remoteName = await quickPickRemote('Open on Remote');
+      if (!remoteName) return;
+      const remote = (await git.remotes()).find(item => item.name === remoteName);
+      const base = remoteWebBase(remote?.url);
+      if (!base) {
+        vscode.window.showInformationMessage(`Remote '${remoteName}' has no browsable URL.`);
+        return;
+      }
+      let target = base;
+      if (node?.kind === 'tag' && node.ref) {
+        const host = new URL(base).hostname;
+        const encoded = encodeURIComponent(node.ref);
+        target = /(^|\.)gitlab\./i.test(host) ? `${base}/-/tags/${encoded}`
+          : /(^|\.)bitbucket\./i.test(host) ? `${base}/src/?at=refs%2Ftags%2F${encoded}`
+            : `${base}/releases/tag/${encoded}`;
+      } else if (branchName) target = branchWebUrl(base, branchName);
+      await vscode.env.openExternal(vscode.Uri.parse(target));
+    } catch (error) { vscode.window.showErrorMessage(`Open on Remote failed: ${error.message}`); }
+  }
+
+  async function fetchRemote(options = {}) {
+    const { prune = false, all = false, node } = options;
+    try {
+      await configureGitExecutable(git);
+      let name = typeof node?.label === 'string' && node.kind === 'remote-group' ? node.label : undefined;
+      if (!name && !all) name = await quickPickRemote(prune ? 'Prune Deleted Branches' : 'Fetch');
+      if (!name && !all) return;
+      await git.fetch(name, { prune });
+      branchTree.refresh();
+      vscode.window.showInformationMessage(`${prune ? 'Pruned' : 'Fetched'}: ${name || 'all remotes'}`);
+    } catch (error) { vscode.window.showErrorMessage(`Fetch failed: ${error.message}`); }
+  }
+
+  async function removeRemoteGroup(node) {
+    const name = node?.label;
+    if (typeof name !== 'string' || !name) {
+      vscode.window.showInformationMessage('Right-click a remote group to remove it.');
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(`Remove remote '${name}'?`, {
+      modal: true,
+      detail: `The remote configuration and refs/remotes/${name}/* are removed from this repository. Commits on the server are untouched.`
+    }, 'Remove Remote');
+    if (confirmation !== 'Remove Remote') return;
+    try {
+      await configureGitExecutable(git);
+      await git.removeRemoteConfig(name);
+      branchTree.refresh();
+      vscode.window.showInformationMessage(`Remote removed: ${name}`);
+    } catch (error) { vscode.window.showErrorMessage(`Remove remote failed: ${error.message}`); }
+  }
+
+  async function pushAllTags() {
+    try {
+      await configureGitExecutable(git);
+      const name = await quickPickRemote('Push All Tags');
+      if (!name) return;
+      const confirmation = await vscode.window.showWarningMessage(`Push all local tags to '${name}'?`, {
+        modal: true,
+        detail: 'Existing remote tags with a different commit are rejected. Nothing is forced.'
+      }, 'Push Tags');
+      if (confirmation !== 'Push Tags') return;
+      await git.pushAllTags(name);
+      vscode.window.showInformationMessage(`Tags pushed: ${name}`);
+    } catch (error) { vscode.window.showErrorMessage(`Push tags failed: ${error.message}`); }
+  }
+
+  async function pushSingleTag(node) {
+    if (node?.kind !== 'tag' || !node.ref) {
+      vscode.window.showInformationMessage('Right-click a tag to push it.');
+      return;
+    }
+    try {
+      await configureGitExecutable(git);
+      const name = await quickPickRemote(`Push Tag '${node.ref}'`);
+      if (!name) return;
+      const result = await git.pushTag(node.ref, name);
+      vscode.window.showInformationMessage(`Pushed: ${result}`);
+    } catch (error) { vscode.window.showErrorMessage(`Push tag failed: ${error.message}`); }
+  }
+
+  async function createTag(node) {
+    try {
+      await configureGitExecutable(git);
+      let start = 'HEAD';
+      let label = 'HEAD';
+      if (node?.commit?.hash) { start = node.commit.hash; label = shortHash(start); }
+      else if (node?.kind === 'tag' && node.ref) { start = `refs/tags/${node.ref}`; label = node.ref; }
+      else if (isBranchNode(node)) { start = qualifiedRef(node); label = node.ref; }
+      else {
+        const picked = await pickStartPoint();
+        if (!picked) return;
+        start = picked.start;
+        label = picked.label;
+      }
+      const name = await vscode.window.showInputBox({ title: `Create Tag (at ${label})`,
+        prompt: `Tag name (at ${label})`, ignoreFocusOut: true });
+      if (!name) return;
+      await git.createTag(name, start);
+      branchTree.refresh();
+      vscode.window.showInformationMessage(`Tag created: ${name} (at ${label})`);
+    } catch (error) { vscode.window.showErrorMessage(`Create tag failed: ${error.message}`); }
+  }
+
+  async function deleteTag(node) {
+    if (node?.kind !== 'tag' || !node.ref) {
+      vscode.window.showInformationMessage('Right-click a tag to delete it.');
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(`Delete local tag '${node.ref}'?`,
+      { modal: true, detail: 'The remote tag is not removed automatically.' }, 'Delete Tag');
+    if (confirmation !== 'Delete Tag') return;
+    try {
+      await configureGitExecutable(git);
+      await git.removeTag(node.ref);
+      branchTree.refresh();
+      vscode.window.showInformationMessage(`Tag deleted: ${node.ref}`);
+    } catch (error) { vscode.window.showErrorMessage(`Delete tag failed: ${error.message}`); }
+  }
+
+  async function deleteRemoteTag(node) {
+    if (node?.kind !== 'tag' || !node.ref) {
+      vscode.window.showInformationMessage('Right-click a tag to delete it remotely.');
+      return;
+    }
+    try {
+      await configureGitExecutable(git);
+      const name = await quickPickRemote(`Delete Remote Tag '${node.ref}'`);
+      if (!name) return;
+      const confirmation = await vscode.window.showWarningMessage(`Delete tag '${node.ref}' on '${name}'?`,
+        { modal: true, detail: 'Only the remote tag is removed; the local tag is kept.' }, 'Delete Remote Tag');
+      if (confirmation !== 'Delete Remote Tag') return;
+      await git.removeRemoteTag(node.ref, name);
+      branchTree.refresh();
+      vscode.window.showInformationMessage(`Remote tag deleted: ${name}/${node.ref}`);
+    } catch (error) { vscode.window.showErrorMessage(`Delete remote tag failed: ${error.message}`); }
+  }
+
+  async function pullBranch(node) {
+    try {
+      await configureGitExecutable(git);
+      const unsaved = (vscode.workspace.textDocuments || []).some(doc => doc.isDirty && doc.uri.scheme === 'file');
+      const status = await git.pull(node, unsaved);
+      branchTree.refresh();
+      vscode.window.showInformationMessage(`Pull: ${node.ref} — ${status}`);
+    } catch (error) {
+      branchTree.refresh();
+      vscode.window.showErrorMessage(`Pull failed: ${error.message}`);
+    }
+  }
+
+  /** Apply one group's sort choice; persisted in workspace state (D13 = A). */
+  async function setGroupSort(group, property, value) {
+    if (typeof group !== 'string' || !group) return;
+    branchTree.groupSettings[group] = { ...(branchTree.groupSettings[group] || {}), [property]: value };
+    branchTree.refresh();
+    try { await context.workspaceState?.update('git-branch.groupSort', { ...branchTree.groupSettings }); }
+    catch (error) { vscode.window.showErrorMessage(`Save sort order failed: ${error.message}`); }
+  }
+
+  /** The group a menu was opened on; only category rows carry a sortable label. */
+  function sortTarget(node, property, value) {
+    const group = node?.kind === 'category' ? node.label : undefined;
+    if (!group) return;
+    return setGroupSort(group, property, value);
+  }
+
+  async function copyBranchList(node) {
+    const children = node?.children || [];
+    // Remote groups nest branches one level deeper; copy the branch names, not the remote names.
+    const names = children.flatMap(item => item.children?.length ? item.children : [item]);
+    await copyToClipboard(names.map(item => item.ref || item.label).filter(Boolean).join('\n'));
+  }
+
+  async function copyBranchRef(node) {
+    if (node?.kind === 'tag' && node.ref) return copyToClipboard(`refs/tags/${node.ref}`);
+    if (!isBranchNode(node)) return;
+    await copyToClipboard(`${node.remote ? 'refs/remotes/' : 'refs/heads/'}${node.ref}`);
+  }
+
+  /** Copy a branch/tag name (or the label of a plain row) verbatim. */
+  async function copyNodeName(node) {
+    if (typeof node?.ref === 'string' && node.ref) return copyToClipboard(node.ref);
+    if (typeof node?.label === 'string' && node.label) return copyToClipboard(node.label);
+  }
+
+  async function copyNodeHash(node) {
+    const hash = node?.commit?.hash || node?.hash;
+    if (hash) await copyToClipboard(shortHash(hash));
+  }
+
+  async function copyRemoteUrl(node) {
+    if (node?.kind === 'remote-group') return copyToClipboard(node.url || node.label);
+    if (node?.kind !== 'branch' || !node.remote) return;
+    const name = node.ref.split('/')[0];
+    const remote = (await git.remotes()).find(item => item.name === name);
+    if (remote?.url) await copyToClipboard(remote.url);
+  }
+
+  /** Root node copies: repository name and repository path. */
+  async function copyRepository(node) {
+    if (node?.kind !== 'root') return;
+    const choice = await vscode.window.showQuickPick([
+      { label: 'Repository Name', value: node.label },
+      { label: 'Repository Path', value: git.cwd }
+    ], { title: 'Copy Repository', placeHolder: 'Select what to copy', ignoreFocusOut: true });
+    if (choice) await copyToClipboard(choice.value);
+  }
+
+  /** Comparison session copies: name, left ref, right ref. */
+  async function copyComparison(node) {
+    const entry = node?.kind === 'compare-session' ? branchTree.comparisons.get(node.key) : undefined;
+    if (!entry) return;
+    const result = entry.result;
+    const choice = await vscode.window.showQuickPick([
+      { label: 'Comparison Name', value: `${result.ref} ↔ ${result.currentLabel}` },
+      { label: 'Left Ref', value: result.ref },
+      { label: 'Right Ref', value: result.currentLabel }
+    ], { title: 'Copy Comparison', placeHolder: 'Select what to copy', ignoreFocusOut: true });
+    if (choice) await copyToClipboard(choice.value);
+  }
+
+  async function refreshAllComparisons() {
+    const entries = [...branchTree.comparisons.values()];
+    for (const entry of entries) {
+      try { await showCompare(entry.leftNode, entry.rightNode, entry.key); }
+      catch (error) { vscode.window.showErrorMessage(`Refresh comparison failed: ${error.message}`); }
+    }
+  }
+
+  async function closeAllComparisons() {
+    for (const entry of [...branchTree.comparisons.values()]) {
+      await vscode.commands.executeCommand('git-branch.closeCompare', { key: entry.key });
+    }
+    for (const key of [...branchTree.workingTrees.keys()]) {
+      worktreeRequests.delete(key);
+      branchTree.clearWorkingTree(key);
+      const session = worktreeSessions.get(key);
+      if (!session) continue;
+      session.closed = true;
+      worktreeSessions.delete(key);
+      try { await closeSessionTabs(session); }
+      catch (error) { vscode.window.showErrorMessage(`Close comparison tabs failed: ${error.message}`); }
+    }
+  }
+
+  async function updateAll() {
+    const groups = await branchTree.groups();
+    const local = groups.find(group => group.label === 'Local');
+    const items = (local?.children || []).filter(item => item.upstream);
+    if (!items.length) { vscode.window.showInformationMessage('No local branch has a tracking branch to update.'); return; }
+    await updateBranches(items[0], items);
+  }
+
+  /** Compare two or more selected commits: oldest parent → newest commit (D1 = A). */
+  async function compareSelectedCommits(node, nodes) {
+    const items = selection(node, nodes).filter(item => item?.commit?.hash);
+    if (items.length < 2) {
+      vscode.window.showInformationMessage('Select two or more commits to compare.');
+      return;
+    }
+    const ordered = [...items].sort((a, b) => String(a.commit.date).localeCompare(String(b.commit.date)));
+    const oldest = ordered[0].commit, newest = ordered[ordered.length - 1].commit;
+    const left = { kind: 'tag', label: shortHash(newest.hash), ref: shortHash(newest.hash),
+      hash: newest.hash, commitDate: newest.date, rawRef: newest.hash };
+    const right = { kind: 'tag', label: `${shortHash(oldest.hash)}^`, ref: `${shortHash(oldest.hash)}^`,
+      hash: oldest.hash, commitDate: oldest.date, rawRef: `${oldest.hash}^` };
+    try {
+      await showCompare(left, right, `commits:${oldest.hash}:${newest.hash}`);
+    } catch (error) { vscode.window.showErrorMessage(`Compare failed: ${error.message}`); }
+  }
+
+  async function checkoutTag(node) {
+    if (node?.kind !== 'tag' || !node.hash) {
+      vscode.window.showInformationMessage('Right-click a tag to check it out.');
+      return;
+    }
+    const confirmation = await vscode.window.showWarningMessage(
+      `Check out tag '${node.ref}' (detached HEAD)?`, { modal: true,
+        detail: 'HEAD becomes detached at the tag commit. Create a branch before committing new work.' }, 'Checkout Tag');
+    if (confirmation !== 'Checkout Tag') return;
+    try {
+      await configureGitExecutable(git);
+      await git.checkoutDetached(node.hash);
+      branchTree.refresh();
+      vscode.window.showInformationMessage(`Checked out tag: ${node.ref} (detached HEAD)`);
+    } catch (error) {
+      branchTree.refresh();
+      vscode.window.showErrorMessage(`Checkout failed: ${error.message}`);
+    }
+  }
+
+  async function cherryPickCommits(node, nodes) {
+    const items = selection(node, nodes).filter(item => item?.commit?.hash);
+    if (!items.length) { vscode.window.showInformationMessage('Select one or more commits to cherry-pick.'); return; }
+    const ordered = [...items].sort((a, b) => String(a.commit.date).localeCompare(String(b.commit.date)));
+    const confirmation = await vscode.window.showWarningMessage(
+      `Cherry-pick ${ordered.length} commit(s) onto the current branch?`, { modal: true,
+        detail: ordered.map(item => shortHash(item.commit.hash)).join('\n') }, 'Cherry-Pick');
+    if (confirmation !== 'Cherry-Pick') return;
+    for (const item of ordered) {
+      try {
+        await configureGitExecutable(git);
+        await git.cherryPick(item.commit.hash);
+        branchTree.refresh();
+      } catch (error) {
+        branchTree.refresh();
+        vscode.window.showErrorMessage(`Cherry-pick failed: ${error.message}`);
+        return;
+      }
+    }
+    vscode.window.showInformationMessage(`Cherry-picked ${ordered.length} commit(s).`);
+  }
+
+  async function copyPaths(node, absolute) {
+    const filePath = node?.file?.newPath || node?.file?.oldPath || node?.directory;
+    if (!filePath) return;
+    await copyToClipboard(absolute ? git.worktreePath(filePath.replace(/\/$/, '')) : filePath);
+  }
+
+  /** Open every file diff inside one comparison folder, with a guard for large folders. */
+  async function openFolderDiffs(node) {
+    const entry = node?.key ? branchTree.commitEntry(node.key) || branchTree.workingTrees.get(node.key) : undefined;
+    if (!entry || !node.directory) return;
+    const files = (entry.details || entry.result).files
+      .filter(file => (file.newPath || file.oldPath).startsWith(node.directory));
+    if (!files.length) return;
+    if (files.length > 10) {
+      const choice = await vscode.window.showWarningMessage(`Open ${files.length} file diffs from '${node.directory}'?`,
+        { modal: true }, 'Open All');
+      if (choice !== 'Open All') return;
+    }
+    for (const file of files) {
+      try {
+        if (entry.result) {
+          const [leftLabel, rightLabel] = worktreeLabels(entry.result);
+          await openDiff({ ...file, left: entry.result.left, right: entry.result.right,
+            ref: entry.result.worktree ? entry.result.ref : leftLabel, rightLabel,
+            worktree: !!entry.result.worktree, reversed: !!entry.result.reversed }, worktreeSessions.get(entry.key));
+        } else {
+          await openDiff({ ...file, left: entry.details.left, right: entry.details.right,
+            ref: entry.details.left ? shortHash(entry.details.left) : 'Empty tree',
+            rightLabel: shortHash(entry.details.right) }, worktreeSessions.get(entry.key));
+        }
+      } catch (error) { vscode.window.showErrorMessage(`Open diff failed: ${error.message}`); }
+    }
+  }
+
+  /** Open one side of a commit diff as a read-only snapshot document. */
+  async function openRevision(node, side) {
+    if (node?.kind !== 'compare-file' || !node.details) return;
+    const filePath = side === 'left' ? (node.file.oldPath || node.file.newPath) : (node.file.newPath || node.file.oldPath);
+    const hash = side === 'left' ? node.details.left : node.details.right;
+    if (!filePath || !hash) {
+      vscode.window.showInformationMessage(side === 'left' ? 'This file does not exist in the left revision.'
+        : 'This file does not exist in the right revision.');
+      return;
+    }
+    try {
+      await vscode.commands.executeCommand('vscode.open',
+        snapshotUri(hash, filePath, worktreeSessions.get(node.key)), { preview: false });
+    } catch (error) { vscode.window.showErrorMessage(`Open revision failed: ${error.message}`); }
+  }
+  async function openCommitOnRemote(node) {
+    const hash = node?.commit?.hash || node?.hash;
+    if (!hash) return;
+    try {
+      await configureGitExecutable(git);
+      const name = await quickPickRemote('Open Commit on Remote');
+      if (!name) return;
+      const remote = (await git.remotes()).find(item => item.name === name);
+      const base = remoteWebBase(remote?.url);
+      if (!base) { vscode.window.showInformationMessage(`Remote '${name}' has no browsable URL.`); return; }
+      const host = new URL(base).hostname;
+      const path = /(^|\.)gitlab\./i.test(host) ? `/-/commit/${hash}`
+        : /(^|\.)bitbucket\./i.test(host) ? `/commits/${hash}` : `/commit/${hash}`;
+      await vscode.env.openExternal(vscode.Uri.parse(base + path));
+    } catch (error) { vscode.window.showErrorMessage(`Open on Remote failed: ${error.message}`); }
+  }
+
+  /** Groups and the root carry no ref: ask which branch/tag/HEAD is the start point. */
+  async function pickStartPoint() {
+    const [{ current, branches }, tags] = await Promise.all([git.branches(), git.tags()]);
+    const currentName = current ? current.replace(/^refs\/heads\//, '') : undefined;
+    const items = [];
+    if (currentName) items.push({ label: currentName, description: 'Current branch (HEAD)', start: 'HEAD', name: currentName });
+    items.push({ label: 'HEAD', description: 'Detached or current commit', start: 'HEAD', name: currentName || '' });
+    for (const branch of branches) {
+      if (branch.symbolic) continue;
+      items.push({ label: branch.name, description: `${branch.remote ? 'Remote' : 'Local'}${branch.current ? ' · Current' : ''}`,
+        start: branch.remote ? `refs/remotes/${branch.name}` : `refs/heads/${branch.name}`,
+        name: branch.remote ? branch.name.slice(branch.name.indexOf('/') + 1) : branch.name });
+    }
+    for (const tag of tags) items.push({ label: tag.name, description: 'Tag', start: `refs/tags/${tag.name}`, name: tag.name });
+    return vscode.window.showQuickPick(items, {
+      title: 'Create Branch — select start point',
+      placeHolder: 'Branch, tag or commit to create from',
+      matchOnDescription: true,
+      ignoreFocusOut: true
+    });
+  }
+
   async function createBranch(node, checkout) {
     try {
       await configureGitExecutable(git);
-      // Group/title arguments do not specify a branch; default to current HEAD.
-      const specified = isBranchNode(node) || (node?.kind === 'tag' && !!node.ref);
-      const current = specified ? undefined : await git.current();
-      const startPoint = specified ? qualifiedRef(node) : 'HEAD';
-        const startLabel = specified ? node.ref : (current || 'HEAD (detached)');
-        const suggestedName = specified
-          ? (node.remote ? node.ref.slice(node.ref.indexOf('/') + 1) : node.ref)
-          : (current || '');
-        const name = await vscode.window.showInputBox({
-          title: `${checkout ? 'Create and Checkout' : 'Create Branch'} (from ${startLabel})`,
-          prompt: `New branch name (based on ${startLabel})`,
-          value: suggestedName,
+      // A branch/tag node names the start point; groups and the root ask explicitly.
+      let startPoint, startLabel, suggestedName;
+      if (isBranchNode(node) || (node?.kind === 'tag' && !!node.ref)) {
+        startPoint = qualifiedRef(node);
+        startLabel = node.ref;
+        suggestedName = node.remote ? node.ref.slice(node.ref.indexOf('/') + 1) : node.ref;
+      } else if (node?.kind === 'commit' || node?.commit?.hash) {
+        startPoint = node.commit?.hash || node.hash;
+        startLabel = shortHash(startPoint);
+        suggestedName = '';
+      } else {
+        const picked = await pickStartPoint();
+        if (!picked) return;
+        startPoint = picked.start;
+        startLabel = picked.label;
+        suggestedName = picked.name;
+      }
+      const name = await vscode.window.showInputBox({
+        title: `${checkout ? 'Create and Checkout' : 'Create Branch'} (from ${startLabel})`,
+        prompt: `New branch name (based on ${startLabel})`,
+        value: suggestedName,
         ignoreFocusOut: true,
         validateInput: v => git.validateName(v)
       });
       if (!name) return;
       await git.create(name, startPoint);
       branchTree.refresh();
-      if (!checkout) {
-        vscode.window.showInformationMessage(`Branch created: ${name} (from ${startLabel})`);
+      const completed = `Branch created: ${name} (from ${startLabel})`;
+      if (checkout) {
+        try {
+          await git.checkout({ ref: name, remote: false });
+          branchTree.refresh();
+          vscode.window.showInformationMessage(`Branch created and checked out: ${name} (from ${startLabel})`);
+        } catch (err) {
+          branchTree.refresh();
+          vscode.window.showErrorMessage(`Branch '${name}' was created, but checkout failed: ${err.message}`);
+        }
         return;
       }
-      try {
-        await git.checkout({ ref: name, remote: false });
-        branchTree.refresh();
-        vscode.window.showInformationMessage(`Branch created and checked out: ${name} (from ${startLabel})`);
-      } catch (err) {
-        branchTree.refresh();
-        vscode.window.showErrorMessage(`Branch '${name}' was created, but checkout failed: ${err.message}`);
+      const choice = await vscode.window.showInformationMessage(completed, 'Checkout');
+      if (choice === 'Checkout') {
+        try {
+          await git.checkout({ ref: name, remote: false });
+          branchTree.refresh();
+          vscode.window.showInformationMessage(`Checked out: ${name}`);
+        } catch (err) {
+          vscode.window.showErrorMessage(`Checkout failed: ${err.message}`);
+        }
       }
     } catch (err) {
       vscode.window.showErrorMessage(`Create branch failed: ${err.message}`);
@@ -910,6 +1511,51 @@ function activate(context) {
       branchTree.refresh();
     }),
 
+    vscode.commands.registerCommand('git-branch.copyText', async text => {
+      if (typeof text !== 'string' || !text || text.length > 65536) return;
+      await copyToClipboard(text);
+    }),
+    vscode.commands.registerCommand('git-branch.copyBranchList', copyBranchList),
+    vscode.commands.registerCommand('git-branch.copyBranchRef', copyBranchRef),
+    vscode.commands.registerCommand('git-branch.copyNodeName', copyNodeName),
+    vscode.commands.registerCommand('git-branch.copyRepository', copyRepository),
+    vscode.commands.registerCommand('git-branch.copyComparison', copyComparison),
+    vscode.commands.registerCommand('git-branch.copyRemoteUrl', copyRemoteUrl),
+    vscode.commands.registerCommand('git-branch.openRepositoryOnRemote', () => openOnRemote()),
+    vscode.commands.registerCommand('git-branch.openOnRemote', node => openOnRemote(node)),
+    vscode.commands.registerCommand('git-branch.openCommitOnRemote', openCommitOnRemote),
+    vscode.commands.registerCommand('git-branch.fetch', node => fetchRemote({ node })),
+    vscode.commands.registerCommand('git-branch.fetchAll', () => fetchRemote({ all: true })),
+    vscode.commands.registerCommand('git-branch.prune', node => fetchRemote({ node, prune: true })),
+    vscode.commands.registerCommand('git-branch.removeRemote', removeRemoteGroup),
+    vscode.commands.registerCommand('git-branch.fetchTags', async () => {
+      try {
+        await configureGitExecutable(git);
+        const name = await quickPickRemote('Fetch Tags');
+        if (!name) return;
+        await git.fetchTags(name);
+        branchTree.refresh();
+        vscode.window.showInformationMessage(`Tags fetched: ${name}`);
+      } catch (error) { vscode.window.showErrorMessage(`Fetch tags failed: ${error.message}`); }
+    }),
+    vscode.commands.registerCommand('git-branch.pushAllTags', pushAllTags),
+    vscode.commands.registerCommand('git-branch.pushTag', pushSingleTag),
+    vscode.commands.registerCommand('git-branch.createTag', createTag),
+    vscode.commands.registerCommand('git-branch.deleteTag', deleteTag),
+    vscode.commands.registerCommand('git-branch.deleteRemoteTag', deleteRemoteTag),
+    vscode.commands.registerCommand('git-branch.pull', pullBranch),
+    vscode.commands.registerCommand('git-branch.expandAll', node => {
+      if (node?.kind === 'category' && !node.comparisonsGroup) branchTree.setGroupExpansion(node.label, true);
+      else branchTree.setExpansion(true);
+    }),
+    vscode.commands.registerCommand('git-branch.collapseAll', node => {
+      if (node?.kind === 'category' && !node.comparisonsGroup) branchTree.setGroupExpansion(node.label, false);
+      else branchTree.setExpansion(false);
+    }),
+    ...[['groupSortName', 'name'], ['groupSortDate', 'date'], ['groupSortOpened', 'opened']]
+      .flatMap(([command, value]) => [command, `${command}.current`].map(id =>
+        vscode.commands.registerCommand(`git-branch.${id}`, node => sortTarget(node, 'order', value)))),
+
     vscode.commands.registerCommand('git-branch.update', updateBranches),
     vscode.commands.registerCommand('git-branch.push', async (node, nodes) => {
       const items = selectedBranches(node, nodes);
@@ -969,13 +1615,13 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.compare', async (node, nodes) => {
-      const items = selectedBranches(node, nodes);
+      const items = selectedRefs(node, nodes);
       if (!items.length || items.length > 2) {
-        vscode.window.showInformationMessage('Select one or two branches to compare.');
+        vscode.window.showInformationMessage('Select one or two branches or tags to compare.');
         return;
       }
       try {
-        if (items.length === 1 && !items[0].remote && items[0].ref === await git.current()) {
+        if (items.length === 1 && isBranchNode(items[0]) && !items[0].remote && items[0].ref === await git.current()) {
           vscode.window.showInformationMessage('Select a different branch to compare with current.');
           return;
         }
@@ -984,9 +1630,9 @@ function activate(context) {
     }),
 
     vscode.commands.registerCommand('git-branch.worktree', async (node, nodes) => {
-      const items = selectedBranches(node, nodes);
+      const items = selectedRefs(node, nodes);
       if (!items.length || items.length > 2) {
-        vscode.window.showInformationMessage('Select one or two branches to show differences.');
+        vscode.window.showInformationMessage('Select one or two branches or tags to show differences.');
         return;
       }
       try {
@@ -997,6 +1643,48 @@ function activate(context) {
     }),
     vscode.commands.registerCommand('git-branch.compareSelected', (node, nodes) =>
       vscode.commands.executeCommand('git-branch.compare', node, nodes || branchView.selection)),
+    vscode.commands.registerCommand('git-branch.compareCommits', compareSelectedCommits),
+    vscode.commands.registerCommand('git-branch.checkoutCommit', async node => {
+      const hash = node?.commit?.hash;
+      if (!hash) return;
+      const confirmation = await vscode.window.showWarningMessage(
+        `Check out commit ${shortHash(hash)} (detached HEAD)?`, { modal: true,
+          detail: 'HEAD becomes detached. Create a branch before committing new work.' }, 'Checkout Commit');
+      if (confirmation !== 'Checkout Commit') return;
+      try {
+        await configureGitExecutable(git);
+        await git.checkoutDetached(hash);
+        branchTree.refresh();
+        vscode.window.showInformationMessage(`Checked out commit: ${shortHash(hash)} (detached HEAD)`);
+      } catch (error) {
+        branchTree.refresh();
+        vscode.window.showErrorMessage(`Checkout failed: ${error.message}`);
+      }
+    }),
+    vscode.commands.registerCommand('git-branch.cherryPick', cherryPickCommits),
+    vscode.commands.registerCommand('git-branch.checkoutTag', checkoutTag),
+    vscode.commands.registerCommand('git-branch.updateAll', updateAll),
+    vscode.commands.registerCommand('git-branch.refreshAllComparisons', refreshAllComparisons),
+    vscode.commands.registerCommand('git-branch.closeAllComparisons', closeAllComparisons),
+    vscode.commands.registerCommand('git-branch.copyPath', node => copyPaths(node, false)),
+    vscode.commands.registerCommand('git-branch.copyAbsolutePath', node => copyPaths(node, true)),
+    vscode.commands.registerCommand('git-branch.openFolderDiffs', openFolderDiffs),
+    vscode.commands.registerCommand('git-branch.openRevisionLeft', node => openRevision(node, 'left')),
+    vscode.commands.registerCommand('git-branch.openRevisionRight', node => openRevision(node, 'right')),
+    vscode.commands.registerCommand('git-branch.copyCommitFullHash', node => {
+      const hash = node?.commit?.hash || node?.hash;
+      if (hash) return copyToClipboard(hash);
+    }),
+    vscode.commands.registerCommand('git-branch.copyCommitMessage', node => {
+      const message = node?.commit?.subject || node?.commit?.message;
+      if (message) return copyToClipboard(message);
+    }),
+    vscode.commands.registerCommand('git-branch.openWorktreeFile', async node => {
+      const filePath = node?.file?.newPath || node?.file?.oldPath;
+      if (!filePath) return;
+      try { await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(git.worktreePath(filePath)), { preview: false }); }
+      catch (error) { vscode.window.showErrorMessage(`Open file failed: ${error.message}`); }
+    }),
     vscode.commands.registerCommand('git-branch.diffSelected', (node, nodes) =>
       vscode.commands.executeCommand('git-branch.worktree', node, nodes || branchView.selection)),
     vscode.commands.registerCommand('git-branch.refreshCompare', async node => {

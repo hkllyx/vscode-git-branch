@@ -13,7 +13,7 @@
 
 本地／远程分支统一用原生 `git-branch` 图标；Tags 分组和标签项都用 `tag`；Remote 分组与 origin 等远程名都用 `cloud`；Local 分组用 `repo`。Comparisons 分组用 `compare-changes`，文件 Show Diff 项用 `diff-multiple`，提交历史 Branch Compare 项用 `git-compare`，提交用 `git-commit`。所有图标均使用 VS Code 内置 ThemeIcon／Codicon，不使用或打包自定义 SVG；样式、大小及默认颜色由编辑器统一控制，适配明暗主题、选中状态和产品图标主题。文件／目录保留原有图标和状态标识。保留当前分支图标的主题黄色高亮、Left／Right 来源的主题区分色，不高亮分支名称。保留展开箭头及右侧按钮，分支／标签名后不显示 hash。
 当前分支由本地 HEAD 判断；detached HEAD 不标记当前分支。默认主分支不再使用独立的星星或组合标记。
-Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显示创建按钮和「…」更多菜单；Create / Create and Checkout 通过分支右键或命令面板使用。
+Branches 标题栏只保留刷新按钮；树最外层是仓库根节点（显示仓库文件夹名、默认展开），其下依次为 Local / Remote / Tags / Comparisons。行内按钮全部使用内置 Codicon：根节点 Refresh／Fetch All，本地与当前分支 Create／Update／Push／Show Diff／Delete（当前分支不给 Delete），远程分支 Open on Remote／Update／Show Diff／Delete，标签 Push Tag／Show Diff／Delete Tag，提交 Copy Short Hash。Create / Create and Checkout 通过分支右键、分组右键或命令面板使用。
 分支悬浮提示显示名称、最后提交和追踪分支；Last commit 同一行显示 `提交人 · 提交时间 · 7 位短 hash`，时间先根据 Git 记录的时区偏移解析，再转换到系统时区，统一显示为 `yyyy-MM-dd HH:mm:ss`，不显示 T 或时区后缀；短 hash 后显示复制图标，点击仅复制短 hash，不单独显示 Hash 行。本地分支未配置追踪时明确标注，远程分支／标签不显示 Tracking branch 行。标签保持显示完整 hash 和时间，附注标签的 hash 和时间取其对应提交。不再显示 Current branch／Default branch；Tracking status 仅显示 ahead／behind 数量，不重复跟踪分支名和说明。分支、标签与 Diff 会话使用原生 Markdown 悬浮框，各字段紧凑换行，不使用段落间距。分支名称和已配置的跟踪分支名称行尾也显示复制图标，各自只复制对应分支名，不复制字段标签或整段信息；不适用／未配置的跟踪项不显示复制图标，也没有底部 Copy 行。带复制链接的悬浮框支持鼠标移入；仓库文字经过转义，仅授权内部复制命令，不使用 WebView。
 本地分支名后显示与其配置的跟踪分支之间的提交差异，例如 `1↓ 2↑` 表示落后 1 个、领先 2 个提交，使用普通描述文字，不加颜色。仅显示非零方向；同步、无跟踪配置时隐藏数字。跟踪引用在本地缺失时不伪装为同步，悬浮提示计数不可用。计算依据本地保存的引用（也支持跟踪本地分支），不自动 fetch；fetch／pull／push 后可刷新查看。远程分支、标签和 Diff 会话不显示该计数。
 
@@ -28,20 +28,53 @@ Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显�
 
 远程 Checkout 先 fetch 所选分支（失败则直接报错，不使用旧引用）。优先使用远程分支的同名本地分支，并更新其跟踪配置；不会改动其他名称的跟踪分支。本地分支若含有远程没有的提交，弹窗显示 **Drop Local Commits**／**Cancel**：前者丢弃这些本地提交、重置到刚 fetch 的远程提交并检出；后者或关闭弹窗则不改动本地分支、不检出。仅落后或已经同步时无需确认。存在未提交的工作区修改时要求先提交或 stash，不会强制丢弃文件修改；其他 worktree 占用目标分支时直接报错。
 
-| 命令                        | 说明                                                            |
-| --------------------------- | --------------------------------------------------------------- |
-| Update                      | 单选／多选更新：本地按跟踪分支 Fetch 后仅快进，远程分支仅 Fetch |
-| Push                        | 推送选中的本地分支；目标远程分支不存在时自动创建，不强制覆盖 |
-| Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支        |
-| Create                      | 有指定分支／标签时从它创建；没有则默认当前分支，不切换          |
-| Create and Checkout         | 使用相同起点创建新分支，并检出新分支                            |
-| Set Tracking                | 设置本地分支的跟踪分支，或选择 No Tracking 取消跟踪             |
-| Merge into Current          | 将选中分支合并到当前分支                                        |
-| Rebase Current onto Target  | 将当前分支变基到选中分支                                        |
-| Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异                          |
-| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）                  |
-| Rename                      | 重命名本地分支（含校验和二次确认）                              |
-| Delete                      | 删除本地或远程分支；远程删除成功后单独询问是否删除对应本地分支  |
+展开的仓库根节点下依次是 Local / Remote / Tags / Comparisons 四个分组；根节点和每个分组都有独立菜单，详见下方小节。
+
+| 命令                        | 说明                                                              |
+| --------------------------- | ----------------------------------------------------------------- |
+| Update                      | 单选／多选更新：本地按跟踪分支 Fetch 后仅快进，远程分支仅 Fetch   |
+| Pull                        | 本地分支按跟踪分支 fetch 后再 fast-forward，不合并、不变基        |
+| Push                        | 推送选中的本地分支；目标远程分支不存在时自动创建，不强制覆盖      |
+| Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支          |
+| Create                      | 有指定分支／标签时从它创建；没有则弹 QuickPick 选择起点，不切换   |
+| Create and Checkout         | 使用相同起点创建新分支，并检出新分支                              |
+| Set Tracking                | 设置本地分支的跟踪分支，或选择 No Tracking 取消跟踪               |
+| Merge into Current          | 将选中分支合并到当前分支                                          |
+| Rebase Current onto Target  | 将当前分支变基到选中分支                                          |
+| Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异（当前分支不显示该项）      |
+| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）                    |
+| Compare / Show Diff         | 恰好双选两个分支时比较独有提交／两 tip 的全部文件差异             |
+| Rename                      | 重命名本地分支（含校验和二次确认，F2 同效）                       |
+| Delete                      | 删除本地或远程分支；远程删除成功后单独询问是否删除对应本地分支    |
+| Open on Remote              | 用浏览器打开该分支／标签／提交在远程仓库的对应页面                |
+| Copy ▸ …                    | 复制分支名、完整 ref、短 hash、路径等（见「Copy 与 Sort」）       |
+
+#### 根节点与分组菜单
+
+- **根节点**（仓库文件夹名，默认展开）：Open Repository on Remote、Refresh（重新读取本地 ref，不发网络请求）、Fetch All、Expand All／Collapse All、Copy ▸ Repository Name／Repository Path。行内按钮为 Refresh、Fetch All。
+- **Local**：Create（弹 QuickPick 选择起点）、Update All、Expand All／Collapse All、Sort ▸ Name／Last Commit。
+- **Remote**：Fetch All、Expand All／Collapse All、Sort ▸ Name／Last Commit。
+- **Tags**：Create Tag（弹 QuickPick 选择提交，默认 HEAD）、Fetch Tags、Expand All／Collapse All、Push All Tags、Sort ▸ Name／Last Commit。
+- **Comparisons**：Refresh All（重算全部会话）、Close All（同时关闭对应 Diff Tab）、Expand All／Collapse All、Sort ▸ Opened Order／Name。
+- 远程名分组（origin 等）：Open Remote in Browser、Fetch、Prune Stale Remote Refs、Remove Remote、Copy Remote URL。Prune 只清理本地保存的远程跟踪引用，不删除远程分支。
+- 分组排序写入工作区状态，刷新、重载窗口后保留；Comparisons 默认按打开顺序，其余默认按名称。
+
+#### 标签与远程管理
+
+- Create Tag / Checkout Tag（Detached HEAD）／Delete Tag／Delete Remote Tag／Push Tag／Push All Tags 均走明确的单个 refspec 或 `--tags`，不 force。
+- Delete Remote Tag 会先确认，再单独询问是否同时删除同名本地标签；本地标签不存在时跳过。
+- Remove Remote 需在模态框二次确认，只删除本地 `remote.<name>` 配置与对应远程跟踪引用，不影响远程仓库。
+- Push All Tags 与 Push Tag 不推送分支，不递归子模块。
+
+#### Open on Remote
+
+- 支持根节点（仓库页）、远程名分组、本地／远程分支、标签与提交；`git@host:owner/repo.git` 会解析为 `https://host/owner/repo`。
+- 没有可用远程或无法解析的 URL 时直接提示，不打开空白页。
+
+#### Copy 与 Sort
+
+- Copy 为子菜单：分支（Branch Name／Full Ref／Last Commit Short Hash）、远程分支（`origin/x`／Full Ref／Remote URL）、标签（Tag Name／Hash）、提交（Short Hash／Full Hash／Message）、对比文件与工作树文件（Relative／Absolute Path）、对比目录（Folder Path）、会话（Comparison Name／Left Ref／Right Ref）、分组与根节点（仓库名、仓库路径、分支列表、标签列表）。
+- Sort 只影响展示顺序，不改变 Git 数据；当前项以 `✓ ` 作为标题前缀，与 Diff 会话的 View／Sort 一致。
 
 ### Delete
 
@@ -65,7 +98,7 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 
 - 从远程分支创建：新分支直接跟踪选中的远程分支，例如从 origin/main 创建 topic，跟踪 origin/main。
 - 从本地分支创建：继承来源分支的跟踪配置，不是跟踪来源本地分支本身；来源没有跟踪配置时，新分支也不配置跟踪。
-- 没有指定来源（命令面板或分组参数）：默认从当前分支创建，继承当前分支的跟踪配置。
+- 从分组、根节点或命令面板创建：先弹 QuickPick 选择起点（当前分支、HEAD、本地／远程分支或标签），不静默使用 HEAD；选中当前分支时继承其跟踪配置。
 - 从标签、commit 或 detached HEAD 创建：这些起点没有跟踪配置，不按名称或相同 hash 猜测；创建后可以使用 Set Tracking。
 - 创建使用本地现有引用，不自动 fetch；与远程 Checkout 的先 fetch 行为不同。
 

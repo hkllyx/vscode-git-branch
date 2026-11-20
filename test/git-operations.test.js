@@ -241,11 +241,15 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.deepEqual(Object.keys(manifest.contributes.views), ['scm']);
   assert.equal(views.length, 1);
   // The ⋯ button is an inline submenu: VS Code renders it as a dropdown anchored to the button (not a centered QuickPick).
-  assert.deepEqual(manifest.contributes.submenus, [{ id: 'git-branch.diffMore', label: 'More Actions', icon: '$(ellipsis)' }]);
+  assert.deepEqual(manifest.contributes.submenus.map(item => item.id),
+    ['git-branch.diffMore', 'git-branch.copy', 'git-branch.sortLocal', 'git-branch.sortRemote',
+      'git-branch.sortTags', 'git-branch.sortCompare']);
+  const diffMoreSubmenu = manifest.contributes.submenus[0];
+  assert.equal(diffMoreSubmenu.label, 'More Actions');
+  assert.equal(diffMoreSubmenu.icon, '$(ellipsis)');
   const moreMenu = manifest.contributes.menus['view/item/context'].find(item => item.submenu === 'git-branch.diffMore');
   assert.equal(moreMenu.group, 'inline@4');
   assert.ok(moreMenu.when.includes('viewItem =~ /^gb-(diff|compare)-session-/'));
-  assert.ok(!manifest.contributes.menus['view/item/context'].some(item => item.when.includes('gb-comparisons-group')));
   assert.ok(!manifest.contributes.menus['view/item/context'].some(item => item.command === 'git-branch.diffMore'));
   const diffMoreMenu = manifest.contributes.menus['git-branch.diffMore'];
   assert.equal(diffMoreMenu.length, 10);
@@ -287,42 +291,47 @@ test('manifest: commands, views, menus are wired', async () => {
     assert.equal(openFileCommand.icon, '$(go-to-file)');
     const openFileMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === openFileCommand.command);
     assert.equal(openFileMenu.when, 'view == git-branch.branches && viewItem == gb-compare-file-openable');
-    assert.equal(openFileMenu.group, 'inline@1');
+    assert.equal(openFileMenu.group, 'inline@2');
     assert.ok(manifest.contributes.menus.commandPalette.some(item => item.command === openFileCommand.command && item.when === 'false'));
   const titleMenu = manifest.contributes.menus['view/title'];
   assert.deepEqual(titleMenu.map(item => item.command), ['git-branch.refresh']);
-  const createMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.create');
+  const createMenu = manifest.contributes.menus['view/item/context']
+    .find(item => item.command === 'git-branch.create' && item.group === '1_actions@2');
   const menuPattern = new RegExp(createMenu.when.split(' =~ /')[1].slice(0, -1));
   for (const value of ['gb-local', 'gb-current', 'gb-remote', 'gb-tag']) assert.ok(menuPattern.test(value));
-  for (const value of ['gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!menuPattern.test(value));
-  const compareMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.compare');
+  for (const value of ['gb-category-local', 'gb-remote-group', 'gb-diff-session']) assert.ok(!menuPattern.test(value));
+  const compareMenu = manifest.contributes.menus['view/item/context']
+    .find(item => item.command === 'git-branch.compare' && !item.group.startsWith('inline'));
   const comparePattern = new RegExp(compareMenu.when.split(' =~ /')[1].slice(0, -1));
-  for (const value of ['gb-local', 'gb-remote']) assert.ok(comparePattern.test(value));
-  for (const value of ['gb-current', 'gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!comparePattern.test(value));
+  for (const value of ['gb-local', 'gb-remote', 'gb-tag']) assert.ok(comparePattern.test(value));
+  for (const value of ['gb-current', 'gb-category-local', 'gb-remote-group', 'gb-diff-session']) assert.ok(!comparePattern.test(value));
   assert.ok(cmds.includes('git-branch.worktree'));
-  const worktreeMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.worktree');
+  const worktreeMenu = manifest.contributes.menus['view/item/context']
+    .find(item => item.command === 'git-branch.worktree' && !item.group.startsWith('inline'));
   const worktreePattern = new RegExp(worktreeMenu.when.split(' =~ /')[1].slice(0, -1));
-  for (const value of ['gb-local', 'gb-current', 'gb-remote']) assert.ok(worktreePattern.test(value));
-  for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!worktreePattern.test(value));
+  for (const value of ['gb-local', 'gb-current', 'gb-remote', 'gb-tag']) assert.ok(worktreePattern.test(value));
+  for (const value of ['gb-category-local', 'gb-remote-group', 'gb-diff-session']) assert.ok(!worktreePattern.test(value));
 
   // Delete is offered for a single local or remote branch, and for mixed multi-selection.
   const deleteMenus = manifest.contributes.menus['view/item/context'].filter(item => item.command === 'git-branch.delete');
-  const singleRemoteDelete = deleteMenus.find(item => item.when.includes('!git-branch.multiSelection'));
+  const singleRemoteDelete = deleteMenus.find(item => item.when.includes('!git-branch.multiSelection') && item.when.includes('viewItem == gb-remote'));
   assert.ok(singleRemoteDelete);
   assert.ok(singleRemoteDelete.when.includes('viewItem == gb-remote'));
-  const multiDelete = deleteMenus.find(item => item.when.includes('git-branch.multiSelection'));
+  const multiDelete = deleteMenus.find(item => /(^|[^!])git-branch\.multiSelection/.test(item.when) && item.when.includes('gb-local'));
   assert.ok(multiDelete);
-  const multiDeletePattern = new RegExp(multiDelete.when.split(' =~ /')[1].split('/')[0]);
-  for (const value of ['gb-local', 'gb-current', 'gb-remote']) assert.ok(multiDeletePattern.test(value));
-  for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!multiDeletePattern.test(value));
+  const multiDeletePattern = /viewItem =~ \/\^gb-\(([^)]+)\)\$/.exec(multiDelete.when);
+  assert.ok(multiDeletePattern, multiDelete.when);
+  const multiDeleteValues = new Set(multiDeletePattern[1].split('|'));
+  for (const value of ['local', 'current', 'remote']) assert.ok(multiDeleteValues.has(value));
+  for (const value of ['tag', 'category-local', 'remote-group', 'diff-session']) assert.ok(!multiDeleteValues.has(value));
   // The single-selection condition covers local/current plus the separately listed remote item.
   assert.ok(multiDelete.when.includes('viewItem == gb-local'));
   assert.ok(singleRemoteDelete.when.includes('!git-branch.multiSelection'));
-  for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) {
+  for (const value of ['gb-tag', 'gb-category-local', 'gb-remote-group', 'gb-diff-session']) {
     assert.ok(!singleRemoteDelete.when.includes(value));
     assert.ok(!multiDelete.when.includes(`viewItem == ${value}`));
   }
-  for (const item of deleteMenus) assert.equal(item.group, '4_branch@2');
+  for (const item of deleteMenus.filter(entry => !entry.group.startsWith('inline'))) assert.equal(item.group, '4_branch@2');
 
   // Current branches use the same branch glyph, highlighted without coloring text.
   const bundle = await fs.readFile(path.join(__dirname, '../src/extension.js'), 'utf8');

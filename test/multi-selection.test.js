@@ -81,7 +81,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     delete require.cache[require.resolve('../src/extension')];
     await require('../src/extension').activate(context);
     const run = (id, ...args) => commands.get(`git-branch.${id}`)(...args);
-    const roots = await tree.getChildren();
+    const roots = await tree.groups();
     const originalDetails = tree.git.commitDetails;
     const cacheEntry = {};
     let detailRequests = 0, rejectDetails;
@@ -120,9 +120,10 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(contexts.get('git-branch.multiSelection'), true);
     const menus = require('../package.json').contributes.menus['view/item/context'];
     for (const id of ['checkout', 'create', 'createAndCheckout', 'merge', 'rebase', 'setTracking', 'rename', 'compare', 'worktree']) {
-      assert.ok(menus.find(menu => menu.command === `git-branch.${id}`).when.includes('!git-branch.multiSelection'), id);
+      assert.ok(menus.some(menu => menu.command === `git-branch.${id}` && menu.when.includes('!git-branch.multiSelection')), id);
     }
-    assert.ok(!menus.find(menu => menu.command === 'git-branch.update').when.includes('!git-branch.multiSelection'));
+    assert.ok(menus.some(menu => menu.command === 'git-branch.update' && menu.group === '1_actions@4'
+      && !menu.when.includes('!git-branch.multiSelection')));
     const savedUpdate = tree.git.update;
     const updatedNames = [];
     tree.git.update = async node => { updatedNames.push(node.ref); if (node.ref === 'left') throw new Error('Update failed for this branch'); return 'Fetched'; };
@@ -133,7 +134,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.ok(messages.includes('Update: 1 succeeded, 0 failed.'));
     tree.git.update = savedUpdate;
     await run('compareSelected', left, [left, right]);
-    const group = (await tree.getChildren()).find(node => node.comparisonsGroup);
+    const group = (await tree.groups()).find(node => node.comparisonsGroup);
     let session = (await tree.getChildren(group))[0];
     assert.equal(tree.getTreeItem(session).label, 'left ↔ right');
     assert.equal(tree.getTreeItem(session).iconPath.id, 'git-compare');
@@ -191,7 +192,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.ok(messages.includes('Comparison changed or closed. Run Open Diff again.'));
     await run('closeCompare', session);
     assert.equal(tabs.length, 0);
-    assert.ok(!(await tree.getChildren()).some(node => node.comparisonsGroup));
+    assert.ok(!(await tree.groups()).some(node => node.comparisonsGroup));
     // Zero-commit sides are hidden without changing left/right identities.
     await run('compareSelected', left, [left, local('main')]);
     let oneSided = (await tree.getChildren(group))[0];
@@ -227,7 +228,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(tree.getTreeItem(emptyRows[0]).label, 'No differences');
     await run('closeCompare', equalSession);
     await run('diffSelected', left, [left, right]);
-    const diffRoot = (await tree.getChildren()).find(node => node.comparisonsGroup);
+    const diffRoot = (await tree.groups()).find(node => node.comparisonsGroup);
     const diffSession = (await tree.getChildren(diffRoot))[0];
     assert.equal(tree.getTreeItem(diffSession).label, 'left ↔ right');
     assert.equal(tree.getTreeItem(diffSession).iconPath.id, 'diff-multiple');
@@ -256,7 +257,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.equal(tree.workingTrees.size, 2);
     await run('compare', local('main'), [local('main'), left]); // Current is allowed in a pair.
     assert.equal(tree.comparisons.size, 1);
-    const combined = (await tree.getChildren()).filter(node => node.comparisonsGroup);
+    const combined = (await tree.groups()).filter(node => node.comparisonsGroup);
     assert.equal(combined.length, 1);
     const entries = await tree.getChildren(combined[0]);
     assert.equal(entries.length, 3);
@@ -305,7 +306,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.deepEqual(refreshed.settings, { layout: 'tree', sort: 'status' });
     assert.deepEqual(await currentOrder(), openingOrder); // Compare swap/refresh retain position.
     await run('closeCompare', historySession);
-    assert.ok((await tree.getChildren()).some(node => node.comparisonsGroup));
+    assert.ok((await tree.groups()).some(node => node.comparisonsGroup));
     await run('compare', local('main'), [local('main'), left]);
     assert.deepEqual(tree.comparisons.get(historySession.key).settings, { layout: 'tree', sort: 'status' });
     const reopenedOrder = [openingOrder[0], openingOrder[1], remoteDiffKey, historySession.key];
@@ -365,7 +366,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     await git.exec(['fetch', 'origin']);
     await git.exec(['config', 'branch.right.remote', 'origin']);
     await git.exec(['config', 'branch.right.merge', 'refs/heads/right']);
-    const remoteRight = (await tree.getChildren())[1].children[0].children.find(node => node.ref === 'origin/right');
+    const remoteRight = (await tree.groups())[1].children[0].children.find(node => node.ref === 'origin/right');
     const currentBefore = await git.current();
     answers = ['Delete', 'Keep Local Branches'];
     await run('delete', remoteRight);
@@ -375,7 +376,7 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     assert.ok(messages.at(-1)?.startsWith('Delete: 1 succeeded'));
     await git.exec(['push', 'origin', `refs/heads/right:refs/heads/right`]);
     await git.exec(['fetch', 'origin']);
-    const refreshedRemote = (await tree.getChildren())[1].children[0].children.find(node => node.ref === 'origin/right');
+    const refreshedRemote = (await tree.groups())[1].children[0].children.find(node => node.ref === 'origin/right');
     answers = ['Delete', 'Delete Local Branches', 'Force Delete'];
     await run('delete', refreshedRemote);
     await assert.rejects(git.resolve('refs/heads/right'));
