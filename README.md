@@ -30,32 +30,32 @@ Branches 标题栏只保留刷新按钮；树最外层是仓库根节点（显�
 
 展开的仓库根节点下依次是 Local / Remote / Tags / Comparisons 四个分组；根节点和每个分组都有独立菜单，详见下方小节。
 
-| 命令                        | 说明                                                              |
-| --------------------------- | ----------------------------------------------------------------- |
-| Update                      | 单选／多选更新：本地按跟踪分支 Fetch 后仅快进，远程分支仅 Fetch   |
-| Pull                        | 本地分支按跟踪分支 fetch 后再 fast-forward，不合并、不变基        |
-| Push                        | 推送选中的本地分支；目标远程分支不存在时自动创建，不强制覆盖      |
-| Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支          |
-| Create                      | 有指定分支／标签时从它创建；没有则弹 QuickPick 选择起点，不切换   |
-| Create and Checkout         | 使用相同起点创建新分支，并检出新分支                              |
-| Set Tracking                | 设置本地分支的跟踪分支，或选择 No Tracking 取消跟踪               |
-| Merge into Current          | 将选中分支合并到当前分支                                          |
-| Rebase Current onto Target  | 将当前分支变基到选中分支                                          |
-| Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异（当前分支不显示该项）      |
-| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）                    |
-| Compare / Show Diff         | 恰好双选两个分支时比较独有提交／两 tip 的全部文件差异             |
-| Rename                      | 重命名本地分支（含校验和二次确认，F2 同效）                       |
-| Delete                      | 删除本地或远程分支；远程删除成功后单独询问是否删除对应本地分支    |
-| Open on Remote              | 用浏览器打开该分支／标签／提交在远程仓库的对应页面                |
-| Copy ▸ …                    | 复制分支名、完整 ref、短 hash、路径等（见「Copy 与 Sort」）       |
+| 命令                        | 说明                                                            |
+| --------------------------- | --------------------------------------------------------------- |
+| Update                      | 单选／多选更新：本地按跟踪分支 Fetch 后仅快进，远程分支仅 Fetch |
+| Pull                        | 本地分支按跟踪分支 fetch 后再 fast-forward，不合并、不变基      |
+| Push                        | 推送选中的本地分支；目标远程分支不存在时自动创建，不强制覆盖    |
+| Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支        |
+| Create                      | 有指定分支／标签时从它创建；没有则弹 QuickPick 选择起点，不切换 |
+| Create and Checkout         | 使用相同起点创建新分支，并检出新分支                            |
+| Set Tracking                | 设置本地分支的跟踪分支，或选择 No Tracking 取消跟踪             |
+| Merge into Current          | 将选中分支合并到当前分支                                        |
+| Rebase Current onto Target  | 将当前分支变基到选中分支                                        |
+| Compare with Current        | 比较选中分支与当前 HEAD 的提交快照差异（当前分支不显示该项）    |
+| Show Diff with Working Tree | 比较选中分支与当前工作区文件（包含未提交修改）                  |
+| Compare / Show Diff         | 恰好双选两个分支时比较独有提交／两 tip 的全部文件差异           |
+| Rename                      | 重命名本地分支（含校验和二次确认，F2 同效）                     |
+| Delete                      | 删除本地或远程分支；远程删除成功后单独询问是否删除对应本地分支  |
+| Open on Remote              | 用浏览器打开该分支／标签／提交在远程仓库的对应页面              |
+| Copy ▸ …                  | 复制分支名、完整 ref、短 hash、路径等（见「Copy 与 Sort」）     |
 
 #### 根节点与分组菜单
 
-- **根节点**（仓库文件夹名，默认展开）：Open Repository on Remote、Refresh（重新读取本地 ref，不发网络请求）、Fetch All、Expand All／Collapse All、Copy ▸ Repository Name／Repository Path。行内按钮为 Refresh、Fetch All。
-- **Local**：Create（弹 QuickPick 选择起点）、Update All、Expand All／Collapse All、Sort ▸ Name／Last Commit。
-- **Remote**：Fetch All、Expand All／Collapse All、Sort ▸ Name／Last Commit。
-- **Tags**：Create Tag（弹 QuickPick 选择提交，默认 HEAD）、Fetch Tags、Expand All／Collapse All、Push All Tags、Sort ▸ Name／Last Commit。
-- **Comparisons**：Refresh All（重算全部会话）、Close All（同时关闭对应 Diff Tab）、Expand All／Collapse All、Sort ▸ Opened Order／Name。
+- **根节点**（仓库文件夹名，默认展开）：Open Repository on Remote、Refresh（重新读取本地 ref，不发网络请求）、Fetch All、Copy ▸ Repository Name／Repository Path。行内按钮为 Refresh、Fetch All。
+- **Local**：Create（弹 QuickPick 选择起点）、Update All、Sort ▸ Name／Last Commit。
+- **Remote**：Fetch All、Sort ▸ Name／Last Commit。
+- **Tags**：Create Tag（弹 QuickPick 选择提交，默认 HEAD）、Fetch Tags、Push All Tags、Sort ▸ Name／Last Commit。
+- **Comparisons**：Refresh All（重算全部会话）、Close All（同时关闭对应 Diff Tab）、Sort ▸ Opened Order／Name。
 - 远程名分组（origin 等）：Open Remote in Browser、Fetch、Prune Stale Remote Refs、Remove Remote、Copy Remote URL。Prune 只清理本地保存的远程跟踪引用，不删除远程分支。
 - 分组排序写入工作区状态，刷新、重载窗口后保留；Comparisons 默认按打开顺序，其余默认按名称。
 

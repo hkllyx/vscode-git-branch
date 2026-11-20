@@ -145,7 +145,6 @@ class BranchTreeProvider {
     this.lastWorkingTreeKey = null;
     this.savedSettings = {};
     this.groupSettings = {};
-    this.expandedGroups = {};
     this.remoteUrls = new Map();
     this.disposed = false;
     this._onDidChange = new vscode.EventEmitter();
@@ -393,10 +392,7 @@ class BranchTreeProvider {
       return item;
     }
     if (element.kind === 'category') {
-      const saved = this.expandedGroups?.[element.label];
-      const expanded = typeof saved === 'boolean' ? saved
-        : typeof this.expansion === 'boolean' ? this.expansion : !!element.expanded;
-      const item = new vscode.TreeItem(element.label, expanded
+      const item = new vscode.TreeItem(element.label, element.expanded
         ? vscode.TreeItemCollapsibleState.Expanded
         : vscode.TreeItemCollapsibleState.Collapsed);
       // Encode the current sort in the context value so the anchored Sort menu can
@@ -705,21 +701,6 @@ class BranchTreeProvider {
       if (order === 'date') group.children.sort(byDate);
       else group.children.sort(byName);
     }
-  }
-
-  /** Expand or collapse the whole tree; VS Code only offers collapse natively. */
-  setExpansion(state) {
-    this.expansion = state;
-    this.expandedGroups = {};
-    this.refresh();
-  }
-
-  /** Expand/collapse one group; VS Code's own collapse-all must not be undone by it. */
-  setGroupExpansion(group, state) {
-    if (!group) { this.setExpansion(state); return; }
-    this.expandedGroups = { ...this.expandedGroups, [group]: state };
-    this.expansion = undefined;
-    this.refresh();
   }
 
   /** Menu label showing the current sort of one group. */
@@ -1544,14 +1525,6 @@ function activate(context) {
     vscode.commands.registerCommand('git-branch.deleteTag', deleteTag),
     vscode.commands.registerCommand('git-branch.deleteRemoteTag', deleteRemoteTag),
     vscode.commands.registerCommand('git-branch.pull', pullBranch),
-    vscode.commands.registerCommand('git-branch.expandAll', node => {
-      if (node?.kind === 'category' && !node.comparisonsGroup) branchTree.setGroupExpansion(node.label, true);
-      else branchTree.setExpansion(true);
-    }),
-    vscode.commands.registerCommand('git-branch.collapseAll', node => {
-      if (node?.kind === 'category' && !node.comparisonsGroup) branchTree.setGroupExpansion(node.label, false);
-      else branchTree.setExpansion(false);
-    }),
     ...[['groupSortName', 'name'], ['groupSortDate', 'date'], ['groupSortOpened', 'opened']]
       .flatMap(([command, value]) => [command, `${command}.current`].map(id =>
         vscode.commands.registerCommand(`git-branch.${id}`, node => sortTarget(node, 'order', value)))),
