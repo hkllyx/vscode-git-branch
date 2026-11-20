@@ -375,22 +375,6 @@ class BranchTreeProvider {
       item.iconPath = new vscode.ThemeIcon('check');
       return item;
     }
-    if (element.kind === 'root') {
-      const item = new vscode.TreeItem(element.label, vscode.TreeItemCollapsibleState.Expanded);
-      item.id = 'root';
-      item.contextValue = 'gb-root';
-      item.iconPath = new vscode.ThemeIcon('repo');
-      const hover = new vscode.MarkdownString();
-      hover.supportThemeIcons = true;
-      hover.appendText(element.label);
-      hover.appendMarkdown('  \n');
-      hover.appendText(this.git.cwd);
-      const args = encodeURIComponent(JSON.stringify([element.label]));
-      hover.appendMarkdown(` [$(copy)](command:git-branch.copyText?${args} "Copy repository name")`);
-      hover.isTrusted = { enabledCommands: ['git-branch.copyText'] };
-      item.tooltip = hover;
-      return item;
-    }
     if (element.kind === 'category') {
       const item = new vscode.TreeItem(element.label, element.expanded
         ? vscode.TreeItemCollapsibleState.Expanded
@@ -531,8 +515,7 @@ class BranchTreeProvider {
   }
 
   async getChildren(element) {
-    if (!element) return this.getRootNodes();
-    if (element.kind === 'root') return element.children || [];
+    if (!element) return this.getGroups();
     if (element.comparisonsGroup) {
       const entries = [
         ...[...this.workingTrees.values()].map(entry => ({ order: entry.openedOrder,
@@ -596,12 +579,7 @@ class BranchTreeProvider {
   async getParent(element) {
     if (element.parent) return element.parent;
     if (element.kind?.startsWith('worktree-')) return this.workingTrees.get(element.key)?.node;
-    const roots = await this.getRootNodes();
-    const root = roots.find(node => node.kind === 'root');
-    if (!root) return undefined;
-    if (element.kind === 'root') return undefined;
-    if (element.kind === 'category') return root;
-    for (const group of root.children) {
+    for (const group of await this.getGroups()) {
       for (const child of group.children || []) {
         if (child === element) return group;
         if (child.kind === 'remote-group' && child.children.includes(element)) return child;
@@ -610,13 +588,12 @@ class BranchTreeProvider {
     return undefined;
   }
 
-  /** The four groups live under one root node; menus and reveal need them flat. */
+  /** Menus and reveal need the groups, which are the tree roots. */
   async groups() {
-    const roots = await this.getRootNodes();
-    return roots.flatMap(node => node.kind === 'root' ? node.children || [] : [node]);
+    return this.getGroups();
   }
 
-  async getRootNodes() {
+  async getGroups() {
     try {
       const [{ current, branches }, tags] = await Promise.all([
         this.git.branches(),
@@ -670,16 +647,11 @@ class BranchTreeProvider {
         kind: 'category', label: 'Comparisons', comparisonsGroup: true, expanded: true, children: []
       });
       this.sortGroups(children);
-      return [{ kind: 'root', label: await this.rootLabel(), expanded: true, children }];
+      return children;
     } catch (err) {
       vscode.window.showErrorMessage(`Git Branch: ${err.message}`);
       return [];
     }
-  }
-
-  /** Repository folder name, matching the built-in Git view. */
-  async rootLabel() {
-    return path.basename(this.git.cwd) || 'Branches';
   }
 
   /** Apply the persisted sort order to every group; comparisons stay by open order. */
@@ -958,8 +930,8 @@ function activate(context) {
       await configureGitExecutable(git);
       let remoteName;
       let branchName;
-      // The root menu opens the repository page itself, without a branch path.
-      const repositoryOnly = !node || node.kind === 'root';
+      // No node (command palette) opens the repository page itself, without a branch path.
+      const repositoryOnly = !node;
       if (node?.kind === 'remote-group') remoteName = node.label;
       else if (node?.kind === 'branch' && node.remote) {
         remoteName = node.ref.split('/')[0];
@@ -1168,16 +1140,6 @@ function activate(context) {
     const name = node.ref.split('/')[0];
     const remote = (await git.remotes()).find(item => item.name === name);
     if (remote?.url) await copyToClipboard(remote.url);
-  }
-
-  /** Root node copies: repository name and repository path. */
-  async function copyRepository(node) {
-    if (node?.kind !== 'root') return;
-    const choice = await vscode.window.showQuickPick([
-      { label: 'Repository Name', value: node.label },
-      { label: 'Repository Path', value: git.cwd }
-    ], { title: 'Copy Repository', placeHolder: 'Select what to copy', ignoreFocusOut: true });
-    if (choice) await copyToClipboard(choice.value);
   }
 
   /** Comparison session copies: name, left ref, right ref. */
@@ -1492,14 +1454,9 @@ function activate(context) {
       branchTree.refresh();
     }),
 
-    vscode.commands.registerCommand('git-branch.copyText', async text => {
-      if (typeof text !== 'string' || !text || text.length > 65536) return;
-      await copyToClipboard(text);
-    }),
     vscode.commands.registerCommand('git-branch.copyBranchList', copyBranchList),
     vscode.commands.registerCommand('git-branch.copyBranchRef', copyBranchRef),
     vscode.commands.registerCommand('git-branch.copyNodeName', copyNodeName),
-    vscode.commands.registerCommand('git-branch.copyRepository', copyRepository),
     vscode.commands.registerCommand('git-branch.copyComparison', copyComparison),
     vscode.commands.registerCommand('git-branch.copyRemoteUrl', copyRemoteUrl),
     vscode.commands.registerCommand('git-branch.openRepositoryOnRemote', () => openOnRemote()),
