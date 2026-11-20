@@ -24,7 +24,7 @@
       { "command": "git-branch.refresh", "title": "Refresh", "category": "Git Branch", "icon": "$(refresh)" },
       { "command": "git-branch.create", "title": "Create", "category": "Git Branch", "icon": "$(add)" },
       { "command": "git-branch.createAndCheckout", "title": "Create and Checkout", "category": "Git Branch" },
-      { "command": "git-branch.update", "title": "Update (Fetch & Pull)", "category": "Git Branch" },
+      { "command": "git-branch.update", "title": "Update", "category": "Git Branch" },
       { "command": "git-branch.push", "title": "Push", "category": "Git Branch" },
       { "command": "git-branch.checkout", "title": "Checkout", "category": "Git Branch" },
       { "command": "git-branch.compareSelected", "title": "Compare", "category": "Git Branch" },

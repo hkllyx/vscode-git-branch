@@ -30,7 +30,7 @@ Branches 标题栏只保留刷新和折叠全部（Collapse All），不再显�
 
 | 命令                        | 说明                                                            |
 | --------------------------- | --------------------------------------------------------------- |
-| Update (Fetch & Pull)       | 单选／多选更新：本地按跟踪分支 Fetch 后仅快进，远程分支仅 Fetch |
+| Update                      | 单选／多选更新：本地按跟踪分支 Fetch 后仅快进，远程分支仅 Fetch |
 | Push                        | 推送选中的本地分支；目标远程分支不存在时自动创建，不强制覆盖 |
 | Checkout                    | 本地直接切换；远程先 fetch，再更新或创建同名本地跟踪分支        |
 | Create                      | 有指定分支／标签时从它创建；没有则默认当前分支，不切换          |
@@ -89,7 +89,7 @@ Create 和 Create and Checkout 共用创建逻辑，自动配置跟踪关系：
 - 命令面板 Git Branch: Open Diff 可选择最近一次 Compare 的分支 tip 文件差异。
 - 比较只读，不自动 fetch，不修改 index 或工作区；插件重载后需重新比较。
 
-### Update (Fetch & Pull)
+### Update
 
 - 支持单选和多选 Local／Remote 分支。多选菜单只保留 Delete、Update；恰好两个分支时再显示 Compare、Show Diff。Rename、Checkout、Create、Merge、Rebase、Set Tracking 等只在单选时显示。Delete 支持本地和远程分支，当前本地分支不可删除；远程删除成功后才询问是否删除对应本地分支。
 - 本地分支按当前配置的跟踪分支 Fetch，再进行 **fast-forward only** 更新；同步或仅本地领先时保留现状，双方分叉时报告失败，不自动合并／变基、reset 或丢弃提交。

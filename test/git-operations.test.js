@@ -222,7 +222,7 @@ test('manifest: commands, views, menus are wired', async () => {
   assert.equal(title('setTracking'), 'Set Tracking');
   const trackingMenu = manifest.contributes.menus['view/item/context'].find(item => item.command === 'git-branch.setTracking');
   assert.equal(trackingMenu.when, 'view == git-branch.branches && !git-branch.multiSelection && viewItem =~ /^gb-(local|current)$/');
-  assert.equal(title('update'), 'Update (Fetch & Pull)');
+  assert.equal(title('update'), 'Update');
   assert.equal(title('refreshWorktree'), 'Refresh Diff');
   assert.equal(title('swapWorktree'), 'Swap Comparison');
   assert.equal(title('closeWorktree'), 'Close Diff');
