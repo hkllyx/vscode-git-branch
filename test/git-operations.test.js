@@ -305,6 +305,25 @@ test('manifest: commands, views, menus are wired', async () => {
   for (const value of ['gb-local', 'gb-current', 'gb-remote']) assert.ok(worktreePattern.test(value));
   for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!worktreePattern.test(value));
 
+  // Delete is offered for a single local or remote branch, and for mixed multi-selection.
+  const deleteMenus = manifest.contributes.menus['view/item/context'].filter(item => item.command === 'git-branch.delete');
+  const singleRemoteDelete = deleteMenus.find(item => item.when.includes('!git-branch.multiSelection'));
+  assert.ok(singleRemoteDelete);
+  assert.ok(singleRemoteDelete.when.includes('viewItem == gb-remote'));
+  const multiDelete = deleteMenus.find(item => item.when.includes('git-branch.multiSelection'));
+  assert.ok(multiDelete);
+  const multiDeletePattern = new RegExp(multiDelete.when.split(' =~ /')[1].split('/')[0]);
+  for (const value of ['gb-local', 'gb-current', 'gb-remote']) assert.ok(multiDeletePattern.test(value));
+  for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) assert.ok(!multiDeletePattern.test(value));
+  // The single-selection condition covers local/current plus the separately listed remote item.
+  assert.ok(multiDelete.when.includes('viewItem == gb-local'));
+  assert.ok(singleRemoteDelete.when.includes('!git-branch.multiSelection'));
+  for (const value of ['gb-tag', 'gb-category', 'gb-remote-group', 'gb-diff-session']) {
+    assert.ok(!singleRemoteDelete.when.includes(value));
+    assert.ok(!multiDelete.when.includes(`viewItem == ${value}`));
+  }
+  for (const item of deleteMenus) assert.equal(item.group, '4_branch@2');
+
   // Current branches use the same branch glyph, highlighted without coloring text.
   const bundle = await fs.readFile(path.join(__dirname, '../src/extension.js'), 'utf8');
   assert.ok(!bundle.includes('git.branchCompare'));

@@ -307,6 +307,56 @@ class GitOperations {
     await this.exec(['branch', '-m', '--', oldName, newName]);
   }
 
+  /** Identify one configured remote branch without trusting a shortened ref. */
+  async remoteBranch(branch) {
+    if (branch?.kind !== 'branch' || branch.remote !== true || typeof branch.ref !== 'string' || branch.diffSession) {
+      throw new Error('Select one remote branch.');
+    }
+    const remotes = (await this.exec(['remote'])).trim().split(/\r?\n/).filter(Boolean)
+      .sort((a, b) => b.length - a.length);
+    const remote = remotes.find(name => branch.ref.startsWith(`${name}/`));
+    if (!remote) throw new Error('The selected remote is not configured. Refresh the branch list.');
+    const name = branch.ref.slice(remote.length + 1);
+    if (!name || name.startsWith('-') || name.includes('@{')) throw new Error('Invalid remote branch name.');
+    const ref = `refs/remotes/${branch.ref}`;
+    await this.exec(['check-ref-format', ref]);
+    return { remote, name, ref, upstream: `refs/remotes/${branch.ref}` };
+  }
+
+  /** Delete one remote branch; the caller must explicitly confirm the network mutation. */
+  async removeRemote(branch) {
+    const target = await this.remoteBranch(branch);
+    await this.exec(['check-ref-format', `refs/heads/${target.name}`]);
+    const originalHash = await this.resolve(target.ref);
+    try {
+      if ((await this.exec(['config', '--bool', '--get', `remote.${target.remote}.mirror`])).trim() === 'true') {
+        throw new Error('Mirror remotes are not supported for single-branch Delete.');
+      }
+    } catch (error) { if (error.code !== 1) throw error; }
+    await this.exec(['push', '--delete', '--no-follow-tags', '--recurse-submodules=no', '--',
+      target.remote, `refs/heads/${target.name}`]);
+    // Some Git versions leave the remote-tracking ref behind after deleting a
+    // remote branch. Remove only the exact snapshot that was just deleted.
+    try {
+      await this.resolve(target.ref);
+    } catch { return `${target.remote}/${target.name}`; }
+    try {
+      await this.exec(['update-ref', '-d', target.ref, originalHash]);
+    } catch (error) {
+      throw new Error(`Remote branch deleted, but its stale local tracking ref could not be removed: ${error.message}`);
+    }
+    return `${target.remote}/${target.name}`;
+  }
+
+  /** Local branches sharing the remote branch name or tracking that exact remote ref. */
+  async correspondingLocals(branch) {
+    const target = await this.remoteBranch(branch);
+    return (await this.branches()).branches
+      .filter(item => !item.remote && (item.name === target.name || item.upstream === target.upstream))
+      .map(item => ({ ...item, ref: item.name, kind: 'branch', label: item.name, remote: false,
+        tracksDeletedRemote: item.upstream === target.upstream }));
+  }
+
   /** Safe deletion by default; force must be explicitly confirmed by the caller. */
   async remove(name, force = false) {
     try {

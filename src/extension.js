@@ -1214,45 +1214,105 @@ function activate(context) {
 
     vscode.commands.registerCommand('git-branch.delete', async (node, nodes) => {
       const items = selectedBranches(node, nodes);
-      if (!items.length || items.some(item => item.remote)) {
-        vscode.window.showInformationMessage('Select only local branches to delete.');
+      if (!items.length) {
+        vscode.window.showInformationMessage('Select local or remote branches to delete.');
         return;
       }
-      if (items.length === 1) {
+      const remoteItems = items.filter(item => item.remote);
+      const localItems = items.filter(item => !item.remote);
+      if (items.length === 1 && localItems.length) {
         try {
           await configureGitExecutable(git);
-          if (await git.current() === items[0].ref) {
+          if (await git.current() === localItems[0].ref) {
             vscode.window.showInformationMessage('Cannot delete the current branch. Check out another branch first.');
             return;
           }
         } catch (error) { vscode.window.showErrorMessage(`Delete failed: ${error.message}`); return; }
       }
       const confirmation = await vscode.window.showWarningMessage(
-        `Delete ${items.length} local branch(es)?`,
-        { modal: true, detail: `${items.map(item => item.ref).join('\n')}\n\nSafe deletion first; unmerged branches require individual Force Delete confirmation.` }, 'Delete');
+        remoteItems.length === items.length && items.length === 1
+          ? `Delete remote branch '${items[0].ref}'?`
+          : remoteItems.length ? `Delete ${items.length} branch(es), including ${remoteItems.length} remote branch(es)?`
+            : `Delete ${items.length} local branch(es)?`,
+        { modal: true, detail: `${items.map(item => item.ref).join('\n')}\n\n${remoteItems.length
+          ? 'Remote branches will be deleted on their configured remotes. Corresponding local branches are not deleted automatically; you will be asked separately. '
+          : ''}${localItems.length
+          ? 'Local deletion is safe first; unmerged branches require individual Force Delete confirmation.'
+          : ''}` }, 'Delete');
       if (confirmation !== 'Delete') return;
       const deleted = [], failed = [], skipped = [];
-      for (const item of items) {
+      // Locals already acted on (deleted, kept after a prompt or skipped) are
+      // never offered again by the corresponding-local prompt.
+      const handledLocals = new Set();
+      const deleteLocal = async item => {
+        handledLocals.add(item.ref);
+        await configureGitExecutable(git);
+        if (await git.current() === item.ref) {
+          skipped.push(`${item.ref}: current branch`);
+          return false;
+        }
+        const originalHash = await git.resolve(`refs/heads/${item.ref}`);
+        try { await git.remove(item.ref); }
+        catch (error) {
+          if (!error.unmergedBranch) throw error;
+          const force = await vscode.window.showWarningMessage(
+            `Branch '${item.ref}' is not fully merged. Force delete it?`,
+            { modal: true, detail: 'Local-only commits may become inaccessible. Cancelling skips only this branch.' }, 'Force Delete');
+          if (force !== 'Force Delete') { skipped.push(`${item.ref}: cancelled`); return false; }
+          if (await git.resolve(`refs/heads/${item.ref}`) !== originalHash) {
+            throw new Error('Branch changed during confirmation; review and retry.');
+          }
+          await git.remove(item.ref, true);
+        }
+        deleted.push(item.ref);
+        return true;
+      };
+      const removedRemotes = [];
+      for (const item of remoteItems) {
         try {
           await configureGitExecutable(git);
-          if (await git.current() === item.ref) {
-            skipped.push(`${item.ref}: current branch`);
-            continue;
-          }
-          const originalHash = await git.resolve(qualifiedRef(item));
-          try { await git.remove(item.ref); }
-          catch (error) {
-            if (!error.unmergedBranch) throw error;
-            const force = await vscode.window.showWarningMessage(
-              `Branch '${item.ref}' is not fully merged. Force delete it?`,
-              { modal: true, detail: 'Local-only commits may become inaccessible. Remote branches are unchanged. Cancelling skips only this branch.' }, 'Force Delete');
-            if (force !== 'Force Delete') { skipped.push(`${item.ref}: cancelled`); continue; }
-            if (await git.resolve(qualifiedRef(item)) !== originalHash) throw new Error('Branch changed during confirmation; review and retry.');
-            await git.remove(item.ref, true);
-          }
+          await git.removeRemote(item);
           deleted.push(item.ref);
+          removedRemotes.push(item);
         } catch (error) { failed.push(`${item.ref}: ${error.message}`); }
         finally { branchTree.refresh(); }
+      }
+      for (const item of localItems) {
+        try { await deleteLocal(item); }
+        catch (error) { failed.push(`${item.ref}: ${error.message}`); }
+        finally { branchTree.refresh(); }
+      }
+      // Only ask about locals after the remote deletion actually succeeded;
+      // a failed network operation must not remove local history.
+      if (removedRemotes.length) {
+        try {
+          await configureGitExecutable(git);
+          const candidates = new Map();
+          for (const item of removedRemotes) {
+            for (const local of await git.correspondingLocals(item)) {
+              if (!handledLocals.has(local.ref)) candidates.set(local.ref, local);
+            }
+          }
+          const current = await git.current();
+          const currentNames = [...candidates.values()].filter(item => item.ref === current).map(item => item.ref);
+          for (const name of currentNames) skipped.push(`${name}: current branch; corresponding local kept`);
+          const actionable = [...candidates.values()].filter(item => item.ref !== current);
+          if (actionable.length) {
+            const choice = await vscode.window.showWarningMessage(
+              `Delete ${actionable.length} corresponding local branch(es)?`,
+              { modal: true, detail: `${actionable.map(item => `${item.ref}${item.tracksDeletedRemote ? ' (tracked the deleted remote branch)' : ' (same name)'}`).join('\n')}\n\nThe current branch is never deleted. Local-only commits still require Force Delete confirmation.` },
+              'Delete Local Branches', 'Keep Local Branches');
+            if (choice === 'Delete Local Branches') {
+              for (const item of actionable) {
+                try { await deleteLocal(item); }
+                catch (error) { failed.push(`${item.ref}: ${error.message}`); }
+                finally { branchTree.refresh(); }
+              }
+            } else {
+              for (const item of actionable) skipped.push(`${item.ref}: corresponding local kept`);
+            }
+          }
+        } catch (error) { failed.push(`Corresponding local branches: ${error.message}`); }
       }
       const summary = `Delete: ${deleted.length} succeeded, ${failed.length} failed, ${skipped.length} skipped.`;
       const details = [...deleted.map(name => `Deleted: ${name}`), ...failed.map(text => `Failed: ${text}`), ...skipped.map(text => `Skipped: ${text}`)].join('\n');

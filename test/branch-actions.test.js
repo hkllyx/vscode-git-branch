@@ -88,7 +88,8 @@ test('delete and rename accept real tree data nodes without contextValue', async
     assert.ok(messages.some(message => message.includes('Cannot delete the current branch')));
     const remote = roots[1].children[0].children[0];
     const tag = roots[2].children[0];
-    for (const node of [remote, tag, roots[0], undefined]) {
+    await commands.get('git-branch.rename')(remote);
+    for (const node of [tag, roots[0], undefined]) {
       await commands.get('git-branch.delete')(node);
       await commands.get('git-branch.rename')(node);
     }

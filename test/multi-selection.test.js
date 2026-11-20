@@ -354,6 +354,31 @@ test('multi-select: F2, independent deletion, two-ref Diff and native Compare so
     answers = ['Delete', 'Force Delete']; await run('delete', left);
     await assert.rejects(git.resolve('refs/heads/left'));
     assert.equal(await git.resolve('refs/remotes/origin/right'), rightHash);
+    // Remote deletion followed by an explicit corresponding-local decision.
+    const targetPath = path.join(path.dirname(cwd), `${path.basename(cwd)}-server.git`);
+    await fs.mkdir(targetPath);
+    const server = new GitOperations(targetPath);
+    await server.exec(['init', '--bare', '-b', 'main']);
+    await git.exec(['remote', 'add', 'origin', targetPath]);
+    await git.exec(['push', 'origin', `refs/heads/main:refs/heads/main`]);
+    await git.exec(['push', 'origin', `${rightHash}:refs/heads/right`]);
+    await git.exec(['fetch', 'origin']);
+    await git.exec(['config', 'branch.right.remote', 'origin']);
+    await git.exec(['config', 'branch.right.merge', 'refs/heads/right']);
+    const remoteRight = (await tree.getChildren())[1].children[0].children.find(node => node.ref === 'origin/right');
+    const currentBefore = await git.current();
+    answers = ['Delete', 'Keep Local Branches'];
+    await run('delete', remoteRight);
+    await assert.rejects(server.resolve('refs/heads/right'));
+    assert.ok(await git.resolve('refs/heads/right')); // Keeping locals leaves history intact.
+    assert.equal(await git.current(), currentBefore);
+    assert.ok(messages.at(-1)?.startsWith('Delete: 1 succeeded'));
+    await git.exec(['push', 'origin', `refs/heads/right:refs/heads/right`]);
+    await git.exec(['fetch', 'origin']);
+    const refreshedRemote = (await tree.getChildren())[1].children[0].children.find(node => node.ref === 'origin/right');
+    answers = ['Delete', 'Delete Local Branches', 'Force Delete'];
+    await run('delete', refreshedRemote);
+    await assert.rejects(git.resolve('refs/heads/right'));
     assert.equal(await git.exec(['status', '--porcelain']), '');
   } finally {
     for (const subscription of context.subscriptions) subscription.dispose();

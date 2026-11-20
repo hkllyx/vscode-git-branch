@@ -427,7 +427,8 @@ test('all editor commands: selected refs, cached Compare tabs, active-tab diff a
     }
     // Comparison sessions must not match any branch action menu.
     for (const menu of menus.filter(m => m.command && !m.group.startsWith('inline') && m.when.includes(' =~ /'))) {
-      const pattern = new RegExp(menu.when.split(' =~ /')[1].slice(0, -1));
+      const body = menu.when.split(' =~ /')[1].split('/')[0];
+      const pattern = new RegExp(body);
       assert.ok(!pattern.test('gb-diff-session'));
     }
     const fileNode = children.find(n => n.kind === 'worktree-file');

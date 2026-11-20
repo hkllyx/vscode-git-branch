@@ -92,7 +92,8 @@
         { "command": "git-branch.worktree", "when": "view == git-branch.branches && !git-branch.multiSelection && viewItem =~ /^gb-(local|current|remote)$/", "group": "3_compare@2" },
         { "command": "git-branch.setTracking", "when": "view == git-branch.branches && !git-branch.multiSelection && viewItem =~ /^gb-(local|current)$/", "group": "4_branch@0" },
         { "command": "git-branch.rename", "when": "view == git-branch.branches && !git-branch.multiSelection && viewItem =~ /^gb-(local|current)$/", "group": "4_branch@1" },
-        { "command": "git-branch.delete", "when": "view == git-branch.branches && (viewItem == gb-local || (git-branch.multiSelection && viewItem == gb-current))", "group": "4_branch@2" }
+        { "command": "git-branch.delete", "when": "view == git-branch.branches && (viewItem == gb-local || (git-branch.multiSelection && viewItem =~ /^gb-(local|current|remote)$/))", "group": "4_branch@2" },
+        { "command": "git-branch.delete", "when": "view == git-branch.branches && !git-branch.multiSelection && viewItem == gb-remote", "group": "4_branch@2" }
       ],
       "git-branch.diffMore": [
         { "command": "git-branch.diffList", "when": "!(viewItem =~ /-session-list-/)", "group": "1_view@1" },
