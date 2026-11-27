@@ -10,6 +10,8 @@ const { regularMode, safeWorktreeFile } = require('../git/worktreePaths');
 const { BranchError, errorText, shortOid } = require('../util/format');
 
 const FILE_LAYOUT = 'git-branch.filesLayout';
+const COMMIT_COLUMNS = 'git-branch.historyColumns';
+const COLUMN_LABELS = { author: 'history.author', hash: 'history.columnHash', date: 'history.columnDate' };
 
 const HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escapeHtml = value => value.replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
@@ -22,7 +24,9 @@ class GraphController {
     this.documents = documents;
     this.ui = ui;
     this.range = ALL;
-    this.filter = { text: '', author: '' };
+    this.filter = '';
+    const savedColumns = context.workspaceState?.get(COMMIT_COLUMNS);
+    this.commitColumns = Object.keys(COLUMN_LABELS).filter(key => !Array.isArray(savedColumns) || savedColumns.includes(key));
     this.generation = 0;
     this.selectionRevision = 0;
     this.requests = new Map();
@@ -126,9 +130,7 @@ class GraphController {
       this.unavailable = !next?.snapshot || Boolean(next.error);
       this.comparison = undefined;
       this.range = ALL;
-      this.filter = { text: '', author: '' };
-      this.authors = undefined;
-      this.authorsKey = undefined;
+      this.filter = '';
       this.target = next?.snapshot ? historyTarget(next.snapshot, this.range, this.registry.showTags) : undefined;
       this.reset();
       return;
@@ -161,39 +163,20 @@ class GraphController {
     }
   }
 
-  /**
-   * Text and author filters restart the log instead of appending to a stale one.
-   * The author list itself depends only on the history range, so it is not reset here.
-   */
-  setFilter(repo, filter) {
-    if (this.repo !== repo) throw new BranchError(t('repo.switched'));
-    const next = { text: String(filter?.text ?? '').trim(), author: String(filter?.author ?? '').trim() };
-    if (next.text === this.filter.text && next.author === this.filter.author) return;
+  setFilter(text) {
+    const next = text.trim();
+    if (next === this.filter) return;
     this.filter = next;
     this.reset();
   }
 
-  authorKey() {
-    const { target, comparison } = this;
-    if (!target) return undefined;
-    return comparison?.workingTree ? `worktree:${comparison.left.oid}` : target.key;
-  }
-
-  async loadAuthors() {
-    const { repo } = this;
-    const key = this.authorKey();
-    if (!this.canRead || !key) return;
-    const tips = this.comparison?.workingTree ? [this.comparison.left.oid] : this.target.tips;
-    this.authorsKey = key;
-    try {
-      const authors = await repo.reads.authors(tips);
-      if (repo !== this.repo || key !== this.authorKey()) return;
-      this.authors = authors;
-      this.send('page', this.pageState());
-    } catch {
-      // A missing author list only disables the dropdown.
-      if (this.authorsKey === key) this.authorsKey = undefined;
-    }
+  async chooseColumns() {
+    const items = Object.entries(COLUMN_LABELS).map(([key, label]) => ({ key, label: t(label), picked: this.commitColumns.includes(key) }));
+    const chosen = await vscode.window.showQuickPick(items, { canPickMany: true, title: t('history.chooseColumns') });
+    if (!chosen) return;
+    this.commitColumns = items.filter(item => chosen.includes(item)).map(item => item.key);
+    this.send('commitColumns', this.commitColumns);
+    await this.context.workspaceState?.update(COMMIT_COLUMNS, this.commitColumns);
   }
 
   compare(repo, left, right) {
@@ -254,13 +237,13 @@ class GraphController {
   }
 
   pageState() {
-    const authors = this.authorsKey === this.authorKey() ? this.authors || [] : [];
     return { hasMore: this.hasMore, loading: this.requests.has('page'), error: this.pageError, columns: this.layout.columns,
-      filter: { ...this.filter }, authors };
+      filter: this.filter };
   }
 
   sendReset() {
     this.send('reset', { meta: this.meta(), rows: this.rows, page: this.pageState(), filesLayout: this.filesLayout,
+      commitColumns: this.commitColumns,
       selection: this.selectionPacket || { ...this.selection.asPacket(), revision: this.selectionRevision }, comparison: this.comparePacket,
       editPrompt: this.editPrompt?.packet });
   }
@@ -300,7 +283,6 @@ class GraphController {
         this.selection.restore(this.restore, rows);
         this.restore = undefined;
         void this.loadSelection();
-        if (this.authorsKey !== this.authorKey()) void this.loadAuthors();
       }
     } catch (error) {
       if (this.active('page', request)) this.pageError = errorText(error);
@@ -345,31 +327,6 @@ class GraphController {
     };
   }
 
-  /**
-   * IntelliJ lists a merge commit's changes once per parent under
-   * "Changes to <parent>" and, when the merge introduced nothing relative to its
-   * first parent, adds a "No merged conflicts" tag node (`changes.isEmpty()`).
-   */
-  async readMergeGroups(repo, detail, signal) {
-    const parents = detail.parents;
-    const diffs = await mapWithLimit(parents, 2, signal, async parent => {
-      try {
-        const files = await repo.reads.commitFilesFromParent(detail.oid, parent, { signal });
-        return files.map(file => ({ ...file, baseOid: parent, afterOid: detail.oid }));
-      } catch (error) { if (signal.aborted) throw error; return undefined; }
-    });
-    if (diffs.some(files => !files)) return undefined;
-    return {
-      clean: diffs[0].length === 0,
-      groups: parents.map((parent, index) => ({
-        oid: parent, short: shortOid(parent),
-        subject: this.known.get(parent)?.subject ?? (index === 0 ? t('history.firstParent') : ''),
-        files: diffs[index].map(file => this.toClient(file, this.selectionFiles,
-          `${shortOid(file.baseOid)} → ${shortOid(file.afterOid)}`))
-      })).filter(group => group.files.length)
-    };
-  }
-
   async loadSelection() {
     this.cancel('diff');
     this.selectionFiles.clear();
@@ -411,9 +368,7 @@ class GraphController {
       if (!this.active('selection', request)) return;
       const files = merged.map(file => this.toClient({ ...file, partial: failures.length > 0 }, this.selectionFiles,
         `${file.baseOid ? shortOid(file.baseOid) : t('history.emptyTree')} → ${shortOid(file.afterOid)}`));
-      const mergeGroups = !multi && detail?.parents?.length > 1 && !focus.error ? await this.readMergeGroups(repo, detail, signal) : undefined;
-      if (!this.active('selection', request)) return;
-      publish({ detail, failures, files, mergeGroups, total: selected.length });
+      publish({ detail, failures, files, total: selected.length });
     } catch (error) {
       if (this.active('selection', request)) publish({ failures: [errorText(error)] });
     } finally {
@@ -579,16 +534,15 @@ class GraphController {
     switch (message.type) {
       case 'chooseRepository': return this.ui.chooseRepository();
       case 'chooseRange': return this.ui.chooseRange();
+      case 'chooseColumns': return this.chooseColumns();
       case 'refresh': {
         await this.registry.refresh();
         if (message.generation === this.generation) this.reset(true);
         return;
       }
-      case 'setFilter': {
-        const { text, author } = message;
-        if (typeof text !== 'string' || typeof author !== 'string') return;
-        return this.setFilter(this.repo, { text, author });
-      }
+      case 'setFilter':
+        if (typeof message.text === 'string') return this.setFilter(message.text);
+        return;
       case 'loadMore': return this.loadPage();
       case 'select': {
         const { oid, mode } = message;
@@ -655,9 +609,6 @@ class GraphController {
   <div class="filters" role="search">
     <input id="filter-text" class="control filter-text" type="search" spellcheck="false" autocomplete="off"
       placeholder="${htmlText('history.filterText')}" aria-label="${htmlText('history.filterText')}" title="${htmlText('history.filterTextHint')}">
-    <select id="filter-author" class="control filter-author" aria-label="${htmlText('history.filterAuthor')}" title="${htmlText('history.filterAuthorHint')}">
-      <option value="">${htmlText('history.filterAuthorAll')}</option>
-    </select>
   </div>
   <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}">⟳</button>
   <div id="compare-bar" class="compare-bar" hidden>
@@ -675,7 +626,10 @@ class GraphController {
 </nav>
 <main id="panes" class="panes" data-pane="log">
   <section class="log-pane" aria-label="${htmlText('history.graph')}">
-    <div class="pane-header log-header"><span id="log-title" title="${htmlText('history.selectionHint')}">${htmlText('history.graph')}</span><span id="compare-counts" class="compare-counts"></span><span class="column-author">${htmlText('history.author')}</span><span class="column-time">${htmlText('history.time')}</span><span class="hash-spacer" aria-hidden="true"></span></div>
+    <div class="pane-header log-header">
+      <span id="log-title" title="${htmlText('history.selectionHint')}">${htmlText('history.graph')}</span><span id="compare-counts" class="compare-counts"></span>
+      <button id="commit-columns" class="control column-picker" type="button" title="${htmlText('history.chooseColumns')}">${htmlText('history.columns')}</button>
+    </div>
     <div id="commits-scroll" class="scroll log-scroll" tabindex="-1">
       <div id="top-spacer"></div><div id="commits" role="listbox" aria-label="${htmlText('history.commitList')}" aria-multiselectable="true"></div><div id="bottom-spacer"></div>
       <div id="log-status" class="log-status" role="status"></div>

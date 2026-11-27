@@ -13,8 +13,6 @@ const { isOid, shortOid, stripLineEnd, BranchError } = require('../util/format')
 const DIFF = ['-r', '--raw', '-z', '--no-abbrev', '--no-ext-diff', '--no-textconv', '--ignore-submodules=none', '--find-renames', '-l1000'];
 const MAX_BLOB = 1024 * 1024;
 const PAGE_SIZE = 120;
-/** How far back the commit-author dropdown scans; IntelliJ also derives it lazily. */
-const AUTHOR_SCAN = 2000;
 
 function assertOid(oid) {
   if (!isOid(oid)) throw new Error(t('git.invalidObjectId'));
@@ -104,64 +102,39 @@ class GitReads {
     return new Set(output.split(/\r?\n/).filter(isOid));
   }
 
-  /**
-   * Log pages keep the raw `skip` semantics (rows of the unfiltered log) unless a
-   * text filter is active, in which case `skip` counts matched rows instead. The
-   * scan cursor is returned so callers can page through the raw log and keep the
-   * matching stream stable even while new commits arrive.
-   */
+  /** The scan cursor counts raw log rows, including rows skipped by the filter. */
   async historyPage({ tips = [], compare, skip = 0, scan, limit = PAGE_SIZE, filter, signal }) {
     if (!compare && !tips.length) return { commits: [], hasMore: false, scanned: scan ?? skip };
     const revs = compare ? ['--left-right', `${assertOid(compare.left.oid)}...${assertOid(compare.right.oid)}`] : ['--stdin'];
     const input = compare ? undefined : `${tips.map(assertOid).join('\n')}\n`;
-    const args = ['log', '-z', '--topo-order', '--no-decorate', '--no-show-signature', '--no-notes',
-      `--format=tformat:${LOG_FORMAT}`, ...revs];
-    const author = filter?.author?.trim();
-    const text = filter?.text?.trim().toLowerCase();
-    // --author is a regex; an unescaped name containing +.* etc. would misbehave.
-    const pattern = author ? author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : undefined;
-    const base = pattern ? [...args, `--author=${pattern}`] : args;
+    const text = filter?.trim().toLowerCase();
+    const base = ['log', '-z', '--topo-order', '--no-decorate', '--no-show-signature', '--no-notes',
+      `--format=tformat:${LOG_FORMAT}${text ? '%x00%b' : ''}`, ...revs];
     if (!text) {
       const rows = parseLog(await this.client.text([...base, `--skip=${skip}`, `--max-count=${limit + 1}`], { signal, input }),
         Boolean(compare));
       return { commits: rows.slice(0, limit), hasMore: rows.length > limit, scanned: skip + Math.min(rows.length, limit) };
     }
-    // Text search spans subject, author and hash prefix, so the rows have to be
-    // matched here; the log is scanned in chunks until the page is full.
-    const CHUNK = 400;
-    const MAX_SCAN = 20000;
+    const chunkSize = 400;
     const matches = [];
     let position = scan ?? 0;
-    let more = true;
-    while (matches.length <= limit && more && position < MAX_SCAN) {
-      const chunk = parseLog(await this.client.text([...base, `--skip=${position}`, `--max-count=${CHUNK}`],
-        { signal, input }), Boolean(compare));
-      position += chunk.length;
-      more = chunk.length === CHUNK;
-      for (const row of chunk) {
-        if (row.subject.toLowerCase().includes(text) || row.author.toLowerCase().includes(text) || row.oid.startsWith(text)) {
+    for (;;) {
+      const chunk = parseLog(await this.client.text([...base, `--skip=${position}`, `--max-count=${chunkSize}`],
+        { signal, input }), Boolean(compare), true);
+      for (const { body, ...row } of chunk) {
+        if (row.subject.toLowerCase().includes(text) || body.toLowerCase().includes(text) ||
+            row.author.toLowerCase().includes(text) || row.oid.startsWith(text)) {
+          // Keep the first match after the page for the next read, even mid-chunk.
+          if (matches.length === limit) return { commits: matches, hasMore: true, scanned: position };
           matches.push(row);
-          if (matches.length > limit) break;
         }
+        position++;
       }
+      if (chunk.length < chunkSize) return { commits: matches, hasMore: false, scanned: position };
     }
-    return { commits: matches.slice(0, limit), hasMore: matches.length > limit || more, scanned: position };
   }
 
-  /**
-   * Authors offered by the commit filter. IntelliJ populates the author list from
-   * the log it is showing, so this scans the range history rather than only the
-   * tip commits (which would hide everyone whose work is not the branch head).
-   */
-  async authors(tips, opts) {
-    if (!tips.length) return [];
-    const output = await this.client.text(['log', `--max-count=${AUTHOR_SCAN}`,
-      '--format=%an', ...tips.map(assertOid), '--'], opts).catch(() => '');
-    const seen = new Set(output.split(/\r?\n/).filter(Boolean));
-    return [...seen].sort((a, b) => a.localeCompare(b));
-  }
-
-  /** Diff of a commit against one of its parents; a merge has one per parent. */
+  /** Diff of a commit against one of its parents. */
   async commitFilesFromParent(oid, parentOid, opts) {
     assertOid(oid);
     assertOid(parentOid);
@@ -191,13 +164,22 @@ class GitReads {
 
   async commitFiles(oid, commit, opts) {
     assertOid(oid);
-    const base = commit.parents[0];
-    if (base && !(await this.resolveCommit(assertOid(base), opts))) {
-      throw new BranchError(t('git.missingParent', { oid: shortOid(base) }));
+    const [base, ...otherParents] = commit.parents;
+    if (!base) return parseRawDiff(await this.client.buffer(['diff-tree', '--root', '--no-commit-id', ...DIFF, oid, '--'], opts));
+    for (const parent of commit.parents) {
+      if (!(await this.resolveCommit(assertOid(parent), opts))) {
+        throw new BranchError(t('git.missingParent', { oid: shortOid(parent) }));
+      }
     }
-    const args = base ? ['diff-tree', '--no-commit-id', ...DIFF, base, oid, '--']
-      : ['diff-tree', '--root', '--no-commit-id', ...DIFF, oid, '--'];
-    return parseRawDiff(await this.client.buffer(args, opts));
+    let files = await this.commitFilesFromParent(oid, base, opts);
+    // Like IDEA's default combined view, only keep paths changed against every
+    // parent. Keep the first-parent sides for opening an ordinary two-way Diff.
+    for (const parent of otherParents) {
+      if (!files.length) break;
+      const paths = new Set((await this.commitFilesFromParent(oid, parent, opts)).map(file => file.pathKey));
+      files = files.filter(file => paths.has(file.pathKey));
+    }
+    return files;
   }
 
   async branchFiles(left, right, opts) {

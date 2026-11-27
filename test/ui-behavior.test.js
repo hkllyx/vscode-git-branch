@@ -395,6 +395,49 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.equal(await local.read('file.txt'), 'on disk');
 });
 
+test('history columns default to Author, Hash, Date and persist checked items without restarting the log', async t => {
+  const packets = [];
+  const values = new Map();
+  const workspaceState = { get: key => values.get(key), update: (key, value) => values.set(key, value) };
+  let pick = () => undefined;
+  const vscode = { window: { showQuickPick: (items, options) => {
+    assert.equal(options.canPickMany, true);
+    const labels = ['history.author', 'history.columnHash', 'history.columnDate'].map(key => message(key));
+    assert.deepEqual(items.map(item => item.label), labels);
+    return pick(items);
+  } } };
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode });
+  const registry = { repositories: new Map(), onChange: () => ({ dispose() {} }) };
+  const start = () => {
+    const controller = new GraphController({ workspaceState }, registry, {}, {});
+    t.after(() => controller.dispose());
+    controller.ready = true;
+    controller.view = { visible: true, webview: { postMessage: packet => packets.push(packet) } };
+    return controller;
+  };
+  const controller = start();
+  const { generation } = controller;
+  const openPicker = () => controller.onMessage({ generation, type: 'chooseColumns' });
+  assert.deepEqual(controller.commitColumns, ['author', 'hash', 'date']);
+  pick = items => {
+    assert.ok(items.every(item => item.picked));
+    return [items[2], items[0]];
+  };
+  await openPicker();
+  assert.deepEqual(packets.at(-1), { generation, type: 'commitColumns', repoId: undefined, payload: ['author', 'date'] });
+  assert.deepEqual(start().commitColumns, ['author', 'date']);
+  pick = items => {
+    assert.deepEqual(items.map(item => item.picked), [true, false, true]);
+    return undefined;
+  };
+  await openPicker();
+  assert.equal(packets.length, 1);
+  pick = () => [];
+  await openPicker();
+  assert.deepEqual(start().commitColumns, []);
+  assert.equal(controller.generation, generation);
+});
+
 test('history context targets the clicked commit or its selection and rejects stale and single-only group commands', async t => {
   const vscode = { workspace: { isTrusted: true } };
   const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode });

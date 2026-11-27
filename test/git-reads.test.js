@@ -144,7 +144,7 @@ test('working tree diff cannot open a path replaced by a junction or an out-of-t
   await assert.rejects(repo.reads.workingBlob(unsafe), /cannot be read safely/);
 });
 
-test('changes use empty tree for root, handle rename/blob rules, and compare merge to its first parent', async t => {
+test('changes use an empty tree for root, preserve renames and use real merge parents in the graph', async t => {
   const f = await fixture(t);
   const repo = await f.repo('files');
   const root = await repo.commit('root', { 'old path.txt': '内容', 'binary.bin': Buffer.from([0, 3, 4]), 'big.txt': 'x'.repeat(1024 * 1024 + 1) });
@@ -166,7 +166,7 @@ test('changes use empty tree for root, handle rename/blob rules, and compare mer
   const merge = await repo.head();
   const info = await repo.reads.commit(merge);
   assert.deepEqual(info.parents, [left, rename]);
-  assert.deepEqual((await changes(repo, merge)).map(entry => entry.status), ['R']);
+  assert.deepEqual(await changes(repo, merge), []);
   const layout = new GraphLayout();
   const { commits } = await repo.reads.historyPage({ tips: [merge] });
   assert.deepEqual(layout.append(commits[0]).edges.map(lane => lane.oid), [left, rename]);
@@ -311,7 +311,7 @@ test('history reload restores only visible commits, without replacing an explici
   assert.deepEqual(state.asPacket(), { focus: undefined, anchor: undefined, selected: [] });
 });
 
-test('history filters match subject, author and hash prefix without dropping the log tail', async t => {
+test('one history filter matches message body, author and hash without dropping matches at page boundaries', async t => {
   const f = await fixture(t);
   const repo = await f.repo('filter');
   const author = async (name, message, data) => {
@@ -320,38 +320,44 @@ test('history filters match subject, author and hash prefix without dropping the
   };
   const one = await author('Alice', 'Add login form', { 'a.txt': '1' });
   const two = await author('Bob', 'Fix logout crash', { 'b.txt': '2' });
-  const three = await author('Alice', 'Tweak login copy', { 'c.txt': '3' });
-  const byText = await repo.reads.historyPage({ tips: [three], filter: { text: 'login' }, limit: 10 });
-  assert.deepEqual(byText.commits.map(row => row.oid), [three, one]);
-  assert.equal(byText.hasMore, false);
-  const byAuthor = await repo.reads.historyPage({ tips: [three], filter: { text: 'alice' }, limit: 10 });
+  const three = await author('Alice', 'Tweak copy\n\nUpdates the login page.', { 'c.txt': '3' });
+  const tips = [three];
+  const byText = await repo.reads.historyPage({ tips, filter: ' LOGIN ', limit: 1 });
+  assert.deepEqual(byText.commits.map(row => row.oid), [three]);
+  assert.equal(byText.commits[0].body, undefined);
+  assert.equal(byText.hasMore, true);
+  const next = await repo.reads.historyPage({ tips, filter: 'login', skip: 1, scan: byText.scanned, limit: 1 });
+  assert.deepEqual(next.commits.map(row => row.oid), [one]);
+  assert.equal(next.hasMore, false);
+  const byAuthor = await repo.reads.historyPage({ tips, filter: 'alice' });
   assert.deepEqual(byAuthor.commits.map(row => row.oid), [three, one]);
-  const byHash = await repo.reads.historyPage({ tips: [three], filter: { text: two.slice(0, 8) }, limit: 10 });
+  const byHash = await repo.reads.historyPage({ tips, filter: two.slice(0, 8).toUpperCase() });
   assert.deepEqual(byHash.commits.map(row => row.oid), [two]);
-  // A git-level author filter still pages with plain `skip`/`--max-count`.
-  const gitAuthor = await repo.reads.historyPage({ tips: [three], filter: { author: 'Bob' }, limit: 10 });
-  assert.deepEqual(gitAuthor.commits.map(row => row.oid), [two]);
-  assert.deepEqual(await repo.reads.authors([three]), ['Alice', 'Bob']);
-  // Non-matching filters terminate instead of scanning forever.
-  const none = await repo.reads.historyPage({ tips: [three], filter: { text: 'nothing-matches' }, limit: 10 });
+  const none = await repo.reads.historyPage({ tips, filter: 'nothing-matches' });
   assert.deepEqual(none.commits, []);
   assert.equal(none.hasMore, false);
 });
 
-test('a merge commit reports one file group per parent and clean merges stay empty', async t => {
+test('merge files exclude ordinary imports and retain only paths changed against every parent', async t => {
   const f = await fixture(t);
   const repo = await f.repo('merge');
-  const root = await repo.commit('root', { 'base.txt': 'root\n' });
+  await repo.commit('root', { 'conflict.txt': 'root\n', 'take-parent.txt': 'root\n' });
   await repo.git('switch', '-c', 'topic');
-  const side = await repo.commit('side', { 'side.txt': 'side\n' });
+  const side = await repo.commit('side', { 'side.txt': 'side\n', 'conflict.txt': 'side\n', 'take-parent.txt': 'side\n' });
   await repo.git('switch', 'main');
-  const main = await repo.commit('main', { 'main.txt': 'main\n' });
-  await repo.git('merge', '--no-ff', '-m', 'merge topic', 'topic');
-  const merged = await repo.head();
-  assert.deepEqual((await repo.reads.commitFilesFromParent(merged, main)).map(file => file.path), ['side.txt']);
-  assert.deepEqual((await repo.reads.commitFilesFromParent(merged, side)).map(file => file.path), ['main.txt']);
-  const ff = await repo.reads.commitFilesFromParent(main, root);
-  assert.deepEqual(ff.map(file => file.path), ['main.txt']);
+  const main = await repo.commit('main', { 'main.txt': 'main\n', 'conflict.txt': 'main\n', 'take-parent.txt': 'main\n' });
+  await assert.rejects(repo.git('merge', '--no-ff', '-m', 'merge topic', 'topic'));
+  assert.deepEqual((await repo.reads.workingState(repo.dirs.gitDir)).conflicted, true);
+  const merged = await repo.commit('Resolve topic merge', { 'conflict.txt': 'resolution\n', 'take-parent.txt': 'side\n' });
+  assert.deepEqual((await repo.reads.commit(merged)).parents, [main, side]);
+  const [file, ...rest] = await changes(repo, merged);
+  assert.deepEqual(rest, []);
+  assert.equal(file.path, 'conflict.txt');
+  assert.equal(await repo.reads.blob(file.old), 'main\n');
+  assert.equal(await repo.reads.blob(file.new), 'resolution\n');
+  assert.deepEqual((await combined(repo, [merged, main])).map(file => file.path).sort(),
+    ['conflict.txt', 'main.txt', 'take-parent.txt']);
+  await assert.rejects(repo.reads.commitFiles(merged, { parents: [main, '0'.repeat(main.length)] }), /parent commit .* is missing/);
 });
 
 test('a forked 8-file selection yields the endpoint diff instead of an unmergeable row', async t => {

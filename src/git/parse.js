@@ -25,17 +25,20 @@ function parseRefs(output) {
   });
 }
 
-function parseLog(output, compare) {
+function parseLog(output, compare, withBody = false) {
   if (!output) return [];
   const fields = output.split('\0');
-  if (fields.pop() !== '' || fields.length % 5) throw new Error(t('git.invalidLog'));
+  const width = withBody ? 6 : 5;
+  if (fields.pop() !== '' || fields.length % width) throw new Error(t('git.invalidLog'));
   const rows = [];
-  for (let i = 0; i < fields.length; i += 5) {
-    const [marked, parentList, author, date, subject] = fields.slice(i, i + 5);
+  for (let i = 0; i < fields.length; i += width) {
+    const [marked, parentList, author, date, subject, body] = fields.slice(i, i + width);
     const oid = /^[<>-]/.test(marked) ? marked.slice(1) : marked;
     const parents = parentList ? parentList.split(' ') : [];
     if (!isOid(oid) || parents.some(parent => !isOid(parent))) throw new Error(t('git.invalidCommitId'));
-    rows.push({ oid, parents, author, date, subject, side: compare ? (marked[0] === '<' ? 'left' : 'right') : undefined });
+    const row = { oid, parents, author, date, subject, side: compare ? (marked[0] === '<' ? 'left' : 'right') : undefined };
+    if (withBody) row.body = body;
+    rows.push(row);
   }
   return rows;
 }

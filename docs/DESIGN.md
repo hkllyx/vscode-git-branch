@@ -20,7 +20,7 @@
 
 下文以简体中文和英文标签举例。分支树的 `Local / Remote / Tags` 分别对应简体中文的「本地 / 远程 / 标签」和繁體中文的「本機 / 遠端 / 標籤」；布局与操作规则不随语言改变。
 
-![工作台预览：左侧为原生 Changes 和扁平分支列表，下方为提交图与按父提交分组的文件变更，编辑区显示文件差异](./design/workbench-preview.png)
+![工作台预览：左侧为原生 Changes 和扁平分支列表，下方为提交图与合并提交的文件变更，编辑区显示文件差异](./design/workbench-preview.png)
 
 - **Source Control → Changes**：继续由 VS Code 内置 Git 提供。暂存、取消暂存、提交、冲突解决和工作区 Diff 均沿用原生入口。插件不另建提交框，也不注册第二个 Git 源代码管理提供者。
 - **Source Control → Branches**：增加一个与 Changes 同级的原生树视图。它只列当前仓库的引用和分支操作，不在树内展开提交、文件或对比会话。
@@ -124,9 +124,9 @@
 
 ### 提交图与单提交
 
-- 工具栏依次提供当前仓库、历史范围、文本筛选、提交人筛选和刷新。默认范围是 `全部分支`：遍历本地分支、缓存的远程跟踪分支及可解析的 HEAD；不会因开启标签而加入仅由标签可达的历史。可切到某一分支、HEAD 或显式选择的标签，展示其可达历史，不检出、不改变工作区。文本框按提交说明、提交人或哈希前缀过滤，右侧下拉只显示所选提交人的提交；两者可叠加，`Enter` 立即生效、`Esc` 清空文本框，输入停顿约 220 ms 自动查询。筛选会重置日志并从头扫描，结果为空时提示「没有符合当前筛选条件的提交」，不会静默显示空白。
-- 提交按拓扑顺序呈现，不按日期猜父子关系。每行依次显示提交主题、相关引用徽标、基准 / 目标标记、提交人、提交时间和短 OID（哈希在行末，给分支名留出更多宽度）；窄面板省略部分列。时间列和详情显示**提交者时间**（不是作者时间），按本地时区格式化为 `yyyy/MM/dd HH:mm`，如 `2026/11/26 09:05`。悬停附带原始含时区时间，以及近期的相对时间，如「5 分钟前」「昨天」。分叉及合并按真实父提交连线，父提交不在本地历史时用虚线标记。最多绘制 14 条泳道，超过时保留提交行并标 `⋯`；窄面板省略部分列，仍可在悬停和详情查看完整时间。
-- 单击提交，右侧展示文件和提交详情（完整信息、作者、时间、完整 OID、父提交）。普通提交对比父提交，根提交对比空树。**合并提交按 IntelliJ 的方式按父提交分组**：每个父提交一个可折叠的 `Changes to <短 OID> <父提交说明>` 节点，右侧徽标显示该组文件数；相对于第一父提交没有任何改动时，先显示一行 `No merged conflicts`。分组节点内的文件与普通列表一样支持点击打开 Diff、列表／目录树切换和文件右键菜单；多选时仍只显示一份合成差异，不显示分组。浅克隆中父对象缺失不是根提交：显示「缺少父提交，无法计算变动」，不把所有文件当新增，也不自动联网补历史。
+- 工具栏依次提供当前仓库、历史范围、统一筛选框和刷新。默认范围是 `全部分支`：遍历本地分支、缓存的远程跟踪分支及可解析的 HEAD；不会因开启标签而加入仅由标签可达的历史。可切到某一分支、HEAD 或显式选择的标签，展示其可达历史，不检出、不改变工作区。筛选框随 VS Code 主题，输入同一段文字即可匹配提交消息（标题或正文）、作者姓名或哈希前缀，不区分大小写。`Enter` 立即生效、`Esc` 清空，输入停顿约 220 ms 自动查询。筛选会重置日志并从头扫描，结果为空时明确提示；续页保留未读取的匹配项。
+- 提交按拓扑顺序呈现，不按日期猜父子关系。每行在提交主题、引用徽标和基准／目标标记之后，按 **作者 → 短哈希 → 日期** 固定排序。三列默认都显示，点击提交图右上角「显示列…」可独立开关，偏好保存在当前工作区。图表头不重复显示提交时间，窄面板中较长内容可能截断。日期列和详情显示**提交者时间**（不是作者时间），按本地时区格式化为 `yyyy/MM/dd HH:mm`，如 `2026/11/26 09:05`。悬停可查看完整哈希、作者、含时区的时间，以及近期相对时间。分叉及合并按真实父提交连线，父提交不在本地历史时用虚线标记。最多绘制 14 条泳道，超过时保留提交行并标 `⋯`。
+- 单击提交，右侧展示文件和提交详情（完整信息、作者、时间、完整 OID、父提交）。普通提交对比父提交，根提交对比空树。**合并提交采用 IDEA 默认的合并差异口径**：只列出合并结果相对每个父提交均有变化的文件，不把某一分支正常合入的文件全部列出；没有这样的文件时显示「无合并冲突相关变动」。这是从已提交的快照推断，不是历史冲突清单：自动合并的双侧改动也可能显示，完全取某个父版本的冲突可能不显示。点击文件打开第一父提交与合并结果的 VS Code 两方 Diff；仍可切换列表／目录树、使用文件右键菜单。多选仅将这份合并差异参与按文件合成。父对象缺失时显示读取错误，不当作空树或无冲突，也不自动联网补历史。
 - 文件条目区分新增、修改、删除、重命名等状态。文本文件点击后打开原生 Diff，左侧旧版本、右侧新版本；新增／删除用空侧，重命名用旧路径和新路径分别读取。二进制、过大文件、子模块指针显示状态或对象信息，不强行当文本展示。历史提交和分支快照的内容取自 Git 对象，不读同名工作区文件。
 
 ### 提交右键菜单
@@ -155,7 +155,7 @@
 
 - 普通单击只选中该提交；`Ctrl` / `Cmd` + 单击增减选择；`Shift` + 单击从上一次普通或加减选择的锚点按已加载列表顺序选连续区间；加上 `Ctrl` / `Cmd` 则把区间加入已有选集。多选时不加载显示某一个提交的详情，宽视图隐藏详情区、窄视图隐藏「详情」入口。取消最后一个选择时不自动回落到其他提交。
 - **按文件合成，而不是并列逐提交 Diff，也不是比较整个提交区间的快照。** 只取所选提交涉及的文件。对于能连接的文件变化，左侧用该文件第一次选中变更之前的版本，右侧用最后一次选中变更之后的版本；可合并连续的重命名，增删抵消或净内容与路径和文件模式未变时不列出。
-- 跳选时只由未选提交引入的文件不出现。例如只选 `a1109bf` 和 `c311f24`，两次修改 `src/api/client.ts` 会合成一份 Diff；未选的 `b220d65` 独有的 `src/debug.ts` 不出现。合成规则与 IntelliJ 一致：**纯按文件路径首尾拼接**，不看提交是否同属一条祖先链，因此分叉的选集也能给出端点净差异，不再出现「无法合并差异」。如果中间未选提交也改变了 `client.ts`（包括两条分叉都在改），文件行标「含未选提交的改动」：可看端点净差异，但不能一键应用。分叉端点之间的差异按所选提交的先后顺序拼接，可能与逐提交阅读的直觉不同，需要精确结果时请缩小选集。
+- 跳选时只由未选提交引入的文件不出现。例如只选 `a1109bf` 和 `c311f24`，两次修改 `src/api/client.ts` 会合成一份 Diff；未选的 `b220d65` 独有的 `src/debug.ts` 不出现。合成规则与 IntelliJ 一致：**纯按文件路径首尾拼接**，不看提交是否同属一条祖先链，因此分叉的选集也能给出端点净差异，不再出现「无法合并差异」。如果中间未选提交也改变了 `client.ts`（包括两条分叉都在改），文件行只显示黄色警告图标，悬停说明「含未选提交的改动」：可看端点净差异，但不能一键应用。文件行不再显示打开箭头，直接点击即可查看 Diff。分叉端点之间的差异按所选提交的先后顺序拼接，可能与逐提交阅读的直觉不同，需要精确结果时请缩小选集。
 - 同一范围加载下一页保留选集。换仓库或范围清空；提交图重建时仅恢复新首屏仍可见的选择。一组最多 50 个提交，超限保留原选集。加载显示进度；个别提交失败时标明不完整并可重试。文件非常多时可用「显示更多文件」。
 
 ### 文件布局与右键菜单
@@ -195,17 +195,18 @@
 ### 分页、状态与安全
 
 - 历史查询以 `repoId + 模式 + 解析后的起点 OID + generation` 标识。每次首屏约 120 行，滚动追加并虚拟渲染；保存跨页待连接父 OID 和泳道状态。分页固定起点，引用更新后重建查询，防止跨页错线或重复。提交详情和变更按需加载，按仓库及完整 OID 做有界缓存，不为每个提交预先启动一次 Git。
-- 提交选集变化增加独立的 `selectionRevision`。换仓库、切模式、刷新或连续多选时取消旧读请求；宿主和视图都核验作用域，晚到的结果不得覆盖新界面。右键动作还验证仓库、查询 `generation`、选集版本及 HEAD；文件操作只接受当前文件区的宿主签发标识，批量应用还对比选中的文件。底栏隐藏时暂停读取，重新显示时恢复上下文或重发查询。仅持久化仓库选择、标签开关与文件布局等偏好，不持久化 Git 内容或凭据。
+- 提交选集变化增加独立的 `selectionRevision`。换仓库、切模式、刷新或连续多选时取消旧读请求；宿主和视图都核验作用域，晚到的结果不得覆盖新界面。右键动作还验证仓库、查询 `generation`、选集版本及 HEAD；文件操作只接受当前文件区的宿主签发标识，批量应用还对比选中的文件。底栏隐藏时暂停读取，重新显示时恢复上下文或重发查询。仅持久化仓库选择、标签开关、文件布局与提交列等偏好，不持久化 Git 内容或凭据。
 - 不可信工作区或不可用的虚拟文件系统中不运行 Git；缺少 Git、没有仓库、空仓库、缺对象、取消与失败均有独立状态。Webview 使用本地资源和严格 CSP，提交文本和路径只作为文本显示；消息通过类型、仓库及 OID 校验，不开放任意终端命令、路径读取或脚本执行接口。日志隐藏凭据与敏感 URL，不上报仓库内容。
 
 ## 6. 验证和继续开发
 
 主要验证环境：Windows、VS Code `1.148.0`、Git `2.47.1.windows.1`、Node.js `22.23.2`（仅用于开发命令）。
 
-- **自动化回归**：`node --test` 的 **91 项全部通过**。覆盖三类分支菜单、无确认检出、快进／恢复暂存、合并与变基、工作树、删除（包括本地 bare 远端上的实际分支）、提交级操作与历史改写保护、按文件合成 Diff（含分叉选集与八文件回归）、合并提交按父分组、日志文本／提交人筛选、补丁整批预检和三种语言回退。Git 写入仅在临时仓库和本地 bare 远端执行。
-- **静态检查**：`node scripts/check.js` 通过，校验 32 个 JS 文件、三套语言资源的 448 个词条、清单命令／视图、Webview 资源及 README 配图。
+- **自动化回归**：`node --test` 的 **92 项全部通过**。覆盖三类分支菜单、无确认检出、快进／恢复暂存、合并与变基、工作树、远程实际删除（本地 bare 远端）、提交级操作与历史改写保护、按文件合成 Diff、合并提交的冲突解决文件与空态、统一筛选与分页、显示列默认值与持久化、补丁整批预检和三种语言回退。Git 写入仅在临时仓库和本地 bare 远端执行。
+- **静态检查**：`node scripts/check.js` 通过，校验 32 个 JS 文件、三套语言资源的 447 个词条、清单命令／视图、Webview 资源及 README 配图。
 - **打包检查**：生成的 VSIX 共 30 个条目，逐项与打包白名单核对；包内 README 与仓库原文一致，不包含 `docs/`、测试或开发脚本。
-- **本轮桌面冒烟**（Windows、隔离的英文 VS Code `1.148.0`，从 VSIX 安装）：核对 12 个提交菜单项及 3 个文件菜单项；点选编辑提交说明并取消，分别验证右键命中当前选集和未选行；验证 Ctrl 跳选后的端点 Diff、列表／目录树切换、窄屏隐藏多选详情。逐一点选三个文件命令，确认编辑的是工作树文件、只读打开的是仓库快照，以及批量应用只改所选文件、不改暂存区和 HEAD。另验证本地分支 Checkout 无确认并直接切换，本地 Delete 和 Drop Commit 弹出确认且取消后不改引用。
+- **本轮桌面冒烟**（Windows、隔离的英文 VS Code `1.148.0` 暗色主题，从 VSIX 安装）：核对默认列顺序和原生列开关、筛选框主题与正文／作者／哈希查询、合并冲突文件列表，以及跳选文件的警告图标、悬停说明和行尾无箭头。
+- **此前桌面验证**（Windows、隔离的英文 VS Code `1.148.0`）：核对 12 个提交菜单项及 3 个文件菜单项；点选编辑提交说明并取消，分别验证右键命中当前选集和未选行；验证 Ctrl 跳选后的端点 Diff、列表／目录树切换和窄屏隐藏多选详情。逐一点选三个文件命令，确认编辑的是工作树文件、只读打开的是仓库快照，以及批量应用只改所选文件、不改暂存区和 HEAD。另验证本地分支 Checkout 无确认并直接切换，本地 Delete 和 Drop Commit 弹出确认且取消后不改引用。
 - **此前桌面验证**（Windows、VS Code `1.147.0`／`1.148.0`）：核对原生 Changes 与扁平 Branches 共存、默认主仓库、标签开关、单击／双击、分支对比入口、原生 Diff、同一行短哈希及创建时的重名红框。英文、简体、繁体和日语工作台验证过扩展的语言选择，日语下扩展回退到英文。
 - **待扩展验证**：未在桌面逐项执行提交级 Cherry-Pick、Revert、Reset、Undo、Squash、创建分支／标签等菜单动作，其 Git 行为有临时仓库测试覆盖。真实 HTTPS／SSH 凭据、macOS／Linux／远程宿主、清单范围内的旧版 VS Code、大仓库长时间浏览，以及浅色和高对比主题仍需验证。权限和分支保护由目标服务器决定。
 
@@ -225,7 +226,7 @@ VSIX 只包含扩展清单、语言资源、`src/` 的运行代码、`media/` �
 
 - **IntelliJ IDEA Community**：参考 [`BranchesInGitLogUiFactoryProvider`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/plugins/git4idea/backend/src/ui/branch/dashboard/BranchesInGitLogUiFactoryProvider.kt) 中分支与日志的联动、[`MainFrame`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/MainFrame.java) 和 [`VcsLogCommitSelectionListenerForDiff`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogCommitSelectionListenerForDiff.kt) 中提交与文件和详情的联动。更新借鉴 [`GitUpdateProcess`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/plugins/git4idea/backend/src/update/GitUpdateProcess.java)、[`GitMergeUpdater`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/plugins/git4idea/backend/src/update/GitMergeUpdater.java) 和 [`GitStashChangesSaver`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/plugins/git4idea/backend/src/stash/GitStashChangesSaver.java) 的按需保存、更新和恢复，不复刻 IDEA 的 Merge/Rebase 选项。IDEA 的 [`VcsLogDefaultColumn`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/column/VcsLogDefaultColumn.kt) 会按设置取作者或提交者时间，并用 `formatPrettyDateTime` 显示；本扩展固定使用提交者时间，绝对时间在列表，近期相对时间在悬停。
 - **IDEA 多选差异**：[`VcsLogAsyncChangesTreeModel`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogAsyncChangesTreeModel.kt) 调用 [`VcsLogUtil.collectChanges`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-log/impl/src/com/intellij/vcs/log/util/VcsLogUtil.java)，再由 [`CommittedChangesTreeBrowser.zipChanges`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-impl/src/com/intellij/openapi/vcs/changes/committed/CommittedChangesTreeBrowser.java) 按文件合成。本扩展同样**只按文件路径首尾拼接**，不做祖先校验，只用 blob／模式比对来判断中间是否夹了未选提交的改动；分叉选集因此也能得到端点净差异。多选时不显示详情。
-- **IDEA 合并提交分组**：同一处的 `collectChanges` 会把合并提交按父提交拆成多组，`Changes to <parent>` 节点对应一次 `diff(parent, commit)`；相对第一父提交为空时显示占位节点。本扩展用 `git diff-tree --no-commit-id <parent> <commit>` 逐父计算，第一父提交分组为空时显示 `No merged conflicts`。
+- **IDEA 合并提交差异**：[`VcsLogAsyncChangesTreeModel`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/frame/VcsLogAsyncChangesTreeModel.kt) 默认关闭父提交分组，显示合并后的 `changes`；[`VcsChangesLazilyParsedDetails.getMergedStatusInfo`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/platform/vcs-log/impl/src/com/intellij/vcs/log/impl/VcsChangesLazilyParsedDetails.java) 取所有父侧变更的交集。本扩展对逐父 `git diff-tree` 的字节级路径取交集，保留第一父提交侧作为两方 Diff 的左侧，不重演合并或解析提交消息里的冲突列表。
 - **IDEA 分支更新**：[`GitBranchActionsUtil.updateBranches`](https://github.com/JetBrains/intellij-community/blob/2fbdaf4fb33a750436d9618c7afe830b983050a6/plugins/git4idea/backend/src/ui/branch/GitBranchActionsUtil.kt) 区分当前分支的更新流程和未检出分支的 `remote:local` fetch。这里也区分这两种路径，但统一限制为快进，不自动更新另一个工作树的 checkout。
 - **VS Code**：参照官方[视图贡献点](https://code.visualstudio.com/api/references/contribution-points#contributes.views)、[原生树视图](https://code.visualstudio.com/api/extension-guides/tree-view)、[内置 Git 扩展 API](https://github.com/microsoft/vscode/blob/main/extensions/git/README.md)、[内置 Diff 命令](https://code.visualstudio.com/api/references/commands)和[工作区信任](https://code.visualstudio.com/api/extension-guides/workspace-trust)。
 - **Git**：以官方 [`git rev-list`](https://git-scm.com/docs/git-rev-list)、[`git diff`](https://git-scm.com/docs/git-diff)、[`git switch`](https://git-scm.com/docs/git-switch)、[`git fetch`](https://git-scm.com/docs/git-fetch)、[`git merge`](https://git-scm.com/docs/git-merge)、[`git rebase`](https://git-scm.com/docs/git-rebase)、[`git worktree`](https://git-scm.com/docs/git-worktree) 和 [`git push`](https://git-scm.com/docs/git-push) 的语义为准。

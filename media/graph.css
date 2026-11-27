@@ -47,7 +47,7 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
   color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
   white-space: nowrap;
 }
-.control:enabled:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
+button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
 .control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
 .control.icon { width: 26px; padding: 0; font-size: 16px; }
 .control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'] {
@@ -55,9 +55,16 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
   background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
 }
 .compare-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
-.filters { display: flex; align-items: center; gap: 5px; min-width: 0; flex: 0 1 auto; }
-.control.filter-text { width: 170px; min-width: 90px; flex: 0 1 auto; }
-.control.filter-author { max-width: 140px; min-width: 0; }
+.filters { min-width: 0; flex: 0 1 245px; }
+.control.filter-text {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  background: var(--vscode-input-background, var(--panel));
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  border-color: var(--vscode-input-border, var(--border));
+}
+.filter-text::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
 .direction, .compare-counts { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .direction .side { max-width: min(25vw, 225px); }
 .notices {
@@ -94,11 +101,7 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
   flex: 0 0 auto;
   border-bottom: 1px solid var(--border);
 }
-.column-author { font-size: .88em; color: var(--muted); font-weight: normal; margin-left: auto; width: 74px; text-align: end; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.column-time { font-size: .88em; color: var(--muted); font-weight: normal; margin-left: 6px; width: 16ch; text-align: end; white-space: nowrap; }
-/* The row ends with the hash column; the header keeps an empty slot so the time
-   caption lines up with the dates instead of the row edge. */
-.hash-spacer { flex: 0 0 auto; width: 8ch; }
+.column-picker { margin-left: auto; min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
 .scroll { overflow: auto; min-height: 0; scrollbar-gutter: stable; }
 .log-scroll { flex: 1 1 0; overflow-anchor: none; }
 .log-status { color: var(--muted); padding: 9px 10px; overflow-wrap: anywhere; }
@@ -118,11 +121,11 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .commit-row .commit-subject:hover { background: transparent; }
 .commit-row.focused .subject { font-weight: 600; }
 .commit-subject { padding: 0 6px 0 0; display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; text-align: left; }
-.subject { flex: 1 1 auto; }
-.date, .hash, .author { flex: 0 0 auto; white-space: nowrap; opacity: .85; }
-.hash { width: 8ch; }
-.date { width: 16ch; text-align: end; }
-.author { width: 74px; font-size: .89em; }
+.subject { flex: 1 1 60px; }
+.date, .hash, .author { flex: 0 1 auto; opacity: .85; }
+.hash { width: 8ch; min-width: 5ch; }
+.date { width: 16ch; min-width: 8ch; text-align: end; }
+.author { width: clamp(42px, 17cqw, 116px); min-width: 25px; font-size: .89em; }
 .graph { height: var(--row-height); flex: 0 0 auto; overflow: hidden; }
 .edge { fill: none; stroke: var(--lane); stroke-width: 1.5; }
 .edge.boundary { stroke-dasharray: 2 2; }
@@ -154,9 +157,7 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .side.right { border-color: var(--blue); }
 .pill { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
 .pill:empty { display: none; }
-@container (max-width: 595px) { .author, .column-author { display: none; } }
-@container (max-width: 350px) { .badges, .hash, .hash-spacer, .commit-subject .side { display: none; } }
-@container (max-width: 310px) { .commit-subject .date, .column-time { display: none; } }
+@container (max-width: 350px) { .badges, .commit-subject .side { display: none; } }
 @container (max-width: 270px) { .compare-counts { display: none; } }
 
 .log-header, .file-header { flex-wrap: wrap; }
@@ -185,8 +186,8 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .status-M { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
 .status-R, .status-C { color: var(--vscode-gitDecoration-renamedResourceForeground); }
 .file-name { flex: 1 1 auto; }
-.file-arrow, .submodule { flex: 0 0 auto; font-size: .9em; color: var(--muted); }
-.file-note { flex: 0 1 auto; max-width: 54%; color: var(--vscode-editorWarning-foreground, var(--muted)); font-size: .86em; }
+.submodule { flex: 0 0 auto; font-size: .9em; color: var(--muted); }
+.file-warning { flex: 0 0 auto; fill: none; stroke: var(--vscode-editorWarning-foreground, var(--muted)); stroke-width: 1.3; stroke-linejoin: round; }
 .file-row.selected { background: var(--vscode-list-inactiveSelectionBackground); color: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground)); }
 .file-row.selected:focus-visible { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 .file-folder > summary { cursor: pointer; }
@@ -194,8 +195,6 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .file-folder > summary::before { content: '▸'; color: var(--muted); }
 .file-folder[open] > summary::before { content: '▾'; }
 .file-children { margin-left: 12px; padding-left: 3px; border-left: 1px solid var(--border); }
-.merge-group > summary .pill { margin-left: auto; }
-.merge-group-label.clean { padding: 7px 6px; color: var(--muted); }
 .details { min-height: 26px; flex: 0 0 auto; max-height: 44%; overflow: auto; border-top: 1px solid var(--border); }
 .details > summary { cursor: pointer; padding: 4px 9px; color: var(--muted); }
 .detail-content { padding: 0 10px 8px; overflow-wrap: anywhere; }

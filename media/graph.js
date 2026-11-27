@@ -24,7 +24,7 @@
     X: t('history.statusUnknown'), B: t('history.statusRewritten')
   };
   const state = { generation: 0, rows: [], rowsByOid: new Map(), known: new Set(), meta: {}, badges: new Map(), page: {}, selection: {},
-    directories: new Map(), commitMenus: new Map(), fileMenus: new Map(), filesLayout: 'list',
+    directories: new Map(), commitMenus: new Map(), fileMenus: new Map(), filesLayout: 'list', commitColumns: [],
     selectedFiles: { commit: new Set(), snapshot: new Set() }, anchors: {}, snapshot: false, limit: FILE_BATCH, pageIntent: false };
 
   function el(tag, cls, text, title) {
@@ -60,18 +60,18 @@
     return node;
   }
 
-  function graph(row) {
+  function graph(row, laneLimit) {
     const { column, color, incoming, through, edges } = row.graph;
-    const columns = Math.max(1, Math.min(DRAW_LANES, state.page.columns || 1));
+    const columns = Math.max(1, Math.min(laneLimit, state.page.columns || 1));
     const width = columns * LANE + 5, mid = ROW / 2;
     const x = lane => 8 + lane * LANE;
     const svg = svgNode('svg', { class: 'graph', width, height: ROW, 'aria-hidden': 'true' });
     const path = (d, laneColor, dashed = false) => svg.append(svgNode('path', { d, class: `edge lane-${laneColor}${dashed ? ' boundary' : ''}` }));
     for (const lane of through) {
       // A pending parent must not produce a line across unrelated rows.
-      if (state.known.has(lane.oid)) path(`M${x(lane.column)},0 V${ROW}`, lane.color);
+      if (lane.column < laneLimit && state.known.has(lane.oid)) path(`M${x(lane.column)},0 V${ROW}`, lane.color);
     }
-    if (column >= DRAW_LANES) {
+    if (column >= laneLimit) {
       const marker = svgNode('text', { x: width - 8, y: mid + 4, class: 'lane-overflow' });
       marker.textContent = '⋯';
       const hint = svgNode('title', {});
@@ -84,7 +84,7 @@
     if (row.shallowBoundary) path(`M${start},${mid + 4} v8`, color, true);
     for (const edge of edges) {
       const end = x(edge.column);
-      if (!state.known.has(edge.oid) || edge.column >= DRAW_LANES) {
+      if (!state.known.has(edge.oid) || edge.column >= laneLimit) {
         const stub = start + Math.sign(end - start) * 4;
         path(`M${start},${mid} Q${start},${mid + 6} ${stub},${ROW - 2}`, edge.color, true);
       } else if (end === start) path(`M${start},${mid} V${ROW}`, edge.color);
@@ -139,7 +139,7 @@
       gbCanRewrite: rewrite, gbCanUndo: rewrite && current && row.parents.length === 1, gbCanDrop: rewrite && row.parents.length === 1 };
   }
 
-  function commitRow(row, index, selected) {
+  function commitRow(row, index, selected, laneLimit) {
     const subject = row.subject || t('history.noSubject');
     const focused = row.oid === state.selection.focus;
     const isSelected = selected.has(row.oid);
@@ -159,7 +159,7 @@
     const badges = state.badges.get(row.oid) || [];
     const side = row.side && t(row.side === 'left' ? 'history.baseOnly' : 'history.targetOnly');
     summary.title = [subject, `${row.oid} · ${row.author}`, time.title, side, badges.map(item => item.name).join(' · ')].filter(Boolean).join('\n');
-    summary.append(graph(row), el('span', 'subject ellipsis', subject));
+    summary.append(graph(row, laneLimit), el('span', 'subject ellipsis', subject));
     if (badges.length) {
       const strip = el('span', 'badges');
       for (const item of badges.slice(0, 2)) strip.append(el('span', `badge ${item.kind}${item.current ? ' current' : ''}`, item.name));
@@ -167,8 +167,10 @@
       summary.append(strip);
     }
     if (side) summary.append(el('span', `side ${row.side}`, side));
-    summary.append(el('span', 'author ellipsis', row.author || ''), el('span', 'date mono', time.label),
-      el('span', 'hash mono', short(row.oid)));
+    const values = { author: row.author || '—', hash: short(row.oid), date: time.label };
+    for (const key of state.commitColumns) {
+      summary.append(el('span', `${key} ellipsis${key === 'author' ? '' : ' mono'}`, values[key]));
+    }
     line.append(summary);
     rowContext(line, () => commitActionContext(row), () => {
       const key = state.selection.selected?.includes(row.oid) ? 'selected' : row.oid;
@@ -184,16 +186,18 @@
     const count = state.meta.message ? 0 : state.rows.length;
     const start = Math.min(count, Math.max(0, Math.floor(scroll.scrollTop / ROW) - 8));
     const end = Math.min(count, Math.ceil((scroll.scrollTop + scroll.clientHeight) / ROW) + 8);
-    const key = `${start}:${end}`;
+    const width = scroll.clientWidth;
+    const key = `${start}:${end}:${width}`;
     if (!force && painted === key) return;
     painted = key;
+    const laneLimit = Math.max(1, Math.min(DRAW_LANES, Math.floor((width * .32 - 5) / LANE)));
     const focused = document.activeElement?.closest('.commit-row');
     const oid = focused?.dataset.oid;
     const selected = new Set(state.selection.selected);
     const fragment = document.createDocumentFragment();
     let restore;
     for (let i = start; i < end; i++) {
-      const line = commitRow(state.rows[i], i, selected);
+      const line = commitRow(state.rows[i], i, selected, laneLimit);
       if (state.rows[i].oid === oid) restore = line.querySelector('.commit-subject');
       fragment.append(line);
     }
@@ -220,32 +224,14 @@
     });
   }
 
-  let authorKey = '';
-  function renderAuthors() {
-    const select = $('filter-author');
-    const authors = state.page.authors || [];
-    const current = state.page.filter?.author || '';
-    const key = JSON.stringify([authors, current]);
-    if (key === authorKey) return;
-    authorKey = key;
-    const entries = current && !authors.includes(current) ? [...authors, current] : authors;
-    select.replaceChildren(el('option', '', t('history.filterAuthorAll')));
-    select.firstChild.value = '';
-    for (const name of entries) {
-      const option = el('option', '', name);
-      option.value = name;
-      select.append(option);
-    }
-    select.value = current;
-    select.hidden = entries.length === 0;
-  }
-
-  let filterTimer;
+  const filterInput = $('filter-text');
+  let filterTimer, composingFilter = false;
   function sendFilter(delay = 0) {
     clearTimeout(filterTimer);
-    const text = $('filter-text').value;
-    const author = $('filter-author').value;
-    const run = () => send('setFilter', { text, author });
+    const run = () => {
+      filterTimer = undefined;
+      if (!filterInput.disabled && filterInput.value.trim() !== state.page.filter) send('setFilter', { text: filterInput.value });
+    };
     if (delay) filterTimer = setTimeout(run, delay);
     else run();
   }
@@ -261,9 +247,8 @@
     $('range').title = meta.range || t('history.pickRange');
     $('range').disabled = !ready;
     $('range').hidden = Boolean(mode);
-    $('filter-text').disabled = !ready;
-    $('filter-author').disabled = !ready;
-    renderAuthors();
+    filterInput.disabled = !ready;
+    $('commit-columns').disabled = !state.generation;
     $('refresh').disabled = !meta.repository;
     $('compare-bar').hidden = !mode;
     $('log-title').textContent = t(mode && !mode.workingTree ? 'history.distinct' : 'history.graph');
@@ -298,8 +283,7 @@
     else if (page.loading || !state.generation) status.textContent = t('history.loadingCommits');
     else if (page.hasMore) status.append(button('link', t('history.loadMoreCommits'), requestPage));
     else if (!rows.length) {
-      const filtered = Boolean(page.filter?.text || page.filter?.author);
-      if (filtered) status.textContent = t('history.filteredEmpty');
+      if (page.filter) status.textContent = t('history.filteredEmpty');
       else status.textContent = meta.compare && !meta.compare.workingTree
         ? t(comparison?.same ? 'history.sameTip' : 'history.noUniqueCommits') : t('history.noCommitsInRange');
     }
@@ -353,13 +337,13 @@
     row.append(el('span', `file-status status-${file.status}`, file.status, label));
     row.append(el('span', 'file-name mono ellipsis', file.from ? path : compactName || file.path));
     if (file.submodule) row.append(el('span', 'submodule', t('history.submodule')));
-    if (note) row.append(el('span', 'file-note ellipsis', note));
-    if (!file.ambiguous) {
-      const arrow = el('span', 'file-arrow', '↗');
-      arrow.setAttribute('aria-hidden', 'true');
-      row.append(arrow);
+    if (note) {
+      const warning = svgNode('svg', { class: 'file-warning', width: 14, height: 14, viewBox: '0 0 16 16', 'aria-hidden': 'true' });
+      warning.append(svgNode('path', { d: 'M8 2 15 14H1Z M8 6v3.5 M8 11v1' }));
+      row.append(warning);
     }
-    row.setAttribute('aria-label', file.ambiguous ? `${path} · ${note}` : t('history.openDiffLabel', { status: label, path, commit: '' }));
+    const diffLabel = t('history.openDiffLabel', { status: label, path, commit: '' });
+    row.setAttribute('aria-label', [file.ambiguous ? path : diffLabel, note].filter(Boolean).join(' · '));
     rowContext(row, () => fileActionContext(file, source), () => {
       if (file.sourceCandidate && !state.fileMenus.has(file.id)) probe('probeFileMenu', { source, token: file.id });
     });
@@ -404,19 +388,17 @@
     const multi = !snapshot && selection.selected?.length > 1;
     const packet = snapshot ? comparison : selection;
     const list = packet?.files || [];
-    const merge = !snapshot && !multi && packet?.mergeGroups;
+    const merge = !snapshot && !multi && selection.detail?.parents.length > 1;
     const currentTab = snapshot ? 'snapshot' : 'commit';
     const shown = list.slice(0, state.limit);
     state.renderedFiles = new Map(shown.map(item => [item.id, item]));
-    for (const group of merge?.groups || []) for (const file of group.files) state.renderedFiles.set(file.id, file);
     $('file-layout').textContent = t(state.filesLayout === 'tree' ? 'history.viewList' : 'history.viewTree');
     $('file-layout').disabled = Boolean(meta.message);
     press($('commit-tab'), !snapshot);
     press($('snapshot-tab'), snapshot);
     $('file-count').textContent = meta.message ? '' : multi
       ? t('history.combinedSummary', { selected: selection.selected.length, count: list.length })
-      : merge ? countText('history.fileCount', merge.groups.reduce((sum, group) => sum + group.files.length, 0))
-        : (packet?.files ? countText('history.fileCount', list.length) : '');
+      : (packet?.files ? countText('history.fileCount', list.length) : '');
     const root = document.createDocumentFragment();
     const status = (text, retry, cls = 'muted') => root.append(el('div', `empty ${cls}`, text),
       ...(retry ? [button('link retry', t('history.retry'), () => send(retry))] : []));
@@ -429,15 +411,14 @@
       else if (snapshot && packet?.error) status(packet.error, 'retryComparison', 'error');
       else {
         if (!snapshot && packet?.failures?.length) status(t('history.partialSelection', { detail: packet.failures.join('\n') }), 'retrySelection', 'error');
-        if (merge) mergeGroups(root, merge, currentTab);
-        else if (list.length) {
+        if (list.length) {
           if (state.filesLayout === 'tree') fileTree(root, shown, currentTab);
           else for (const item of shown) root.append(fileRow(item, currentTab));
           if (state.limit < list.length) root.append(button('link retry', t('history.moreFiles'), () => { state.limit += FILE_BATCH; renderFiles(); }));
         } else if (!packet?.failures?.length) {
           if (snapshot) status(t(workingTree ? 'history.noWorktreeChanges' : 'history.noSnapshotChanges'));
           else if (multi) status(t('history.noSelectedChanges'));
-          else status(t(selection.focus ? 'history.noCommitChanges' : 'history.chooseCommit'));
+          else status(t(merge ? 'history.noMergedConflicts' : selection.focus ? 'history.noCommitChanges' : 'history.chooseCommit'));
         }
         if (snapshot) root.append(el('div', 'empty muted', t(workingTree ? 'history.worktreeNote' : 'history.snapshotNote')));
       }
@@ -446,29 +427,6 @@
     files.replaceChildren(root);
     files.dataset.tab = currentTab;
     files.scrollTop = offset;
-  }
-
-  /**
-   * Mirrors IntelliJ's merge-commit tree: for a clean merge (nothing introduced
-   * relative to the first parent) a "No merged conflicts" tag node is shown, then
-   * a collapsible "Changes to <hash> <subject>" node per parent that has changes.
-   */
-  function mergeGroups(root, merge, source) {
-    if (merge.clean) root.append(el('div', 'merge-group-label clean', t('history.noMergedConflicts')));
-    for (const group of merge.groups) {
-      const entry = el('details', 'file-folder merge-group');
-      const summary = el('summary');
-      summary.append(el('span', 'file-name ellipsis', t('history.changesTo',
-        { oid: group.short, subject: group.subject ? ` ${group.subject}` : '' })));
-      summary.append(el('span', 'pill', countText('history.fileCount', group.files.length)));
-      const children = el('div', 'file-children');
-      entry.append(summary, children);
-      entry.open = state.directories.get(`merge:${group.oid}`) ?? true;
-      if (state.filesLayout === 'tree') fileTree(children, group.files, source);
-      else for (const file of group.files) children.append(fileRow(file, source));
-      entry.addEventListener('toggle', () => { if (entry.isConnected) state.directories.set(`merge:${group.oid}`, entry.open); });
-      root.append(entry);
-    }
   }
 
   function renderDetail() {
@@ -493,7 +451,7 @@
       ['history.parents', detail.parents.join('\n') || t(detail.shallowBoundary ? 'history.parentsMissing' : 'history.noParents'), 'mono']
     ]) props.append(el('dt', '', t(key)), el('dd', cls, value, title));
     box.append(el('pre', 'message', detail.message || t('history.noMessage')), props);
-    if (detail.parents.length > 1) box.append(el('p', 'muted', t('history.firstParentNote')));
+    if (detail.parents.length > 1) box.append(el('p', 'muted', t('history.mergeDiffNote')));
   }
 
   function setPane(pane) {
@@ -539,15 +497,21 @@
   }
 
   for (const [id, intent] of Object.entries({ repo: 'chooseRepository', range: 'chooseRange', refresh: 'refresh',
-    swap: 'swap', recompare: 'recompare', 'exit-compare': 'exitComparison' })) {
+    swap: 'swap', recompare: 'recompare', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
     $(id).addEventListener('click', () => send(intent));
   }
-  $('filter-text').addEventListener('input', () => sendFilter(220));
-  $('filter-text').addEventListener('keydown', event => {
-    if (event.key === 'Enter') { event.preventDefault(); sendFilter(); }
-    else if (event.key === 'Escape' && $('filter-text').value) { event.preventDefault(); $('filter-text').value = ''; sendFilter(); }
+  filterInput.addEventListener('input', event => { if (!event.isComposing) sendFilter(220); });
+  filterInput.addEventListener('compositionstart', () => {
+    composingFilter = true;
+    clearTimeout(filterTimer);
+    filterTimer = undefined;
   });
-  $('filter-author').addEventListener('change', () => sendFilter());
+  filterInput.addEventListener('compositionend', () => { composingFilter = false; sendFilter(220); });
+  filterInput.addEventListener('keydown', event => {
+    if (event.isComposing) return;
+    if (event.key === 'Enter') { event.preventDefault(); sendFilter(); }
+    else if (event.key === 'Escape' && filterInput.value) { event.preventDefault(); filterInput.value = ''; sendFilter(); }
+  });
   $('file-layout').addEventListener('click', () => {
     state.filesLayout = state.filesLayout === 'tree' ? 'list' : 'tree';
     send('filesLayout', { layout: state.filesLayout });
@@ -582,6 +546,7 @@
     const { type, payload, generation, repoId } = packet;
     if (type === 'reset') {
       if (generation < state.generation) return;
+      const syncFilter = !state.generation || repoId !== state.repoId;
       if (generation !== state.generation || repoId !== state.repoId) {
         const nextMode = payload.meta.compare;
         if (!state.meta.compare || !nextMode || state.repoId !== repoId || nextMode.workingTree !== state.meta.compare.workingTree
@@ -600,10 +565,14 @@
       state.badges = new Map(payload.meta.badges);
       state.rowsByOid = new Map(state.rows.map(row => [row.oid, row]));
       state.known = new Set(state.rowsByOid.keys());
-      // A filter reset reuses the same generation only through `page` updates, so
-      // keep the inputs in sync when the host rewrites them on repo/range change.
-      if (payload.page?.filter) $('filter-text').value = payload.page.filter.text || '';
-      authorKey = '';
+      if (syncFilter) {
+        clearTimeout(filterTimer);
+        filterTimer = undefined;
+        filterInput.value = payload.page.filter;
+      } else if (!composingFilter && !filterTimer && filterInput.value.trim() !== payload.page.filter) {
+        // A reset may be acknowledging an older query while the user is typing.
+        sendFilter(220);
+      }
       renderEdit(payload.editPrompt);
     } else {
       if (generation !== state.generation || repoId !== state.repoId) return;
@@ -622,6 +591,7 @@
           break;
         }
         case 'page': state.page = payload; state.pageIntent = false; break;
+        case 'commitColumns': state.commitColumns = payload; renderRows(true); return;
         case 'comparison':
           for (const file of state.comparison?.files ?? []) state.fileMenus.delete(file.id);
           state.comparison = payload;
