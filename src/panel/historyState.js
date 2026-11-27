@@ -18,7 +18,20 @@ function historyTarget(snapshot, range, tags) {
 }
 
 class HistorySelection {
-  constructor() { this.focus = undefined; this.anchor = undefined; this.selected = new Set(); }
+  constructor() { this.selected = new Set(); this.clear(); }
+
+  clear() {
+    this.selected.clear();
+    this.focus = this.anchor = undefined;
+  }
+
+  selectAll(rows, focusedOid) {
+    if (this.selected.size === rows.length && rows.every(row => this.selected.has(row.oid))) return false;
+    this.selected = new Set(rows.map(row => row.oid));
+    this.focus = [focusedOid, this.focus].find(oid => this.selected.has(oid)) ?? rows[0]?.oid;
+    this.anchor = this.focus;
+    return true;
+  }
 
   restore(packet, rows) {
     const available = new Set(rows.map(row => row.oid));

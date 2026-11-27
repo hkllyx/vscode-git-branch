@@ -29,7 +29,7 @@
   const LANE = 12;
   const DRAW_LANES = 14;
   const FILE_BATCH = 200;
-  const FILE_SELECTION_LIMIT = 200;
+  const FILE_PATCH_LIMIT = Number(files.dataset.patchLimit);
   const commitTime = globalThis.gitBranchFormatCommitTime;
   const STATUS = {
     A: t('history.statusAdded'), C: t('history.statusCopied'), D: t('history.statusDeleted'), M: t('history.statusModified'),
@@ -37,6 +37,7 @@
     X: t('history.statusUnknown'), B: t('history.statusRewritten')
   };
   const state = { generation: 0, rows: [], rowsByOid: new Map(), known: new Set(), meta: {}, badges: new Map(), page: {}, selection: {},
+    selectedCommits: new Set(), filesById: new Map(),
     directories: new Map(), parentViews: new Map(), commitMenus: new Map(), fileMenus: new Map(), filesLayout: 'list', commitColumns: [],
     selectedFiles: { commit: new Set(), snapshot: new Set() }, anchors: {}, snapshot: false, limit: FILE_BATCH, pageIntent: false };
 
@@ -137,12 +138,12 @@
   }
 
   function commitActionContext(row) {
-    const active = state.selection.selected?.includes(row.oid);
+    const active = state.selectedCommits.has(row.oid);
     const selected = active ? state.selection.selected : [row.oid];
     const single = selected.length === 1;
     const head = state.meta.head;
     const local = Boolean(head?.ref && head.oid);
-    const plain = selected.every(oid => {
+    const plain = !(active && state.selection.selectionOverLimit) && selected.every(oid => {
       const candidate = state.rowsByOid.get(oid);
       return candidate && !candidate.shallowBoundary && candidate.parents.length < 2;
     });
@@ -195,8 +196,9 @@
     }
     line.append(summary);
     rowContext(line, () => commitActionContext(row), () => {
-      const key = state.selection.selected?.includes(row.oid) ? 'selected' : row.oid;
-      if (!state.commitMenus.has(key)) probe('probeCommitMenu', { oid: row.oid });
+      const active = state.selectedCommits.has(row.oid);
+      if (active && state.selection.selectionOverLimit) return;
+      if (!state.commitMenus.has(active ? 'selected' : row.oid)) probe('probeCommitMenu', { oid: row.oid });
     });
     return line;
   }
@@ -216,11 +218,10 @@
     commits.dataset.columns = state.commitColumns.join(' ');
     const focused = document.activeElement?.closest('.commit-row');
     const oid = focused?.dataset.oid;
-    const selected = new Set(state.selection.selected);
     const fragment = document.createDocumentFragment();
     let restore;
     for (let i = start; i < end; i++) {
-      const line = commitRow(state.rows[i], i, selected, laneLimit);
+      const line = commitRow(state.rows[i], i, state.selectedCommits, laneLimit);
       if (state.rows[i].oid === oid) restore = line.querySelector('.commit-subject');
       fragment.append(line);
     }
@@ -320,13 +321,24 @@
 
   function fileActionContext(file, source) {
     const selected = state.selectedFiles[source];
-    const set = selected.has(file.id) ? [...selected] : [file.id];
-    return { ...baseContext('file'), gbToken: file.id, gbSource: source, gbFiles: set.join(','),
+    const set = selected.has(file.id) ? selected : new Set([file.id]);
+    const batch = set.size <= FILE_PATCH_LIMIT ? [...set] : [];
+    return { ...baseContext('file'), gbToken: file.id, gbSource: source, gbFiles: batch.join(','),
       gbCanEditSource: state.fileMenus.get(file.id) ?? file.sourceCandidate, gbCanOpenVersion: file.repositoryVersion,
-      gbCanApplyFiles: set.every(id => {
-        const candidate = state.renderedFiles.get(id);
+      gbCanApplyFiles: batch.length > 0 && batch.every(id => {
+        const candidate = state.filesById.get(id);
         return candidate?.apply && candidate.parentGroup === file.parentGroup;
       }) };
+  }
+
+  function updateFileSelection(source, next) {
+    state.selectedFiles[source] = next;
+    send('selectFiles', { source, ids: [...next] });
+    for (const row of files.querySelectorAll('.file-row')) {
+      const active = next.has(row.dataset.fileId);
+      row.classList.toggle('selected', active);
+      press(row, active);
+    }
   }
 
   function selectFile(event, file, source) {
@@ -343,15 +355,8 @@
       if (additive && selected.has(file.id)) next.delete(file.id);
       else next.add(file.id);
     }
-    if (next.size > FILE_SELECTION_LIMIT) { send('fileSelectionLimit'); return; }
     if (!event.shiftKey || !state.anchors[source]) state.anchors[source] = file.id;
-    state.selectedFiles[source] = next;
-    send('selectFiles', { source, ids: [...next] });
-    for (const row of files.querySelectorAll('.file-row')) {
-      const active = next.has(row.dataset.fileId);
-      row.classList.toggle('selected', active);
-      press(row, active);
-    }
+    updateFileSelection(source, next);
     if (!additive && !event.shiftKey && !file.ambiguous) send('openDiff', { token: file.id });
   }
 
@@ -414,7 +419,6 @@
 
   function renderFileBatch(root, list, source, scope, limit, showMore) {
     const shown = list.slice(0, limit);
-    for (const file of shown) state.renderedFiles.set(file.id, file);
     if (state.filesLayout === 'tree') fileTree(root, shown, source, scope);
     else for (const file of shown) root.append(fileRow(file, source));
     if (shown.length < list.length) root.append(button('link retry', t('history.moreFiles'), showMore));
@@ -453,12 +457,17 @@
     const list = packet?.files || [];
     const merge = !snapshot && !multi && selection.detail?.parents.length > 1;
     const currentTab = snapshot ? 'snapshot' : 'commit';
-    state.renderedFiles = new Map();
+    const parentGroups = merge ? selection.parentGroups || [] : [];
+    state.filesById = new Map(list.map(file => [file.id, file]));
+    for (const group of parentGroups) for (const file of group.files) state.filesById.set(file.id, file);
+    const active = document.activeElement;
+    const restoreFocus = active !== files && files.contains(active);
+    const focusedFile = active?.dataset.fileId;
     $('file-layout').textContent = t(state.filesLayout === 'tree' ? 'history.viewList' : 'history.viewTree');
     $('file-layout').disabled = Boolean(meta.message);
     press($('commit-tab'), !snapshot);
     press($('snapshot-tab'), snapshot);
-    $('file-count').textContent = meta.message ? '' : multi
+    $('file-count').textContent = meta.message || packet?.selectionOverLimit ? '' : multi
       ? t('history.combinedSummary', { selected: selection.selected.length, count: list.length })
       : (packet?.files ? countText('history.fileCount', list.length) : '');
     const root = document.createDocumentFragment();
@@ -471,6 +480,9 @@
       if (packet?.loading || (snapshot && !packet)) status(multi
         ? t('history.loadingSelection', { processed: packet.processed, total: packet.total }) : t('history.loadingFiles'));
       else if (snapshot && packet?.error) status(packet.error, 'retryComparison', 'error');
+      else if (!snapshot && packet?.selectionOverLimit) status(t('history.combinedSelectionLimit', {
+        selected: selection.selected.length, count: packet.selectionOverLimit
+      }));
       else {
         if (!snapshot && packet?.failures?.length) status(t('history.partialSelection', { detail: packet.failures.join('\n') }), 'retrySelection', 'error');
         if (list.length) {
@@ -480,7 +492,7 @@
           else if (multi) status(t('history.noSelectedChanges'));
           else status(t(merge ? 'history.noMergedConflicts' : selection.focus ? 'history.noCommitChanges' : 'history.chooseCommit'));
         }
-        if (merge) for (const group of selection.parentGroups || []) renderParentGroup(root, group);
+        for (const group of parentGroups) renderParentGroup(root, group);
         if (snapshot) root.append(el('div', 'empty muted', t(workingTree ? 'history.worktreeNote' : 'history.snapshotNote')));
       }
     }
@@ -488,6 +500,10 @@
     files.replaceChildren(root);
     files.dataset.tab = currentTab;
     files.scrollTop = offset;
+    if (restoreFocus) {
+      const row = focusedFile && files.querySelector(`[data-file-id="${CSS.escape(focusedFile)}"]`);
+      (row || files).focus({ preventScroll: true });
+    }
   }
 
   function renderDetail() {
@@ -555,6 +571,38 @@
     state.selectedFiles[source].clear();
     delete state.anchors[source];
   }
+
+  // Scope the platform Select All shortcut to the focused list, not the whole Webview.
+  document.addEventListener('keydown', event => {
+    const target = document.activeElement;
+    if (event.defaultPrevented || event.isComposing || target?.isContentEditable || target?.closest('input, textarea, select, dialog')) return;
+    const all = event.key.toLowerCase() === 'a' && (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey;
+    const clear = event.key === 'Escape' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    if (!all && !clear) return;
+    const inLog = scroll.contains(target), inFiles = files.contains(target);
+    if (!inLog && !inFiles && !clear) return;
+    window.getSelection()?.removeAllRanges();
+    if (!inLog && !inFiles) return;
+    event.preventDefault();
+    // The Webview window forwards bubbled keys to the VS Code workbench, which can run Select All again.
+    event.stopPropagation();
+    if (event.repeat) return;
+    if (inLog) {
+      if (all) send('selectAllCommits', { focusedOid: target.closest('.commit-row')?.dataset.oid });
+      else send('clearCommits');
+    } else {
+      const source = files.dataset.tab;
+      if (!source) return;
+      const anchor = all && target.closest('.file-row')?.dataset.fileId;
+      if (anchor) state.anchors[source] = anchor;
+      else delete state.anchors[source];
+      updateFileSelection(source, new Set(all ? state.filesById.keys() : []));
+    }
+  });
+
+  for (const list of [scroll, files]) list.addEventListener('click', event => {
+    if (!event.target.closest('button, summary, a') && window.getSelection()?.isCollapsed) list.focus({ preventScroll: true });
+  });
 
   for (const [id, intent] of Object.entries({ repo: 'chooseRepository', range: 'chooseRange', refresh: 'refresh',
     swap: 'swap', recompare: 'recompare', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
@@ -633,6 +681,7 @@
       state.badges = new Map(payload.meta.badges);
       state.rowsByOid = new Map(state.rows.map(row => [row.oid, row]));
       state.known = new Set(state.rowsByOid.keys());
+      state.selectedCommits = new Set(state.selection.selected);
       if (syncFilter) {
         clearTimeout(filterTimer);
         filterTimer = undefined;
@@ -679,12 +728,13 @@
             if (!state.snapshot) state.limit = FILE_BATCH;
           }
           state.selection = payload;
-          if (payload.focus && !payload.loading && !state.commitMenus.has('selected')) probe('probeCommitMenu', { oid: payload.focus });
+          state.selectedCommits = new Set(payload.selected);
+          if (payload.focus && !payload.loading && !payload.selectionOverLimit && !state.commitMenus.has('selected')) probe('probeCommitMenu', { oid: payload.focus });
           break;
         }
         case 'commitMenu':
           if (payload.revision === state.selection.revision && payload.head?.ref === state.meta.head?.ref && payload.head?.oid === state.meta.head?.oid) {
-            const key = state.selection.selected?.includes(payload.oid) ? 'selected' : payload.oid;
+            const key = state.selectedCommits.has(payload.oid) ? 'selected' : payload.oid;
             state.commitMenus.set(key, payload.actions);
           }
           return;

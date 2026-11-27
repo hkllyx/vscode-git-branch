@@ -695,6 +695,89 @@ test('single merge issues distinct parent Diff tokens; multi-select omits parent
   assert.equal(opened.length, 3);
 });
 
+test('keyboard commit selection covers all loaded rows and bounds combined diffs and writes', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('keyboard-commits');
+  const base = await local.commit('base', { 'base.txt': 'base\n' });
+  const tip = await local.commit('tip', { 'tip.txt': 'tip\n' });
+  const vscode = { workspace: { isTrusted: true } };
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode });
+  const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local', actions: local.actions,
+    snapshot: await local.reads.snapshot(local.dirs, false), reads: local.reads, commitCache: new Map(), filesCache: new Map() };
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
+  const commands = [];
+  const controller = new GraphController({}, registry, {}, {
+    historyCommit: (kind, _repo, _head, rows) => commands.push({ kind, count: rows.length })
+  });
+  t.after(() => controller.dispose());
+  controller.view = { visible: true, webview: { postMessage: () => true } };
+  await controller.onMessage({ type: 'ready' });
+  await waitFor(() => controller.selectionPacket?.detail?.oid === tip, 'load initial commit');
+  const send = (type, data) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...data });
+  await send('selectAllCommits', { focusedOid: base });
+  assert.deepEqual(controller.selectionPacket.selected, [tip, base]);
+  assert.equal(controller.selectionPacket.focus, base);
+  assert.deepEqual(controller.selectionPacket.files.map(file => file.path), ['base.txt', 'tip.txt']);
+  await send('clearCommits', { generation: controller.generation - 1 });
+  assert.equal(controller.selectionPacket.selected.length, 2);
+  await send('clearCommits');
+  assert.deepEqual(controller.selectionPacket.selected, []);
+  assert.equal(controller.selectionPacket.focus, undefined);
+  assert.equal(controller.selectionFiles.size, 0);
+  await send('selectAllCommits');
+  assert.equal(controller.selectionPacket.selected.length, 2);
+
+  for (let index = 1; index <= 49; index++) {
+    const row = { oid: index.toString(16).padStart(40, '0') };
+    controller.rows.push(row);
+    controller.known.set(row.oid, row);
+  }
+  let reads = 0;
+  controller.readCommit = () => { reads++; throw new Error('Unexpected read for an oversized selection'); };
+  await send('selectAllCommits');
+  await send('retrySelection');
+  assert.equal(controller.selectionPacket.selected.length, 51);
+  assert.equal(controller.selectionPacket.selectionOverLimit, 50);
+  assert.equal(controller.selectionPacket.files, undefined);
+  assert.equal(reads, 0);
+  const context = { webview: 'git-branch.log', gbArea: 'commit', gbRepo: repo.id, gbGeneration: controller.generation,
+    gbRevision: controller.selectionRevision, gbHeadRef: repo.snapshot.head.ref, gbHeadOid: tip, gbOid: tip };
+  await assert.rejects(controller.commitCommand('cherryPick', context), { message: message('history.selectionLimit', { count: 50 }) });
+  await controller.commitCommand('copyRevision', context);
+  assert.deepEqual(commands, [{ kind: 'copyRevision', count: 51 }]);
+  await send('clearCommits');
+  assert.deepEqual(controller.selectionPacket.selected, []);
+  assert.equal(controller.selectionPacket.selectionOverLimit, undefined);
+});
+
+test('file selection accepts more than the patch limit without allowing a large batch apply', async t => {
+  const vscode = { workspace: { isTrusted: true } };
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode });
+  const repo = { id: 'repo', name: 'local', root: { fsPath: 'repo' },
+    snapshot: { byRef: new Map(), head: { oid: 'a'.repeat(40), ref: 'refs/heads/main' } } };
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
+  const controller = new GraphController({}, registry, {}, {
+    applyHistoryFiles: () => assert.fail('Oversized selection must not apply')
+  });
+  t.after(() => controller.dispose());
+  controller.view = { visible: true, webview: { postMessage: () => true } };
+  controller.ready = true;
+  const ids = Array.from({ length: 201 }, (_, index) => String(index));
+  for (const id of ids) controller.selectionFiles.set(id, {});
+  const select = values => controller.onMessage({ type: 'selectFiles', generation: controller.generation,
+    repoId: repo.id, source: 'commit', ids: values });
+  await select(ids);
+  assert.deepEqual([...controller.fileSelection.commit], ids);
+  await select(['not-a-token']);
+  assert.equal(controller.fileSelection.commit.size, 201);
+  await assert.rejects(controller.fileCommand('applyFiles', { webview: 'git-branch.log', gbArea: 'file', gbRepo: repo.id,
+    gbGeneration: controller.generation, gbRevision: controller.selectionRevision, gbHeadRef: repo.snapshot.head.ref,
+    gbHeadOid: repo.snapshot.head.oid, gbSource: 'commit', gbToken: ids[0], gbFiles: ids.join(',') }),
+  { message: message('git.historyPatchFileLimit', { count: 200 }) });
+  await select([]);
+  assert.equal(controller.fileSelection.commit.size, 0);
+});
+
 test('history columns default to Author and Date while keeping Hash available and preserving saved choices', async t => {
   const packets = [];
   const values = new Map();

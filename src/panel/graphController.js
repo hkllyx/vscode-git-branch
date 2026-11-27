@@ -393,7 +393,11 @@ class GraphController {
       this.send('selection', this.selectionPacket);
     };
     const { repo } = this;
-    if (!this.canRead || !state.focus) { this.cancel('selection'); publish({}); return; }
+    if (!this.canRead || !state.focus || state.selected.length > MAX_SELECTION) {
+      this.cancel('selection');
+      publish(state.selected.length > MAX_SELECTION ? { selectionOverLimit: MAX_SELECTION } : {});
+      return;
+    }
     const request = this.start('selection');
     const { signal } = request;
     const selected = state.selected.length === 1 ? state.selected : this.rows.filter(row => this.selection.selected.has(row.oid)).map(row => row.oid);
@@ -515,6 +519,7 @@ class GraphController {
     const { repo, head, check } = this.actionContext(context, 'commit');
     const rows = this.commitRows(context.gbOid);
     if (!rows.length || (rows.length > 1 && !['copyRevision', 'cherryPick', 'revert'].includes(kind))) throw new BranchError(t('history.staleAction'));
+    if (rows.length > MAX_SELECTION && kind !== 'copyRevision') throw new BranchError(t('history.selectionLimit', { count: MAX_SELECTION }));
     return this.ui.historyCommit(kind, repo, head, rows, check);
   }
 
@@ -529,19 +534,24 @@ class GraphController {
     const tokens = this.fileTokens(source);
     const change = tokens?.get(token);
     if (!change || change.ambiguous) throw new BranchError(t('history.staleAction'));
+    const apply = kind === 'applyFiles';
     const selection = () => this.fileSelection[source].has(token) ? [...this.fileSelection[source]] : [token];
-    const ids = selection();
-    if (kind === 'applyFiles' && ids.join(',') !== context.gbFiles) throw new BranchError(t('history.staleAction'));
+    const selected = this.fileSelection[source];
+    if (apply && selected.has(token) && selected.size > MAX_PATCH_FILES) {
+      throw new BranchError(t('git.historyPatchFileLimit', { count: MAX_PATCH_FILES }));
+    }
+    const ids = apply ? selection() : [token];
+    if (apply && ids.join(',') !== context.gbFiles) throw new BranchError(t('history.staleAction'));
     const chosen = ids.map(id => tokens.get(id));
     if (chosen.some(file => !file)) throw new BranchError(t('history.staleAction'));
     const guard = () => {
       check();
-      if (this.fileTokens(source) !== tokens || tokens.get(token) !== change || (kind === 'applyFiles' &&
-        (selection().join(',') !== ids.join(',') || ids.some((id, i) => tokens.get(id) !== chosen[i])))) throw new BranchError(t('history.staleAction'));
+      if (this.fileTokens(source) !== tokens || tokens.get(token) !== change || (apply &&
+        (selection().join(',') !== context.gbFiles || ids.some((id, i) => tokens.get(id) !== chosen[i])))) throw new BranchError(t('history.staleAction'));
     };
     if (kind === 'editSource') return this.documents.openSource(repo, change, guard);
     if (kind === 'openRepositoryVersion') return this.documents.openVersion(repo, change, guard);
-    if (kind === 'applyFiles') {
+    if (apply) {
       if (chosen.some(file => file.parentGroup !== change.parentGroup)) throw new BranchError(t('history.mixedParentChanges'));
       return this.ui.applyHistoryFiles(repo, head, chosen, guard);
     }
@@ -550,7 +560,7 @@ class GraphController {
   async probeCommitMenu(oid) {
     const rows = this.commitRows(oid), { repo, selectionRevision: revision } = this;
     const head = repo?.snapshot?.head;
-    if (!this.canRead || !rows.length || !repo.actions?.history) return;
+    if (!this.canRead || !rows.length || rows.length > MAX_SELECTION || !repo.actions?.history) return;
     const request = this.start('commitMenu');
     try {
       const actions = await repo.actions.history.eligibility(rows, head, request.signal);
@@ -610,6 +620,15 @@ class GraphController {
         return;
       case 'toggleCompareSide': return this.toggleCompareSide(message.side);
       case 'loadMore': return this.loadPage();
+      case 'selectAllCommits':
+        if (this.selection.selectAll(this.rows, message.focusedOid)) return this.loadSelection();
+        return;
+      case 'clearCommits':
+        if (this.selection.selected.size) {
+          this.selection.clear();
+          return this.loadSelection();
+        }
+        return;
       case 'select': {
         const { oid, mode } = message;
         if (!this.known.has(oid) || !['replace', 'toggle', 'range', 'extend'].includes(mode)) return;
@@ -626,13 +645,10 @@ class GraphController {
         this.filesLayout = message.layout;
         return this.context.workspaceState?.update(FILE_LAYOUT, message.layout);
       }
-      case 'fileSelectionLimit':
-        void vscode.window.showWarningMessage(t('git.historyPatchFileLimit', { count: MAX_PATCH_FILES }));
-        return;
       case 'selectFiles': {
         const { source, ids } = message;
         const tokens = this.fileTokens(source);
-        if (!tokens || !Array.isArray(ids) || ids.length > MAX_PATCH_FILES || !ids.every(id => tokens.has(id))) return;
+        if (!tokens || !Array.isArray(ids) || ids.length > tokens.size || !ids.every(id => tokens.has(id))) return;
         this.fileSelection[source] = new Set(ids);
         return;
       }
@@ -717,7 +733,7 @@ class GraphController {
         <span id="file-title">${htmlText('history.commitFiles')}</span><span id="file-count" class="pill"></span>
         <button id="file-layout" class="control file-layout" type="button">${htmlText('history.viewTree')}</button>
       </div>
-      <div id="files" class="scroll files" aria-label="${htmlText('history.changedFiles')}"></div>
+      <div id="files" class="scroll files" tabindex="-1" data-patch-limit="${MAX_PATCH_FILES}" aria-label="${htmlText('history.changedFiles')}"></div>
     </div>
     <details id="details" class="details" open>
       <summary>${htmlText('history.commitDetails')}</summary>
