@@ -286,7 +286,6 @@
   "history.snapshotName": "Historical Version",
   "history.laneOverflow": "This commit’s lane is outside the visible range.",
   "history.noSubject": "(No commit subject)",
-  "history.refBadge": "Refs",
   "history.baseOnly": "Base only",
   "history.targetOnly": "Target only",
   "history.baseLabel": "Base: {name}",

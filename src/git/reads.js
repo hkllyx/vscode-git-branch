@@ -62,9 +62,10 @@ class GitReads {
     return { ref: ref?.startsWith('refs/heads/') ? ref : undefined, oid };
   }
 
-  async refs({ tags = false, ref, ...opts } = {}) {
+  async refs({ tags = false, ref, trackingCounts = false, ...opts } = {}) {
     const patterns = ref ? [ref] : ['refs/heads/', 'refs/remotes/', ...(tags ? ['refs/tags/'] : [])];
-    const records = parseRefs(await this.client.text(['for-each-ref', `--format=${REF_FORMAT}`, '--', ...patterns], opts));
+    const format = trackingCounts ? `${REF_FORMAT}%00%(upstream:track,nobracket)` : REF_FORMAT;
+    const records = parseRefs(await this.client.text(['for-each-ref', `--format=${format}`, '--', ...patterns], opts));
     if (ref) return records.filter(item => item.ref === ref);
     for (const item of records) {
       if (item.needsPeel) item.oid = await this.resolveCommit(item.ref, opts);
@@ -74,17 +75,9 @@ class GitReads {
 
   async snapshot(dirs, tags, opts) {
     const [head, allRefs, shallowInfo] = await Promise.all([
-      this.head(opts), this.refs({ tags, ...opts }), this.shallowInfo(dirs.commonDir)
+      this.head(opts), this.refs({ ...opts, tags, trackingCounts: true }), this.shallowInfo(dirs.commonDir)
     ]);
     const byRef = new Map(allRefs.map(item => [item.ref, item]));
-    const current = byRef.get(head.ref);
-    const upstream = byRef.get(current?.upstream?.tracking);
-    if (current?.oid && upstream?.oid) {
-      try {
-        const { left, right } = await this.divergence(current.oid, upstream.oid, opts);
-        current.trackingCount = { ahead: left, behind: right };
-      } catch (error) { if (opts?.signal?.aborted) throw error; }
-    }
     return { head, allRefs, byRef, ...shallowInfo };
   }
 

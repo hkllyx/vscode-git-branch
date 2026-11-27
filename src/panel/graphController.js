@@ -26,9 +26,13 @@ function installedCodiconFont(appRoot) {
   // without exposing the installation directory as a Webview resource root.
   for (const relative of ['out/media/codicon.ttf', 'out/vs/base/browser/ui/codicons/codicon/codicon.ttf']) {
     try { return readFileSync(path.join(appRoot, relative)).toString('base64'); }
-    catch { /* The layout varies by VS Code version; fall back to text if neither exists. */ }
+    catch { /* The layout varies by VS Code version. */ }
   }
-  return '';
+  // Some builds ship Codicons in the built-in Simple Browser stylesheet instead.
+  try {
+    const css = readFileSync(path.join(appRoot, 'extensions/simple-browser/media/codicon.css'), 'utf8');
+    return /url\(["']?data:font\/ttf;base64,([A-Za-z0-9+/]+=*)["']?\)/.exec(css)?.[1] ?? '';
+  } catch { return ''; }
 }
 
 class GraphController {
@@ -640,7 +644,7 @@ class GraphController {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource}; font-src data:; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
 <link rel="stylesheet" href="${asset('graph.css')}">
 <title>${htmlText('view.history')}</title>
 </head>

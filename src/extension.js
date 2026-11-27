@@ -196,7 +196,7 @@ class WorkbenchActions {
       items.push({ label: t(label), kind: vscode.QuickPickItemKind.Separator });
       items.push(...refs.map(({ ref, name, oid }) => ({
         ref, label: name, description: shortOid(oid),
-        iconPath: ref === head.ref ? new vscode.ThemeIcon('star-full') : kind === 'tag' ? new vscode.ThemeIcon('tag') : undefined
+        iconPath: new vscode.ThemeIcon(ref === head.ref ? 'star-full' : kind === 'tag' ? 'tag' : 'git-branch')
       })));
     }
     const range = this.history.range;

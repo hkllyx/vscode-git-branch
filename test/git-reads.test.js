@@ -39,6 +39,38 @@ test('refs are full, flat, current-first, ignore symbolic aliases, and include t
   assert.equal(historyTarget(shown, 'refs/tags/v1', false).range, 'HEAD');
 });
 
+test('snapshots include upstream divergence for every local branch, even when HEAD is detached', async t => {
+  const f = await fixture(t);
+  const repo = await f.repo('tracking-counts');
+  const base = await repo.commit('base');
+  const ours = await repo.commit('ours');
+  const theirs = (await repo.git('commit-tree', `${base}^{tree}`, '-p', base, '-m', 'theirs')).trim();
+  await repo.git('remote', 'add', 'origin', 'https://example.invalid/repo.git');
+  for (const [name, tip, upstream] of [['ahead', ours, base], ['behind', base, ours], ['diverged', ours, theirs], ['equal', ours, ours], ['gone', ours, undefined]]) {
+    await repo.git('branch', name, tip);
+    if (upstream) await repo.git('update-ref', `refs/remotes/origin/${name}`, upstream);
+    await repo.git('config', `branch.${name}.remote`, 'origin');
+    await repo.git('config', `branch.${name}.merge`, `refs/heads/${name}`);
+  }
+  await repo.git('update-ref', 'refs/remotes/origin/main', base);
+  await repo.git('branch', '--set-upstream-to=origin/main', 'main');
+  await repo.git('branch', '--track', 'local-upstream', 'ahead');
+  await repo.git('update-ref', 'refs/heads/local-upstream', base);
+  await repo.git('branch', 'untracked');
+  const expected = { main: { ahead: 1, behind: 0 }, ahead: { ahead: 1, behind: 0 }, behind: { ahead: 0, behind: 1 },
+    diverged: { ahead: 1, behind: 1 }, equal: { ahead: 0, behind: 0 }, gone: undefined,
+    'local-upstream': { ahead: 0, behind: 1 }, untracked: undefined };
+  const check = async () => {
+    const { allRefs } = await repo.reads.snapshot(repo.dirs, false);
+    assert.deepEqual(Object.fromEntries(allRefs.filter(ref => ref.kind === 'local').map(({ name, trackingCount }) => [name, trackingCount])), expected);
+    assert.ok(allRefs.filter(ref => ref.kind === 'remote').every(ref => ref.trackingCount === undefined));
+  };
+  await check();
+  await repo.git('switch', '--detach', ours);
+  await check();
+  assert.equal((await repo.reads.refs({ ref: 'refs/heads/diverged' }))[0].trackingCount, undefined);
+});
+
 test('history pages keep stable tips and topo order while a branch moves', async t => {
   const f = await fixture(t);
   const repo = await f.repo('page');

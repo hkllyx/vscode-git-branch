@@ -6,12 +6,17 @@
   const html = document.documentElement;
   const t = globalThis.gitBranchCreateTranslator(JSON.parse(html.dataset.messages));
   if (html.dataset.codiconFont) {
-    const font = new FontFace('Git Branch Codicon', `url(data:font/ttf;base64,${html.dataset.codiconFont})`);
+    const encoded = html.dataset.codiconFont;
     delete html.dataset.codiconFont;
-    void font.load().then(loaded => {
-      document.fonts.add(loaded);
-      html.classList.add('has-codicons');
-    }, () => { /* Keep the text fallbacks if the installed font cannot load. */ });
+    try {
+      // A binary FontFace needs no URL request from the Webview's restricted origin.
+      const bytes = Uint8Array.from(atob(encoded), char => char.charCodeAt(0));
+      const font = new FontFace('Git Branch Codicon', bytes);
+      void font.load().then(loaded => {
+        document.fonts.add(loaded);
+        html.classList.add('has-codicons');
+      }, () => { /* Keep the fallback symbols. */ });
+    } catch { /* Keep the fallback symbols if the host font is unreadable. */ }
   }
   const $ = id => document.getElementById(id);
   const scroll = $('commits-scroll');
@@ -178,8 +183,7 @@
     const message = el('span', 'commit-message');
     message.append(el('span', 'subject ellipsis', subject));
     if (badges.length) {
-      const badge = codicon('tag', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`);
-      badge.dataset.label = t('history.refBadge');
+      const badge = codicon(badges.length === 1 ? 'tag' : 'layers', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`);
       badge.title = badges.map(item => item.name).join('\n');
       message.append(badge);
     }

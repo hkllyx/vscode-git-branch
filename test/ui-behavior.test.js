@@ -229,6 +229,7 @@ test('the history range picker stars the current branch and keeps native Local, 
     assert.deepEqual(picker.items.filter(item => item.kind === -1).map(item => item.label), ['Local', 'Remote']);
     assert.deepEqual(picker.activeItems, [picker.items[3]]);
     assert.equal(picker.activeItems[0].iconPath.id, 'star-full');
+    assert.deepEqual(picker.items.map(item => item.iconPath?.id), [undefined, undefined, undefined, 'star-full', 'git-branch', undefined, 'git-branch']);
     assert.equal(picker.activeItems[0].description, oid.slice(0, 8));
     assert.equal(picker.matchOnDescription, true);
     picker.selectedItems = [picker.items[5]];
@@ -643,28 +644,30 @@ test('history context targets the clicked commit or its selection and rejects st
   assert.equal(calls[0].h, head);
 });
 
-test('history HTML loads only the installed workbench icon font and keeps a text fallback', () => {
+test('history HTML embeds Codicons from installed VS Code assets without allowing font requests', () => {
   const appRoot = path.resolve('mock-app');
   const modern = 'out/media/codicon.ttf';
   const legacy = 'out/vs/base/browser/ui/codicons/codicon/codicon.ttf';
+  const builtInCss = 'extensions/simple-browser/media/codicon.css';
   const font = Buffer.from([0, 1, 0, 0]);
-  for (const candidate of [modern, legacy, undefined]) {
+  for (const candidate of [modern, legacy, builtInCss, undefined]) {
     const reads = [];
     const vscode = { env: { appRoot }, Uri: { joinPath: (...parts) => parts.join('/') } };
     const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode,
       'node:fs': { readFileSync(file) {
         const relative = path.relative(appRoot, file).split(path.sep).join('/');
         reads.push(relative);
-        if (relative === candidate) return font;
+        if (relative === candidate) return relative === builtInCss ? `@font-face{src:url(data:font/ttf;base64,${font.toString('base64')})}` : font;
         throw new Error('not found');
       } }
     });
     const controller = new GraphController({}, { repositories: new Map(), onChange: () => ({ dispose() {} }) }, {}, {});
     const html = controller.html({ asWebviewUri: uri => uri, cspSource: 'webview:' }, 'media');
     controller.dispose();
-    assert.deepEqual(reads, candidate === modern ? [modern] : [modern, legacy]);
+    assert.deepEqual(reads, candidate === modern ? [modern] : candidate === legacy ? [modern, legacy] : [modern, legacy, builtInCss]);
     assert.equal(html.match(/data-codicon-font="([^"]+)"/)?.[1], candidate ? font.toString('base64') : undefined);
-    assert.match(html, /font-src data:/);
+    assert.match(html, /default-src 'none'/);
+    assert.doesNotMatch(html, /font-src/);
     assert.match(html, /class="refresh-label">[^<]+</);
   }
 });
@@ -677,7 +680,8 @@ test('branch hovers contain only the name and optional upstream; the current bra
   } });
   const oid = 'a'.repeat(40);
   const main = { ref: 'refs/heads/main', name: 'main', kind: 'local', oid, upstream: { tracking: 'refs/remotes/origin/main' } };
-  const topic = { ref: 'refs/heads/topic', name: 'topic', kind: 'local', oid };
+  const topic = { ref: 'refs/heads/topic', name: 'topic', kind: 'local', oid,
+    upstream: { tracking: 'refs/remotes/origin/topic' }, trackingCount: { ahead: 2, behind: 1 } };
   const remote = { ref: 'refs/remotes/origin/topic', name: 'origin/topic', kind: 'remote', oid };
   const tag = { ref: 'refs/tags/v1', name: 'v1', kind: 'tag', oid };
   const repo = { id: 'test', snapshot: { head: main, allRefs: [main, topic, remote, tag] } };
@@ -689,7 +693,7 @@ test('branch hovers contain only the name and optional upstream; the current bra
     const nodes = [
       [provider.roots(repo)[0], 'gb-head', ['main', upstream]],
       [provider.branch(repo, main), 'gb-current', ['main', upstream]],
-      [provider.branch(repo, topic), 'gb-local', ['topic']],
+      [provider.branch(repo, topic), 'gb-local', ['topic', message('branch.upstreamLabel', { name: 'origin/topic' })]],
       [provider.branch(repo, remote), 'gb-remote', ['origin/topic']],
       [provider.branch(repo, tag), 'gb-tag', ['v1']]
     ];
@@ -701,6 +705,7 @@ test('branch hovers contain only the name and optional upstream; the current bra
       assert.equal(treeItem.iconPath?.id, current ? 'star-full' : contextValue === 'gb-tag' ? 'tag' : contextValue === 'gb-head' ? undefined : 'git-branch');
       assert.equal(treeItem.iconPath?.color?.id, current ? 'charts.yellow' : undefined);
       assert.equal(treeItem.contextValue, contextValue);
+      assert.equal(treeItem.description, contextValue === 'gb-local' ? '↑2 ↓1' : contextValue === 'gb-head' ? undefined : '');
       assert.equal(treeItem.command.command, 'git-branch.activateRef');
     }
     const nonCommit = provider.getTreeItem(provider.branch(repo, { ...tag, oid: undefined }));

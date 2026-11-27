@@ -286,7 +286,6 @@
   "history.snapshotName": "历史版本",
   "history.laneOverflow": "此提交的泳道超出绘制范围",
   "history.noSubject": "（无提交主题）",
-  "history.refBadge": "引用",
   "history.baseOnly": "仅基准",
   "history.targetOnly": "仅目标",
   "history.baseLabel": "基准：{name}",

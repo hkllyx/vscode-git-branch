@@ -13,15 +13,21 @@ const REF_KINDS = [['refs/heads/', 'local'], ['refs/remotes/', 'remote'], ['refs
 function parseRefs(output) {
   return output.split(/\r?\n/).flatMap(line => {
     if (!line) return [];
-    const [ref, oid, type, symbolic, peeled, peeledType, tracking, remote, source] = line.split('\0');
+    const [ref, oid, type, symbolic, peeled, peeledType, tracking, remote, source, trackStatus] = line.split('\0');
     const [prefix, kind] = REF_KINDS.find(([start]) => ref.startsWith(start)) || [];
     if (!prefix || symbolic || !isOid(oid)) return [];
-    return [{
+    const item = {
       ref, kind, name: ref.slice(prefix.length),
       oid: type === 'commit' ? oid : peeledType === 'commit' && isOid(peeled) ? peeled : undefined,
       needsPeel: type === 'tag' && peeledType === 'tag',
       upstream: tracking || remote || source ? { tracking, remote, source } : undefined
-    }];
+    };
+    // GitClient uses the C locale. An empty status is up to date; "gone" has no count.
+    if (kind === 'local' && item.oid && tracking && trackStatus !== undefined) {
+      const counts = /^(?:ahead (\d+)(?:, behind (\d+))?|behind (\d+)|)$/.exec(trackStatus);
+      if (counts) item.trackingCount = { ahead: Number(counts[1] ?? 0), behind: Number(counts[2] ?? counts[3] ?? 0) };
+    }
+    return [item];
   });
 }
 
