@@ -12,6 +12,7 @@ const { BranchError, errorText, shortOid } = require('../util/format');
 const FILE_LAYOUT = 'git-branch.filesLayout';
 const COMMIT_COLUMNS = 'git-branch.historyColumns';
 const COLUMN_LABELS = { author: 'history.author', hash: 'history.columnHash', date: 'history.columnDate' };
+const DEFAULT_COLUMNS = ['author', 'date'];
 
 const HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escapeHtml = value => value.replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
@@ -26,7 +27,8 @@ class GraphController {
     this.range = ALL;
     this.filter = '';
     const savedColumns = context.workspaceState?.get(COMMIT_COLUMNS);
-    this.commitColumns = Object.keys(COLUMN_LABELS).filter(key => !Array.isArray(savedColumns) || savedColumns.includes(key));
+    const visibleColumns = Array.isArray(savedColumns) ? savedColumns : DEFAULT_COLUMNS;
+    this.commitColumns = Object.keys(COLUMN_LABELS).filter(key => visibleColumns.includes(key));
     this.generation = 0;
     this.selectionRevision = 0;
     this.requests = new Map();

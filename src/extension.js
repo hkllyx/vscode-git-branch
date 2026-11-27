@@ -18,7 +18,7 @@ const { BranchError, errorText, shortOid } = require('./util/format');
 function activate(context) {
   configureLocale(vscode.env.language);
   const registry = new RepoRegistry(context);
-  const branches = new BranchesProvider(registry);
+  const branches = new BranchesProvider(registry, context.extensionUri);
   const tree = vscode.window.createTreeView('git-branch.branches', { treeDataProvider: branches });
   const branchActivation = new BranchActivation();
   const documents = new HistoryDocuments();

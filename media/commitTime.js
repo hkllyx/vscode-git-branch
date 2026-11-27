@@ -15,7 +15,8 @@
       const hint = Math.abs(elapsed) < 60_000 ? relative.format(0, 'second')
         : Math.abs(elapsed) < 3_600_000 ? relative.format(Math.trunc(elapsed / 60_000), 'minute')
         : Math.abs(days) <= 1 ? relative.format(days, 'day') : '';
-      return { label, title: hint ? `${label} · ${hint}` : label };
+      const precise = `${label}:${pad(value.getSeconds())}`;
+      return { label, title: hint ? `${precise} · ${hint}` : precise };
     };
   }
 

@@ -76,7 +76,6 @@
   "branch.unavailableRef": "引用已不可用，请刷新后重新选择。",
   "branch.findRef": "查找分支或标签",
   "branch.nameEmpty": "请输入分支名。",
-  "branch.doubleClickHistory": "双击查看历史，不切换分支。",
 
   "action.createStart": "选择新分支的起点",
   "action.createName": "创建分支 · 来源：{name}（{oid}）",

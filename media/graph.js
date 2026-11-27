@@ -159,7 +159,7 @@
     const badges = state.badges.get(row.oid) || [];
     const side = row.side && t(row.side === 'left' ? 'history.baseOnly' : 'history.targetOnly');
     const refs = badges.map(item => item.name).join('\n');
-    summary.title = [subject, `${row.oid} · ${row.author}`, time.title, side, refs].filter(Boolean).join('\n');
+    summary.title = [subject, [short(row.oid), row.author].filter(Boolean).join(' · '), time.title, side].filter(Boolean).join('\n');
     const message = el('span', 'commit-message');
     if (badges.length) {
       const badge = el('span', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`, undefined, refs);

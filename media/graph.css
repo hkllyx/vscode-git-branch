@@ -120,15 +120,13 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 }
 .commit-row .commit-subject:hover { background: transparent; }
 .commit-row.focused .subject { font-weight: 600; }
-/* Optional tracks collapse to zero; spacing belongs to visible cells, not the grid. */
-#commits[data-columns~='author'] { --commit-author-width: clamp(44px, 17cqw, 122px); }
-#commits[data-columns~='hash'] { --commit-hash-width: clamp(42px, 13cqw, 78px); }
-#commits[data-columns~='date'] { --commit-date-width: clamp(76px, 27cqw, 141px); }
+/* Optional tracks collapse when absent. Give each visible cell one space of padding. */
+#commits[data-columns~='author'] { --commit-author-width: clamp(42px, 15cqw, 112px); }
 .commit-subject {
   padding: 0 6px 0 0;
   display: grid;
   grid-template-columns: [lane] max-content [message] minmax(0, 1fr)
-    [author] var(--commit-author-width, 0px) [hash] var(--commit-hash-width, 0px) [date] var(--commit-date-width, 0px);
+    [author] var(--commit-author-width, 0px) [hash] max-content [date] max-content;
   grid-template-rows: minmax(0, 1fr);
   align-items: center;
   min-width: 0;
@@ -136,12 +134,12 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   text-align: left;
 }
 .commit-subject > * { grid-row: 1; }
-.commit-message { grid-column: message; display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
-.commit-message, .commit-subject > :is(.date, .hash, .author) { padding-inline-start: 6px; }
+.commit-message { grid-column: message; display: flex; align-items: center; gap: .28em; padding-inline-start: .28em; min-width: 0; overflow: hidden; }
 .date, .hash, .author { opacity: .85; }
-.date { grid-column: date; }
-.hash { grid-column: hash; }
-.author { grid-column: author; font-size: .89em; }
+.date, .hash { padding-inline-start: 1ch; }
+.date { grid-column: date; width: 17ch; max-width: 30cqw; }
+.hash { grid-column: hash; width: 9ch; max-width: 16cqw; }
+.author { grid-column: author; padding-inline-start: .28em; text-align: end; font-size: .89em; }
 .graph { grid-column: lane; height: var(--row-height); overflow: hidden; }
 .edge { fill: none; stroke: var(--lane); stroke-width: 1.5; }
 .edge.boundary { stroke-dasharray: 2 2; }
@@ -156,14 +154,12 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .lane-5 { --lane: var(--vscode-charts-yellow, #c59c33); }
 .lane-6 { --lane: var(--vscode-charts-foreground, var(--vscode-foreground)); }
 .ref-badge {
-  flex: 0 0 18px;
-  height: 17px;
+  flex: 0 0 14px;
+  height: 16px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border);
-  border-radius: 4px;
 }
-.ref-badge.current { border-color: var(--blue); }
+.ref-badge.current { color: var(--blue); }
 .ref-badge path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .side, .pill {
   display: inline-block;

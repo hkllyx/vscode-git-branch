@@ -96,10 +96,10 @@ test('commit time tooltip uses one local timestamp with an optional relative hin
     const format = createCommitTimeFormatter(locale);
     const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
     assert.deepEqual(format(iso, now), {
-      label: '2026/01/02 03:04', title: `2026/01/02 03:04 · ${relative.format(-5, 'minute')}`
+      label: '2026/01/02 03:04', title: `2026/01/02 03:04:05 · ${relative.format(-5, 'minute')}`
     });
-    assert.equal(format(iso, new Date(2026, 0, 3, 14)).title, `2026/01/02 03:04 · ${relative.format(-1, 'day')}`);
-    assert.equal(format(iso, new Date(2026, 2, 5)).title, '2026/01/02 03:04');
+    assert.equal(format(iso, new Date(2026, 0, 3, 14)).title, `2026/01/02 03:04:05 · ${relative.format(-1, 'day')}`);
+    assert.equal(format(iso, new Date(2026, 2, 5)).title, '2026/01/02 03:04:05');
     assert.equal(format(undefined).label, '—');
   }
 });
@@ -441,7 +441,7 @@ test('single merge issues distinct parent Diff tokens; multi-select omits parent
   assert.equal(opened.length, 3);
 });
 
-test('history columns default to Author, Hash, Date and persist checked items without restarting the log', async t => {
+test('history columns default to Author and Date while keeping Hash available and preserving saved choices', async t => {
   const packets = [];
   const values = new Map();
   const workspaceState = { get: key => values.get(key), update: (key, value) => values.set(key, value) };
@@ -464,16 +464,16 @@ test('history columns default to Author, Hash, Date and persist checked items wi
   const controller = start();
   const { generation } = controller;
   const openPicker = () => controller.onMessage({ generation, type: 'chooseColumns' });
-  assert.deepEqual(controller.commitColumns, ['author', 'hash', 'date']);
-  pick = items => {
-    assert.ok(items.every(item => item.picked));
-    return [items[2], items[0]];
-  };
-  await openPicker();
-  assert.deepEqual(packets.at(-1), { generation, type: 'commitColumns', repoId: undefined, payload: ['author', 'date'] });
-  assert.deepEqual(start().commitColumns, ['author', 'date']);
+  assert.deepEqual(controller.commitColumns, ['author', 'date']);
   pick = items => {
     assert.deepEqual(items.map(item => item.picked), [true, false, true]);
+    return [items[2], items[1], items[0]];
+  };
+  await openPicker();
+  assert.deepEqual(packets.at(-1), { generation, type: 'commitColumns', repoId: undefined, payload: ['author', 'hash', 'date'] });
+  assert.deepEqual(start().commitColumns, ['author', 'hash', 'date']);
+  pick = items => {
+    assert.ok(items.every(item => item.picked));
     return undefined;
   };
   await openPicker();
@@ -516,10 +516,11 @@ test('history context targets the clicked commit or its selection and rejects st
   assert.equal(calls[0].h, head);
 });
 
-test('branch hovers keep ref details and the localized double-click hint without action descriptions', t => {
+test('branch hovers contain only the name and optional upstream; current branch uses a fixed accent SVG', t => {
   const { BranchesProvider } = loadWithMocks(require.resolve('../src/views/branchesProvider'), { vscode: {
     TreeItemCollapsibleState: { None: 0, Expanded: 2 }, TreeItem: class {},
-    ThemeIcon: class {}, ThemeColor: class {}, EventEmitter: class {}
+    ThemeIcon: class { constructor(id) { this.id = id; } }, ThemeColor: class {}, EventEmitter: class {},
+    Uri: { joinPath: (...parts) => parts.join('/') }
   } });
   const oid = 'a'.repeat(40);
   const main = { ref: 'refs/heads/main', name: 'main', kind: 'local', oid, upstream: { tracking: 'refs/remotes/origin/main' } };
@@ -527,22 +528,25 @@ test('branch hovers keep ref details and the localized double-click hint without
   const remote = { ref: 'refs/remotes/origin/topic', name: 'origin/topic', kind: 'remote', oid };
   const tag = { ref: 'refs/tags/v1', name: 'v1', kind: 'tag', oid };
   const repo = { id: 'test', snapshot: { head: main, allRefs: [main, topic, remote, tag] } };
-  const provider = new BranchesProvider({ showTags: true });
+  const provider = new BranchesProvider({ showTags: true }, 'ext');
   t.after(() => configureLocale('en'));
   for (const language of ['en', 'zh-cn', 'zh-tw', 'ja']) {
     configureLocale(language);
+    const upstream = message('branch.upstreamLabel', { name: 'origin/main' });
     const nodes = [
-      [provider.roots(repo)[0], 'gb-head', ['main']],
-      [provider.branch(repo, main), 'gb-current', ['main', message('branch.current'), oid, message('branch.upstreamLabel', { name: 'origin/main' })]],
-      [provider.branch(repo, topic), 'gb-local', ['topic', oid]],
-      [provider.branch(repo, remote), 'gb-remote', ['origin/topic', oid]],
-      [provider.branch(repo, tag), 'gb-tag', ['v1', oid]]
+      [provider.roots(repo)[0], 'gb-head', ['main', upstream]],
+      [provider.branch(repo, main), 'gb-current', ['main', upstream]],
+      [provider.branch(repo, topic), 'gb-local', ['topic']],
+      [provider.branch(repo, remote), 'gb-remote', ['origin/topic']],
+      [provider.branch(repo, tag), 'gb-tag', ['v1']]
     ];
     for (const [node, contextValue, details] of nodes) {
       const treeItem = provider.getTreeItem(node);
-      const summary = [...details, message('branch.doubleClickHistory')].join('\n');
-      assert.equal(treeItem.tooltip, summary);
-      assert.equal(treeItem.accessibilityInformation.label, summary);
+      const current = contextValue === 'gb-current';
+      assert.equal(treeItem.tooltip, details.join('\n'));
+      assert.equal(treeItem.accessibilityInformation.label, (current ? [...details, message('branch.current')] : details).join('\n'));
+      assert.equal(current ? treeItem.iconPath : treeItem.iconPath.id,
+        current ? 'ext/media/current-branch.svg' : contextValue === 'gb-tag' ? 'tag' : 'git-branch');
       assert.equal(treeItem.contextValue, contextValue);
       assert.equal(treeItem.command.command, 'git-branch.activateRef');
     }

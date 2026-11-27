@@ -7,10 +7,13 @@ const { formatTracking, shortOid } = require('../util/format');
 
 const COLLAPSED = vscode.TreeItemCollapsibleState.None;
 const EXPANDED = vscode.TreeItemCollapsibleState.Expanded;
+const refTooltip = (name, tracking) => [name,
+  tracking && t('branch.upstreamLabel', { name: tracking.replace(/^refs\/(?:remotes|heads)\//, '') })].filter(Boolean).join('\n');
 
 class BranchesProvider {
-  constructor(registry) {
+  constructor(registry, extensionUri) {
     this.registry = registry;
+    this.currentBranchIcon = vscode.Uri.joinPath(extensionUri, 'media', 'current-branch.svg');
     this.emitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.emitter.event;
   }
@@ -24,11 +27,11 @@ class BranchesProvider {
     item.description = node.description;
     item.tooltip = node.tooltip;
     item.contextValue = node.contextValue;
-    if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon, node.color ? new vscode.ThemeColor(node.color) : undefined);
+    // TreeView recolors ThemeIcons in selected rows. An SVG keeps the current-branch accent.
+    if (node.contextValue === 'gb-current') item.iconPath = this.currentBranchIcon;
+    else if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon, node.color ? new vscode.ThemeColor(node.color) : undefined);
     if (node.ref && node.oid) {
-      const summary = [node.tooltip, t('branch.doubleClickHistory')].filter(Boolean).join('\n');
-      item.tooltip = summary;
-      item.accessibilityInformation = { label: summary };
+      item.accessibilityInformation = { label: [node.tooltip, node.contextValue === 'gb-current' && t('branch.current')].filter(Boolean).join('\n') };
       item.command = { command: 'git-branch.activateRef', title: t('command.openHistory'), arguments: [node] };
     }
     if (node.choose) item.command = { command: 'git-branch.selectRepository', title: t('repo.pick') };
@@ -51,11 +54,13 @@ class BranchesProvider {
     const snapshot = repo.snapshot;
     if (!snapshot) return [{ repoId: repo.id, label: t('repo.reading'), icon: 'loading~spin' }];
     const head = snapshot.head;
+    const headLabel = t(head.ref ? 'branch.headCurrent' : 'branch.headDetached');
+    const upstream = head.ref && snapshot.allRefs.find(item => item.ref === head.ref)?.upstream?.tracking;
     const nodes = [{
       repoId: repo.id, ref: 'HEAD', oid: head.oid,
-      label: head.ref ? t('branch.headCurrent') : t('branch.headDetached'),
+      label: headLabel,
       description: !head.oid ? t('branch.noCommits') : !head.ref ? shortOid(head.oid) : undefined,
-      tooltip: head.ref ? head.ref.slice('refs/heads/'.length) : head.oid,
+      tooltip: refTooltip(head.ref ? head.ref.slice('refs/heads/'.length) : headLabel, upstream),
       contextValue: head.oid ? 'gb-head' : undefined,
       icon: 'git-branch', color: 'charts.blue'
     }];
@@ -75,10 +80,8 @@ class BranchesProvider {
     return {
       repoId: repo.id, ref: item.ref, oid: item.oid, label: item.name, contextValue,
       icon: item.kind === 'tag' ? 'tag' : 'git-branch',
-      color: current ? 'charts.yellow' : undefined,
       description: item.kind === 'tag' && !item.oid ? t('branch.nonCommit') : formatTracking(item.trackingCount),
-      tooltip: [item.name, current && t('branch.current'), item.oid,
-        tracking && t('branch.upstreamLabel', { name: tracking.replace(/^refs\/remotes\//, '') })].filter(Boolean).join('\n')
+      tooltip: refTooltip(item.name, tracking)
     };
   }
 }

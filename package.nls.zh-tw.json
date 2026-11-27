@@ -76,7 +76,6 @@
   "branch.unavailableRef": "此參照已無法使用。請重新整理後再選擇一次。",
   "branch.findRef": "尋找分支或標籤",
   "branch.nameEmpty": "請輸入分支名稱。",
-  "branch.doubleClickHistory": "連按兩下可檢視歷程記錄，不會切換分支。",
 
   "action.createStart": "選擇新分支的起點",
   "action.createName": "建立分支 · 來源：{name}（{oid}）",
