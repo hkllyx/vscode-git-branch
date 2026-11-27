@@ -176,12 +176,13 @@
     const hash = short(row.oid);
     summary.title = `${subject}\n${author}  ·  ${hash}  ·  ${time.precise}`;
     const message = el('span', 'commit-message');
+    message.append(el('span', 'subject ellipsis', subject));
     if (badges.length) {
       const badge = codicon('tag', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`);
+      badge.dataset.label = t('history.refBadge');
       badge.title = badges.map(item => item.name).join('\n');
       message.append(badge);
     }
-    message.append(el('span', 'subject ellipsis', subject));
     if (side) message.append(el('span', `side ${row.side}`, side));
     summary.append(graph(row, laneLimit), message);
     const values = { author, hash, date: time.label };

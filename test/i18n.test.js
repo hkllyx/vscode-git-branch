@@ -11,16 +11,20 @@ const { historyTarget, ALL } = require('../src/panel/historyState');
 const { errorText } = require('../src/util/format');
 
 const cases = [
-  { language: 'en', id: 'en', open: 'Show Git History', all: 'All Branches', invalid: 'Enter a valid Git branch name.', hidden: '[remote URL]' },
-  { language: 'zh-CN', id: 'zh-cn', open: '显示 Git 历史', all: '全部分支', invalid: '请输入有效的 Git 分支名。', hidden: '[远程地址]' },
-  { language: 'zh-tw', id: 'zh-tw', open: '顯示 Git 歷程記錄', all: '所有分支', invalid: '請輸入有效的 Git 分支名稱。', hidden: '[遠端網址]' },
-  { language: 'ja', id: 'en', open: 'Show Git History', all: 'All Branches', invalid: 'Enter a valid Git branch name.', hidden: '[remote URL]' }
+  { language: 'en', id: 'en', open: 'Show Git History', all: 'All Branches', invalid: 'Enter a valid Git branch name.', hidden: '[remote URL]',
+    firstCommit: 'The repository has no commits yet. Make the first commit to continue.', refs: 'Refs' },
+  { language: 'zh-CN', id: 'zh-cn', open: '显示 Git 历史', all: '全部分支', invalid: '请输入有效的 Git 分支名。', hidden: '[远程地址]',
+    firstCommit: '仓库尚无提交，请先完成首次提交。', refs: '引用' },
+  { language: 'zh-tw', id: 'zh-tw', open: '顯示 Git 歷程記錄', all: '所有分支', invalid: '請輸入有效的 Git 分支名稱。', hidden: '[遠端網址]',
+    firstCommit: '儲存庫尚無提交。請先完成第一次提交。', refs: '參照' },
+  { language: 'ja', id: 'en', open: 'Show Git History', all: 'All Branches', invalid: 'Enter a valid Git branch name.', hidden: '[remote URL]',
+    firstCommit: 'The repository has no commits yet. Make the first commit to continue.', refs: 'Refs' }
 ];
 const browserSource = readFileSync(require.resolve('../media/translate'), 'utf8');
 const browser = {};
 runInNewContext(browserSource, browser);
 
-for (const { language, id, open, all, invalid, hidden } of cases) {
+for (const { language, id, open, all, invalid, hidden, firstCommit, refs } of cases) {
   test(`native labels, extension messages and history share the ${language} language selection`, async t => {
     configureLocale(language);
     t.after(() => configureLocale('en'));
@@ -32,6 +36,10 @@ for (const { language, id, open, all, invalid, hidden } of cases) {
     const packet = JSON.parse(JSON.stringify(historyMessages()));
     const browserT = browser.gitBranchCreateTranslator(packet);
     assert.equal(browserT('history.allBranches'), all);
+    assert.equal(browserT('history.refBadge'), refs);
+    const emptyRepo = new GitActions();
+    emptyRepo.reads.head = async () => ({});
+    await assert.rejects(emptyRepo.named('HEAD'), { name: 'BranchError', message: firstCommit });
     assert.equal(browserT('history.baseCount', { count: 0 }), localizer.t('history.baseCount', { count: 0 }));
     assert.ok('repo.pick' in packet);
     assert.ok(!('git.pushUnconfirmed' in packet));

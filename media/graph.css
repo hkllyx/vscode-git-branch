@@ -30,10 +30,12 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .error { color: var(--vscode-errorForeground); }
 /* The workbench font is loaded from the VS Code installation, not shipped with the extension. */
 .codicon { display: inline-block; width: 14px; text-align: center; line-height: 1; }
-.codicon-tag::before { content: '#'; }
+.codicon-tag { width: auto; }
+.codicon-tag::before { content: attr(data-label); }
 .codicon-warning::before { content: '!'; }
 .codicon-refresh { display: none; width: 16px; font-size: 16px; }
 .has-codicons .codicon { font: normal normal 14px/1 'Git Branch Codicon'; }
+.has-codicons .codicon-tag { width: 14px; }
 .has-codicons .codicon-tag::before { content: '\ea66'; }
 .has-codicons .codicon-warning::before { content: '\ea6c'; }
 .has-codicons .codicon-refresh { display: inline-block; font-size: 16px; }

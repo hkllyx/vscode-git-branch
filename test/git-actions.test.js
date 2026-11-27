@@ -43,6 +43,8 @@ test('create validates full names, fixes the start point and never inherits an u
   assert.deepEqual(await local.reads.head(), { ref: localRef('from-detached'), oid: next });
   const empty = await f.repo('empty');
   await assert.rejects(empty.actions.named('HEAD'), /no commits yet/);
+  const first = await empty.commit('First commit made outside VS Code');
+  assert.equal((await empty.actions.named('HEAD')).oid, first);
 });
 
 test('rename preserves branch tip and tracking, including the current local branch', async t => {
