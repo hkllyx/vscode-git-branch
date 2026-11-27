@@ -88,7 +88,7 @@ test('a Branches item opens on a second activation, not a single activation or a
   assert.equal(activation.activate(first, true, 1200), true);
 });
 
-test('commit time uses the local clock and a stable yyyy/MM/dd HH:mm in all three display languages', () => {
+test('commit time tooltip uses one local timestamp with an optional relative hint in all three languages', () => {
   const commit = new Date(2026, 0, 2, 3, 4, 5);
   const iso = commit.toISOString();
   const now = new Date(commit.getTime() + 5 * 60_000);
@@ -96,10 +96,10 @@ test('commit time uses the local clock and a stable yyyy/MM/dd HH:mm in all thre
     const format = createCommitTimeFormatter(locale);
     const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
     assert.deepEqual(format(iso, now), {
-      label: '2026/01/02 03:04', title: `2026/01/02 03:04 · ${relative.format(-5, 'minute')}\n${iso}`
+      label: '2026/01/02 03:04', title: `2026/01/02 03:04 · ${relative.format(-5, 'minute')}`
     });
-    assert.match(format(iso, new Date(2026, 0, 3, 14)).title, new RegExp(relative.format(-1, 'day')));
-    assert.equal(format(iso, new Date(2026, 2, 5)).title, `2026/01/02 03:04\n${iso}`);
+    assert.equal(format(iso, new Date(2026, 0, 3, 14)).title, `2026/01/02 03:04 · ${relative.format(-1, 'day')}`);
+    assert.equal(format(iso, new Date(2026, 2, 5)).title, '2026/01/02 03:04');
     assert.equal(format(undefined).label, '—');
   }
 });

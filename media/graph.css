@@ -120,23 +120,29 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 }
 .commit-row .commit-subject:hover { background: transparent; }
 .commit-row.focused .subject { font-weight: 600; }
+/* Optional tracks collapse to zero; spacing belongs to visible cells, not the grid. */
+#commits[data-columns~='author'] { --commit-author-width: clamp(44px, 17cqw, 122px); }
+#commits[data-columns~='hash'] { --commit-hash-width: clamp(42px, 13cqw, 78px); }
+#commits[data-columns~='date'] { --commit-date-width: clamp(76px, 27cqw, 141px); }
 .commit-subject {
-  --commit-author-width: clamp(38px, 17cqw, 116px);
-  --commit-hash-width: clamp(36px, 13cqw, 72px);
-  --commit-date-width: clamp(70px, 27cqw, 135px);
   padding: 0 6px 0 0;
   display: grid;
-  grid-template-columns: var(--commit-columns);
+  grid-template-columns: [lane] max-content [message] minmax(0, 1fr)
+    [author] var(--commit-author-width, 0px) [hash] var(--commit-hash-width, 0px) [date] var(--commit-date-width, 0px);
+  grid-template-rows: minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
   min-width: 0;
   flex: 1 1 auto;
   text-align: left;
 }
-.commit-message { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
+.commit-subject > * { grid-row: 1; }
+.commit-message { grid-column: message; display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
+.commit-message, .commit-subject > :is(.date, .hash, .author) { padding-inline-start: 6px; }
 .date, .hash, .author { opacity: .85; }
-.author { font-size: .89em; }
-.graph { height: var(--row-height); overflow: hidden; }
+.date { grid-column: date; }
+.hash { grid-column: hash; }
+.author { grid-column: author; font-size: .89em; }
+.graph { grid-column: lane; height: var(--row-height); overflow: hidden; }
 .edge { fill: none; stroke: var(--lane); stroke-width: 1.5; }
 .edge.boundary { stroke-dasharray: 2 2; }
 .dot { fill: var(--lane); stroke: var(--panel); stroke-width: 1; }

@@ -195,8 +195,7 @@
     if (!force && painted === key) return;
     painted = key;
     const laneLimit = Math.max(1, Math.min(DRAW_LANES, Math.floor((width * .25 - 5) / LANE)));
-    const columns = state.commitColumns.map(column => `var(--commit-${column}-width)`);
-    commits.style.setProperty('--commit-columns', ['max-content', 'minmax(0, 1fr)', ...columns].join(' '));
+    commits.dataset.columns = state.commitColumns.join(' ');
     const focused = document.activeElement?.closest('.commit-row');
     const oid = focused?.dataset.oid;
     const selected = new Set(state.selection.selected);
