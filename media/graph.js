@@ -5,6 +5,14 @@
   const vscode = acquireVsCodeApi();
   const html = document.documentElement;
   const t = globalThis.gitBranchCreateTranslator(JSON.parse(html.dataset.messages));
+  if (html.dataset.codiconFont) {
+    const font = new FontFace('Git Branch Codicon', `url(data:font/ttf;base64,${html.dataset.codiconFont})`);
+    delete html.dataset.codiconFont;
+    void font.load().then(loaded => {
+      document.fonts.add(loaded);
+      html.classList.add('has-codicons');
+    }, () => { /* Keep the text fallbacks if the installed font cannot load. */ });
+  }
   const $ = id => document.getElementById(id);
   const scroll = $('commits-scroll');
   const commits = $('commits');

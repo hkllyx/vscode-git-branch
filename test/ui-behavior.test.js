@@ -557,12 +557,37 @@ test('history context targets the clicked commit or its selection and rejects st
   assert.equal(calls[0].h, head);
 });
 
-test('branch hovers contain only the name and optional upstream; the current branch uses the gold branch glyph', t => {
+test('history HTML loads only the installed workbench icon font and keeps a text fallback', () => {
+  const appRoot = path.resolve('mock-app');
+  const modern = 'out/media/codicon.ttf';
+  const legacy = 'out/vs/base/browser/ui/codicons/codicon/codicon.ttf';
+  const font = Buffer.from([0, 1, 0, 0]);
+  for (const candidate of [modern, legacy, undefined]) {
+    const reads = [];
+    const vscode = { env: { appRoot }, Uri: { joinPath: (...parts) => parts.join('/') } };
+    const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode,
+      'node:fs': { readFileSync(file) {
+        const relative = path.relative(appRoot, file).split(path.sep).join('/');
+        reads.push(relative);
+        if (relative === candidate) return font;
+        throw new Error('not found');
+      } }
+    });
+    const controller = new GraphController({}, { repositories: new Map(), onChange: () => ({ dispose() {} }) }, {}, {});
+    const html = controller.html({ asWebviewUri: uri => uri, cspSource: 'webview:' }, 'media');
+    controller.dispose();
+    assert.deepEqual(reads, candidate === modern ? [modern] : [modern, legacy]);
+    assert.equal(html.match(/data-codicon-font="([^"]+)"/)?.[1], candidate ? font.toString('base64') : undefined);
+    assert.match(html, /font-src data:/);
+    assert.match(html, /class="refresh-label">[^<]+</);
+  }
+});
+
+test('branch hovers contain only the name and optional upstream; the current branch uses the native star', t => {
   const { BranchesProvider } = loadWithMocks(require.resolve('../src/views/branchesProvider'), { vscode: {
     TreeItemCollapsibleState: { None: 0, Expanded: 2 }, TreeItem: class {},
     ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
-    ThemeColor: class { constructor(id) { this.id = id; } }, EventEmitter: class {},
-    Uri: { joinPath: (...parts) => parts.join('/') }
+    ThemeColor: class { constructor(id) { this.id = id; } }, EventEmitter: class {}
   } });
   const oid = 'a'.repeat(40);
   const main = { ref: 'refs/heads/main', name: 'main', kind: 'local', oid, upstream: { tracking: 'refs/remotes/origin/main' } };
@@ -570,7 +595,7 @@ test('branch hovers contain only the name and optional upstream; the current bra
   const remote = { ref: 'refs/remotes/origin/topic', name: 'origin/topic', kind: 'remote', oid };
   const tag = { ref: 'refs/tags/v1', name: 'v1', kind: 'tag', oid };
   const repo = { id: 'test', snapshot: { head: main, allRefs: [main, topic, remote, tag] } };
-  const provider = new BranchesProvider({ showTags: true }, 'ext');
+  const provider = new BranchesProvider({ showTags: true });
   t.after(() => configureLocale('en'));
   for (const language of ['en', 'zh-cn', 'zh-tw', 'ja']) {
     configureLocale(language);
@@ -587,12 +612,8 @@ test('branch hovers contain only the name and optional upstream; the current bra
       const current = contextValue === 'gb-current';
       assert.equal(treeItem.tooltip, details.join('\n'));
       assert.equal(treeItem.accessibilityInformation.label, (current ? [...details, message('branch.current')] : details).join('\n'));
-      if (current) {
-        assert.equal(treeItem.iconPath, 'ext/media/codicons/git-branch-yellow.svg');
-      } else {
-        assert.equal(treeItem.iconPath.id, contextValue === 'gb-tag' ? 'tag' : 'git-branch');
-        assert.equal(treeItem.iconPath.color?.id, contextValue === 'gb-head' ? 'charts.blue' : undefined);
-      }
+      assert.equal(treeItem.iconPath.id, current ? 'star-full' : contextValue === 'gb-tag' ? 'tag' : 'git-branch');
+      assert.equal(treeItem.iconPath.color?.id, current ? 'charts.yellow' : contextValue === 'gb-head' ? 'charts.blue' : undefined);
       assert.equal(treeItem.contextValue, contextValue);
       assert.equal(treeItem.command.command, 'git-branch.activateRef');
     }

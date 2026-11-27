@@ -28,17 +28,17 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .muted { color: var(--muted); }
 .error { color: var(--vscode-errorForeground); }
-/* Webviews do not inherit the workbench icon font. Use the upstream glyphs as theme-colored masks. */
-.codicon {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  background-color: currentColor;
-  mask: var(--codicon-image) center / contain no-repeat;
-}
-.codicon-tag { --codicon-image: url('codicons/tag.svg'); }
-.codicon-warning { --codicon-image: url('codicons/warning.svg'); }
-.codicon-refresh { --codicon-image: url('codicons/refresh.svg'); width: 16px; height: 16px; }
+/* The workbench font is loaded from the VS Code installation, not shipped with the extension. */
+.codicon { display: inline-block; width: 14px; text-align: center; line-height: 1; }
+.codicon-tag::before { content: '#'; }
+.codicon-warning::before { content: '!'; }
+.codicon-refresh { display: none; width: 16px; font-size: 16px; }
+.has-codicons .codicon { font: normal normal 14px/1 'Git Branch Codicon'; }
+.has-codicons .codicon-tag::before { content: '\ea66'; }
+.has-codicons .codicon-warning::before { content: '\ea6c'; }
+.has-codicons .codicon-refresh { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-refresh::before { content: '\eb37'; }
+.has-codicons .refresh-label { display: none; }
 
 .toolbar, .compact-nav {
   flex: 0 0 auto;
@@ -60,7 +60,8 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 }
 button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
 .control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
-.control.icon { width: 26px; padding: 0; display: grid; place-items: center; }
+.control.icon { display: grid; place-items: center; }
+.has-codicons .control.icon { width: 26px; padding: 0; }
 .control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'] {
   color: var(--vscode-button-foreground, var(--vscode-foreground));
   background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));

@@ -1,6 +1,8 @@
 'use strict';
 
 const { randomBytes } = require('node:crypto');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
 const vscode = require('vscode');
 const { historyMessages, locale, t } = require('../i18n');
 const { GraphLayout } = require('../graph/layout');
@@ -17,6 +19,17 @@ const DEFAULT_COLUMNS = ['author', 'date'];
 const HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 const escapeHtml = value => value.replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
 const htmlText = key => escapeHtml(t(key));
+
+function installedCodiconFont(appRoot) {
+  if (!appRoot) return '';
+  // Webviews do not inherit the workbench font. Read only the installed Codicon font,
+  // without exposing the installation directory as a Webview resource root.
+  for (const relative of ['out/media/codicon.ttf', 'out/vs/base/browser/ui/codicons/codicon/codicon.ttf']) {
+    try { return readFileSync(path.join(appRoot, relative)).toString('base64'); }
+    catch { /* The layout varies by VS Code version; fall back to text if neither exists. */ }
+  }
+  return '';
+}
 
 class GraphController {
   constructor(context, registry, documents, ui) {
@@ -621,12 +634,13 @@ class GraphController {
     const asset = name => webview.asWebviewUri(vscode.Uri.joinPath(media, name));
     const nonce = randomBytes(18).toString('base64');
     const messages = escapeHtml(JSON.stringify(historyMessages()));
+    const font = installedCodiconFont(vscode.env.appRoot);
     return `<!doctype html>
-<html lang="${locale()}" data-messages="${messages}">
+<html lang="${locale()}" data-messages="${messages}"${font ? ` data-codicon-font="${font}"` : ''}>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource}; font-src data:; script-src 'nonce-${nonce}';">
 <link rel="stylesheet" href="${asset('graph.css')}">
 <title>${htmlText('view.history')}</title>
 </head>
@@ -638,7 +652,7 @@ class GraphController {
     <input id="filter-text" class="control filter-text" type="search" spellcheck="false" autocomplete="off"
       placeholder="${htmlText('history.filterText')}" aria-label="${htmlText('history.filterText')}" title="${htmlText('history.filterTextHint')}">
   </div>
-  <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span></button>
+  <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span><span class="refresh-label">${htmlText('command.refresh')}</span></button>
   <div id="compare-bar" class="compare-bar" hidden>
     <span id="direction" class="direction"></span>
     <button id="swap" class="control" type="button">${htmlText('history.swap')}</button>
