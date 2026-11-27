@@ -696,8 +696,8 @@ class GraphController {
     <div class="pane-header log-header">
       <span id="log-title" title="${htmlText('history.selectionHint')}">${htmlText('history.graph')}</span>
       <div id="compare-counts" class="compare-counts" role="group" aria-label="${htmlText('history.distinct')}" hidden>
-        <button id="compare-left" class="side left" type="button" aria-pressed="false">${htmlText('history.baseOnly')}</button>
-        <button id="compare-right" class="side right" type="button" aria-pressed="false">${htmlText('history.targetOnly')}</button>
+        <button id="compare-left" class="compare-filter left" type="button" aria-pressed="false"><span class="codicon codicon-check" aria-hidden="true"></span><span id="compare-left-label">${htmlText('history.baseOnly')}</span></button>
+        <button id="compare-right" class="compare-filter right" type="button" aria-pressed="false"><span class="codicon codicon-check" aria-hidden="true"></span><span id="compare-right-label">${htmlText('history.targetOnly')}</span></button>
       </div>
       <button id="commit-columns" class="control column-picker" type="button" title="${htmlText('history.chooseColumns')}">${htmlText('history.columns')}</button>
     </div>

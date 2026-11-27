@@ -248,7 +248,7 @@
   }
 
   const compareControls = [['left', 'history.baseOnly', 'history.baseCount'], ['right', 'history.targetOnly', 'history.targetCount']]
-    .map(([side, label, countLabel]) => ({ control: $(`compare-${side}`), side, label, countLabel }));
+    .map(([side, label, countLabel]) => ({ control: $(`compare-${side}`), text: $(`compare-${side}-label`), side, label, countLabel }));
   const filterInput = $('filter-text');
   let filterTimer, composingFilter = false;
   function sendFilter(delay = 0) {
@@ -283,9 +283,9 @@
     $('file-tabs').hidden = !mode;
     $('file-title').hidden = Boolean(mode);
     $('compare-counts').hidden = !mode || mode.workingTree;
-    for (const { control, side, label, countLabel } of compareControls) {
+    for (const { control, text, side, label, countLabel } of compareControls) {
       control.disabled = !ready;
-      control.textContent = comparison?.counts ? t(countLabel, { count: comparison.counts[side] }) : t(label);
+      text.textContent = comparison?.counts ? t(countLabel, { count: comparison.counts[side] }) : t(label);
       press(control, state.page.compareSide === side);
     }
     if (mode) {

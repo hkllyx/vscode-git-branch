@@ -99,25 +99,29 @@ class GitReads {
   /** The scan cursor counts raw rows on the requested side, before text filtering. */
   async historyPage({ tips = [], compare, compareSide, skip = 0, scan, limit = PAGE_SIZE, filter, signal }) {
     if (!compare && !tips.length) return { commits: [], hasMore: false, scanned: scan ?? skip };
-    const revs = compare ? ['--left-right', `${assertOid(compare.left.oid)}...${assertOid(compare.right.oid)}`] : ['--stdin'];
-    // Limit the walk before applying skip/max-count, so filtering also works across pages.
-    if (compare && compareSide === 'left') revs.unshift('--left-only');
-    if (compare && compareSide === 'right') revs.unshift('--right-only');
+    let side;
+    let revs = ['--stdin'];
+    if (compare) {
+      const left = assertOid(compare.left.oid), right = assertOid(compare.right.oid);
+      side = compareSide === 'left' || compareSide === 'right' ? compareSide : 'both';
+      // A two-dot range excludes the other side at traversal time. Some Git
+      // versions ignore --left-only/--right-only in an accelerated topo walk.
+      revs = side === 'left' ? [`${right}..${left}`] : side === 'right' ? [`${left}..${right}`] : ['--left-right', `${left}...${right}`];
+    }
     const input = compare ? undefined : `${tips.map(assertOid).join('\n')}\n`;
     const text = filter?.trim().toLowerCase();
     const base = ['log', '-z', '--topo-order', '--no-decorate', '--no-show-signature', '--no-notes',
       `--format=tformat:${LOG_FORMAT}${text ? '%x00%b' : ''}`, ...revs];
     if (!text) {
-      const rows = parseLog(await this.client.text([...base, `--skip=${skip}`, `--max-count=${limit + 1}`], { signal, input }),
-        Boolean(compare));
+      const rows = parseLog(await this.client.text([...base, `--skip=${skip}`, `--max-count=${limit + 1}`, '--'], { signal, input }), side);
       return { commits: rows.slice(0, limit), hasMore: rows.length > limit, scanned: skip + Math.min(rows.length, limit) };
     }
     const chunkSize = 400;
     const matches = [];
     let position = scan ?? 0;
     for (;;) {
-      const chunk = parseLog(await this.client.text([...base, `--skip=${position}`, `--max-count=${chunkSize}`],
-        { signal, input }), Boolean(compare), true);
+      const chunk = parseLog(await this.client.text([...base, `--skip=${position}`, `--max-count=${chunkSize}`, '--'],
+        { signal, input }), side, true);
       for (const { body, ...row } of chunk) {
         if (row.subject.toLowerCase().includes(text) || body.toLowerCase().includes(text) ||
             row.author.toLowerCase().includes(text) || row.oid.startsWith(text)) {

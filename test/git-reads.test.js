@@ -176,6 +176,10 @@ test('comparison side limits run before pagination and compose with text filteri
   const older = await repo.commit('match older target');
   const hidden = await repo.commit('other target');
   const right = await repo.commit('match newest target');
+  // Exercise the accelerated topo walk as well as the ordinary one: some Git
+  // versions ignore --left-only/--right-only during a commit-graph topo walk.
+  await repo.git('config', 'core.commitGraph', 'true');
+  await repo.git('commit-graph', 'write', '--reachable');
   const compare = { left: { oid: left }, right: { oid: right } };
   const page = options => repo.reads.historyPage({ compare, limit: 1, ...options });
   const ids = result => result.commits.map(row => [row.oid, row.side]);

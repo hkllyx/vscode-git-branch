@@ -32,10 +32,12 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .codicon { display: inline-block; width: 14px; text-align: center; line-height: 1; }
 .codicon-tag::before { content: '\1f3f7\fe0e'; }
 .codicon-warning::before { content: '!'; }
+.codicon-check::before { content: '✓'; }
 .codicon-refresh { display: none; width: 16px; font-size: 16px; }
 .has-codicons .codicon { font: normal normal 14px/1 'Git Branch Codicon'; }
 .has-codicons .codicon-tag::before { content: '\ea66'; }
 .has-codicons .codicon-warning::before { content: '\ea6c'; }
+.has-codicons .codicon-check::before { content: '\eab2'; }
 .has-codicons .codicon-refresh { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-refresh::before { content: '\eb37'; }
 .has-codicons .refresh-label { display: none; }
@@ -62,8 +64,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
 .control.icon { display: grid; place-items: center; }
 .has-codicons .control.icon { width: 26px; padding: 0; }
-.control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'],
-.compare-counts button[aria-pressed='true'] {
+.control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'] {
   color: var(--vscode-button-foreground, var(--vscode-foreground));
   background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
 }
@@ -80,7 +81,31 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .filter-text::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
 .direction, .compare-counts { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .compare-counts { flex-wrap: wrap; }
-.compare-counts button { min-height: 20px; }
+.compare-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 22px;
+  padding: 1px 6px 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: .85em;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.compare-filter.left { --side-accent: var(--purple); }
+.compare-filter.right { --side-accent: var(--blue); }
+.compare-filter .codicon-check { visibility: hidden; }
+.compare-filter[aria-pressed='true'] {
+  background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-list-hoverBackground));
+  border-color: var(--vscode-contrastActiveBorder, var(--side-accent));
+  color: var(--vscode-foreground);
+}
+.compare-filter[aria-pressed='true'] .codicon-check {
+  visibility: visible;
+  color: var(--vscode-contrastActiveBorder, var(--side-accent));
+}
+.compare-filter:focus-visible { outline-offset: 1px; }
 .direction .side { max-width: min(25vw, 225px); }
 .notices {
   max-height: 4.6em;
