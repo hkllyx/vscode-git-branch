@@ -4,7 +4,7 @@ const { randomBytes } = require('node:crypto');
 const vscode = require('vscode');
 const { historyMessages, locale, t } = require('../i18n');
 const { GraphLayout } = require('../graph/layout');
-const { ALL, MAX_SELECTION, HistorySelection, historyTarget, combineChanges, mapWithLimit } = require('./historyState');
+const { MAX_SELECTION, HistorySelection, historyTarget, combineChanges, mapWithLimit } = require('./historyState');
 const { editableFileSide, repositoryVersion, canApply, MAX_PATCH_FILES } = require('../git/selectedChanges');
 const { regularMode, safeWorktreeFile } = require('../git/worktreePaths');
 const { BranchError, errorText, shortOid } = require('../util/format');
@@ -24,7 +24,7 @@ class GraphController {
     this.registry = registry;
     this.documents = documents;
     this.ui = ui;
-    this.range = ALL;
+    this.range = 'HEAD';
     this.filter = '';
     const savedColumns = context.workspaceState?.get(COMMIT_COLUMNS);
     const visibleColumns = Array.isArray(savedColumns) ? savedColumns : DEFAULT_COLUMNS;
@@ -131,7 +131,7 @@ class GraphController {
       this.repo = next;
       this.unavailable = !next?.snapshot || Boolean(next.error);
       this.comparison = undefined;
-      this.range = ALL;
+      this.range = 'HEAD';
       this.filter = '';
       this.target = next?.snapshot ? historyTarget(next.snapshot, this.range, this.registry.showTags) : undefined;
       this.reset();
@@ -226,7 +226,7 @@ class GraphController {
     }
     return {
       repository: repo?.name, repositoryPath: repo?.root.fsPath, repositoryCount: this.registry.repositories.size,
-      range: this.target?.label || t('history.allBranches'), rangeKey: this.range, shallow: Boolean(snapshot?.shallow), head: snapshot?.head,
+      range: this.target?.label || 'HEAD', rangeKey: this.range, shallow: Boolean(snapshot?.shallow), head: snapshot?.head,
       message: !repo ? this.registry.noRepositoryMessage : repo.error ? t('repo.readError', { detail: repo.error }) : !snapshot ? t('repo.reading') : undefined,
       compare: comparison ? {
         left: { label: comparison.left.name, oid: comparison.left.oid },
@@ -633,7 +633,7 @@ class GraphController {
 <body>
 <header id="toolbar" class="toolbar" aria-label="${htmlText('history.toolbar')}">
   <button id="repo" class="control repo" type="button" title="${htmlText('repo.pick')}">${htmlText('repo.pick')} ▾</button>
-  <button id="range" class="control range" type="button" title="${htmlText('history.pickRange')}">${htmlText('history.allBranches')} ▾</button>
+  <button id="range" class="control range" type="button" title="${htmlText('history.pickRange')}">${escapeHtml(this.target?.label || 'HEAD')} ▾</button>
   <div class="filters" role="search">
     <input id="filter-text" class="control filter-text" type="search" spellcheck="false" autocomplete="off"
       placeholder="${htmlText('history.filterText')}" aria-label="${htmlText('history.filterText')}" title="${htmlText('history.filterTextHint')}">

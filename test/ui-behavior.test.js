@@ -7,7 +7,7 @@ const { createRequire } = require('node:module');
 const path = require('node:path');
 const { setTimeout: delay } = require('node:timers/promises');
 const { compileFunction } = require('node:vm');
-const { createCommitTimeFormatter } = require('../media/commitTime');
+const { formatCommitTime } = require('../media/commitTime');
 const { configureLocale, t: message } = require('../src/i18n');
 const { BranchActivation } = require('../src/views/branchActivation');
 const { fixture } = require('../test-support/gitFixture');
@@ -88,20 +88,61 @@ test('a Branches item opens on a second activation, not a single activation or a
   assert.equal(activation.activate(first, true, 1200), true);
 });
 
-test('commit time tooltip uses one local timestamp with an optional relative hint in all three languages', () => {
-  const commit = new Date(2026, 0, 2, 3, 4, 5);
-  const iso = commit.toISOString();
-  const now = new Date(commit.getTime() + 5 * 60_000);
-  for (const locale of ['en', 'zh-cn', 'zh-tw']) {
-    const format = createCommitTimeFormatter(locale);
-    const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
-    assert.deepEqual(format(iso, now), {
-      label: '2026/01/02 03:04', title: `2026/01/02 03:04:05 · ${relative.format(-5, 'minute')}`
-    });
-    assert.equal(format(iso, new Date(2026, 0, 3, 14)).title, `2026/01/02 03:04:05 · ${relative.format(-1, 'day')}`);
-    assert.equal(format(iso, new Date(2026, 2, 5)).title, '2026/01/02 03:04:05');
-    assert.equal(format(undefined).label, '—');
-  }
+test('commit dates keep the local minute format in columns and use a single second-precise format elsewhere', () => {
+  const iso = new Date(2026, 0, 2, 3, 4, 5).toISOString();
+  assert.deepEqual(formatCommitTime(iso), { label: '2026/01/02 03:04', precise: '2026-01-02 03:04:05' });
+  assert.deepEqual(formatCommitTime(undefined), { label: '—', precise: '—' });
+  assert.deepEqual(formatCommitTime('invalid'), { label: 'invalid', precise: 'invalid' });
+});
+
+test('history follows the checked-out branch by default and preserves manually chosen ranges', async t => {
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode: {} });
+  const main = { ref: 'refs/heads/main', name: 'main', kind: 'local', oid: '1'.repeat(40) };
+  const other = { ref: 'refs/heads/other', name: 'other', kind: 'local', oid: '2'.repeat(40) };
+  const allRefs = [main, other];
+  const byRef = new Map(allRefs.map(ref => [ref.ref, ref]));
+  const snapshot = ({ ref, oid }) => ({ head: { ref, oid }, allRefs, byRef, shallow: '' });
+  const tips = [];
+  const reads = { historyPage: async options => {
+    tips.push(options.tips);
+    return { commits: [], hasMore: false, scanned: 0 };
+  } };
+  const repo = { id: 'repo', name: 'repo', root: {}, reads };
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
+  const controller = new GraphController({}, registry, {}, {});
+  t.after(() => controller.dispose());
+  controller.ready = true;
+  controller.view = { visible: true, webview: { postMessage: () => true } };
+  assert.equal(controller.meta().range, 'HEAD', 'while reading the repository');
+  const checkout = head => { repo.snapshot = snapshot(head); controller.repoChanged(); };
+  checkout(main);
+  assert.equal(controller.meta().range, 'main');
+  checkout(other);
+  assert.equal(controller.meta().range, 'other');
+  checkout({ ref: 'refs/heads/same-tip', oid: other.oid });
+  assert.equal(controller.meta().range, 'same-tip', 'switching branches at the same commit updates the label');
+  checkout({ oid: other.oid });
+  assert.equal(controller.meta().range, 'HEAD', 'detached HEAD keeps showing the checked-out revision');
+  checkout({ ref: 'refs/heads/unborn' });
+  assert.equal(controller.meta().range, 'unborn');
+  assert.deepEqual(tips, [[main.oid], [other.oid], []]);
+  controller.setRange(repo, 'all');
+  checkout(main);
+  assert.equal(controller.meta().range, message('history.allBranches'));
+  assert.deepEqual(tips.at(-1), [main.oid, other.oid]);
+  controller.setRange(repo, other.ref);
+  assert.equal(controller.meta().range, 'other');
+  checkout({ oid: main.oid });
+  assert.deepEqual(controller.target.tips, [other.oid]);
+  assert.equal(controller.range, other.ref);
+  controller.setRange(repo, 'HEAD');
+  assert.deepEqual(tips.at(-1), [main.oid]);
+  controller.setRange(repo, 'all');
+  registry.active = { ...repo, id: 'next', snapshot: snapshot(other) };
+  controller.repoChanged();
+  assert.equal(controller.meta().range, 'other', 'new repositories start at the checked-out branch');
+  assert.deepEqual(tips.at(-1), [other.oid]);
+  await Promise.resolve();
 });
 
 test('create from a branch shows the source, prefills its exact name and provides blocking validation', async t => {

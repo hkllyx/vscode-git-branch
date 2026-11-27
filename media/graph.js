@@ -17,7 +17,7 @@
   const DRAW_LANES = 14;
   const FILE_BATCH = 200;
   const FILE_SELECTION_LIMIT = 200;
-  const commitTime = globalThis.gitBranchCreateCommitTimeFormatter(html.lang);
+  const commitTime = globalThis.gitBranchFormatCommitTime;
   const STATUS = {
     A: t('history.statusAdded'), C: t('history.statusCopied'), D: t('history.statusDeleted'), M: t('history.statusModified'),
     R: t('history.statusRenamed'), T: t('history.statusTypeChange'), U: t('history.statusConflict'),
@@ -164,18 +164,19 @@
     summary.setAttribute('aria-setsize', state.page.hasMore ? -1 : state.rows.length);
     const badges = state.badges.get(row.oid) || [];
     const side = row.side && t(row.side === 'left' ? 'history.baseOnly' : 'history.targetOnly');
-    const refs = badges.map(item => item.name).join('\n');
-    summary.title = [subject, [short(row.oid), row.author].filter(Boolean).join(' · '), time.title, side].filter(Boolean).join('\n');
+    const author = row.author || '—';
+    const hash = short(row.oid);
+    summary.title = `${subject}\n${author}  ·  ${hash}  ·  ${time.precise}`;
     const message = el('span', 'commit-message');
     if (badges.length) {
       const badge = codicon('tag', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`);
-      badge.title = refs;
+      badge.title = badges.map(item => item.name).join('\n');
       message.append(badge);
     }
     message.append(el('span', 'subject ellipsis', subject));
     if (side) message.append(el('span', `side ${row.side}`, side));
     summary.append(graph(row, laneLimit), message);
-    const values = { author: row.author || '—', hash: short(row.oid), date: time.label };
+    const values = { author, hash, date: time.label };
     for (const key of state.commitColumns) {
       summary.append(el('span', `${key} ellipsis${key === 'author' ? '' : ' mono'}`, values[key]));
     }
@@ -252,7 +253,7 @@
     $('repo').textContent = `${meta.repository || t('repo.pick')} ▾`;
     $('repo').title = meta.repositoryPath || t('repo.pick');
     $('repo').disabled = !meta.repositoryCount;
-    $('range').textContent = `${meta.range || t('history.allBranches')} ▾`;
+    $('range').textContent = `${meta.range || 'HEAD'} ▾`;
     $('range').title = meta.range || t('history.pickRange');
     $('range').disabled = !ready;
     $('range').hidden = Boolean(mode);
@@ -487,12 +488,11 @@
       return;
     }
     const props = el('dl', 'detail-meta');
-    const time = commitTime(detail.date);
-    for (const [key, value, cls, title] of [
+    for (const [key, value, cls] of [
       ['history.commit', detail.oid, 'mono'], ['history.author', detail.author || '—'],
-      ['history.time', time.label, 'mono', time.title],
+      ['history.time', commitTime(detail.date).precise, 'mono'],
       ['history.parents', detail.parents.join('\n') || t(detail.shallowBoundary ? 'history.parentsMissing' : 'history.noParents'), 'mono']
-    ]) props.append(el('dt', '', t(key)), el('dd', cls, value, title));
+    ]) props.append(el('dt', '', t(key)), el('dd', cls, value));
     box.append(el('pre', 'message', detail.message || t('history.noMessage')), props);
     if (detail.parents.length > 1) box.append(el('p', 'muted', t('history.mergeDiffNote')));
   }

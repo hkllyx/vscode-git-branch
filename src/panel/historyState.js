@@ -12,8 +12,9 @@ function historyTarget(snapshot, range, tags) {
   const tip = range === ALL ? [snapshot.head.oid, ...snapshot.allRefs.filter(item => item.kind !== 'tag').map(item => item.oid)]
     : [range === 'HEAD' ? snapshot.head.oid : ref.oid];
   const tips = [...new Set(tip.filter(Boolean))].sort();
-  return { range, tips, shallow: snapshot.shallow, key: JSON.stringify([range, snapshot.shallow, tips]),
-    label: range === ALL ? t('history.allBranches') : range === 'HEAD' ? 'HEAD' : ref.name };
+  const label = range === ALL ? t('history.allBranches') : range === 'HEAD'
+    ? snapshot.head.ref?.slice('refs/heads/'.length) || 'HEAD' : ref.name;
+  return { range, tips, shallow: snapshot.shallow, key: JSON.stringify([range, snapshot.shallow, tips]), label };
 }
 
 class HistorySelection {
