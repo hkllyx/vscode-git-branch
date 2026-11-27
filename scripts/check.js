@@ -45,13 +45,18 @@ assert.ok(contributes.views['git-branch-history'].some(view => view.id === 'git-
 assert.ok(!contributes.keybindings, 'This version does not define shortcuts');
 for (const container of contributes.viewsContainers.panel) {
   assert.match(container.id, /^[0-9A-Za-z_-]+$/);
-  assert.ok(fs.existsSync(path.join(root, container.icon)));
+  assert.ok(/^\$\([a-z0-9-]+\)$/.test(container.icon) || fs.existsSync(path.join(root, container.icon)),
+    `Invalid panel icon: ${container.icon}`);
 }
 
 const html = read('src/panel/graphController.js');
 const graph = read('media/graph.js');
 for (const [, id] of graph.matchAll(/\$\('([\w-]+)'\)/g)) assert.ok(html.includes(`id="${id}"`), `Webview HTML is missing #${id}`);
 for (const [, file] of html.matchAll(/\basset\('([^']+)'\)/g)) assert.ok(fs.existsSync(path.join(root, 'media', file)));
+const css = read('media/graph.css');
+for (const [, file] of css.matchAll(/url\(['"]?([^'"\s)]+)['"]?\)/g)) {
+  assert.ok(fs.existsSync(path.join(root, 'media', file)), `Missing Webview CSS asset: ${file}`);
+}
 const previewPath = 'docs/design/workbench-preview.png';
 const markdownImages = name => Array.from(read(name).matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), match => match[1]);
 assert.deepEqual(markdownImages('README.md'), [`https://raw.githubusercontent.com/hkllyx/vscode-git-branch/main/${previewPath}`],

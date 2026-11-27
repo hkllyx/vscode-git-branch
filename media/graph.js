@@ -54,6 +54,12 @@
     return signature(left) === signature(right);
   }
 
+  function codicon(name, className) {
+    const icon = el('span', `codicon codicon-${name} ${className}`);
+    icon.setAttribute('aria-hidden', 'true');
+    return icon;
+  }
+
   function svgNode(tag, attrs) {
     const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
     for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
@@ -162,10 +168,8 @@
     summary.title = [subject, [short(row.oid), row.author].filter(Boolean).join(' · '), time.title, side].filter(Boolean).join('\n');
     const message = el('span', 'commit-message');
     if (badges.length) {
-      const badge = el('span', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`, undefined, refs);
-      const icon = svgNode('svg', { width: 12, height: 12, viewBox: '0 0 16 16', 'aria-hidden': 'true' });
-      icon.append(svgNode('path', { d: 'M2 2h6l6 6-6 6-6-6z M5.5 5.5h.01' }));
-      badge.append(icon);
+      const badge = codicon('tag', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`);
+      badge.title = refs;
       message.append(badge);
     }
     message.append(el('span', 'subject ellipsis', subject));
@@ -350,11 +354,7 @@
     if (!inTree && separator >= 0) fileLabel.append(el('span', 'file-directory ellipsis', file.path.slice(0, separator)));
     row.append(fileLabel);
     if (file.submodule) row.append(el('span', 'submodule', t('history.submodule')));
-    if (note) {
-      const warning = svgNode('svg', { class: 'file-warning', width: 14, height: 14, viewBox: '0 0 16 16', 'aria-hidden': 'true' });
-      warning.append(svgNode('path', { d: 'M8 2 15 14H1Z M8 6v3.5 M8 11v1' }));
-      row.append(warning);
-    }
+    if (note) row.append(codicon('warning', 'file-warning'));
     const diffLabel = t('history.openDiffLabel', { status: label, path, commit: '' });
     row.setAttribute('aria-label', [file.ambiguous ? path : diffLabel, note].filter(Boolean).join(' · '));
     rowContext(row, () => fileActionContext(file, source), () => {

@@ -28,6 +28,17 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .muted { color: var(--muted); }
 .error { color: var(--vscode-errorForeground); }
+/* Webviews do not inherit the workbench icon font. Use the upstream glyphs as theme-colored masks. */
+.codicon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  mask: var(--codicon-image) center / contain no-repeat;
+}
+.codicon-tag { --codicon-image: url('codicons/tag.svg'); }
+.codicon-warning { --codicon-image: url('codicons/warning.svg'); }
+.codicon-refresh { --codicon-image: url('codicons/refresh.svg'); width: 16px; height: 16px; }
 
 .toolbar, .compact-nav {
   flex: 0 0 auto;
@@ -49,7 +60,7 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 }
 button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
 .control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
-.control.icon { width: 26px; padding: 0; font-size: 16px; }
+.control.icon { width: 26px; padding: 0; display: grid; place-items: center; }
 .control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'] {
   color: var(--vscode-button-foreground, var(--vscode-foreground));
   background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
@@ -153,14 +164,8 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .lane-4 { --lane: var(--vscode-charts-red, #df6269); }
 .lane-5 { --lane: var(--vscode-charts-yellow, #c59c33); }
 .lane-6 { --lane: var(--vscode-charts-foreground, var(--vscode-foreground)); }
-.ref-badge {
-  flex: 0 0 14px;
-  height: 16px;
-  display: grid;
-  place-items: center;
-}
+.ref-badge { flex: 0 0 auto; }
 .ref-badge.current { color: var(--blue); }
-.ref-badge path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .side, .pill {
   display: inline-block;
   padding: 0 5px;
@@ -209,7 +214,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .file-folder > summary .file-name { flex: 1 1 auto; }
 .parent-group > summary { font-weight: 600; }
 .submodule { flex: 0 0 auto; font-size: .9em; color: var(--muted); }
-.file-warning { flex: 0 0 auto; fill: none; stroke: var(--vscode-editorWarning-foreground, var(--muted)); stroke-width: 1.3; stroke-linejoin: round; }
+.file-warning { flex: 0 0 auto; color: var(--vscode-editorWarning-foreground, var(--muted)); }
 .file-row.selected { background: var(--vscode-list-inactiveSelectionBackground); color: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground)); }
 .file-row.selected:focus-visible { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 .file-folder > summary { cursor: pointer; }

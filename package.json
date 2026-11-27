@@ -65,7 +65,7 @@
       { "command": "git-branch.applyFiles", "title": "%command.applyFiles%", "category": "Git Branch", "enablement": "gbCanApplyFiles" }
     ],
     "viewsContainers": {
-      "panel": [{ "id": "git-branch-history", "title": "%view.history%", "icon": "media/history.svg" }]
+      "panel": [{ "id": "git-branch-history", "title": "%view.history%", "icon": "$(history)" }]
     },
     "views": {
       "scm": [{ "id": "git-branch.branches", "name": "%view.branches%" }],

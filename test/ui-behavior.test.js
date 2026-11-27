@@ -516,11 +516,11 @@ test('history context targets the clicked commit or its selection and rejects st
   assert.equal(calls[0].h, head);
 });
 
-test('branch hovers contain only the name and optional upstream; current branch uses a fixed accent SVG', t => {
+test('branch hovers contain only the name and optional upstream; the current branch uses a native check icon', t => {
   const { BranchesProvider } = loadWithMocks(require.resolve('../src/views/branchesProvider'), { vscode: {
     TreeItemCollapsibleState: { None: 0, Expanded: 2 }, TreeItem: class {},
-    ThemeIcon: class { constructor(id) { this.id = id; } }, ThemeColor: class {}, EventEmitter: class {},
-    Uri: { joinPath: (...parts) => parts.join('/') }
+    ThemeIcon: class { constructor(id, color) { this.id = id; this.color = color; } },
+    ThemeColor: class { constructor(id) { this.id = id; } }, EventEmitter: class {}
   } });
   const oid = 'a'.repeat(40);
   const main = { ref: 'refs/heads/main', name: 'main', kind: 'local', oid, upstream: { tracking: 'refs/remotes/origin/main' } };
@@ -528,7 +528,7 @@ test('branch hovers contain only the name and optional upstream; current branch 
   const remote = { ref: 'refs/remotes/origin/topic', name: 'origin/topic', kind: 'remote', oid };
   const tag = { ref: 'refs/tags/v1', name: 'v1', kind: 'tag', oid };
   const repo = { id: 'test', snapshot: { head: main, allRefs: [main, topic, remote, tag] } };
-  const provider = new BranchesProvider({ showTags: true }, 'ext');
+  const provider = new BranchesProvider({ showTags: true });
   t.after(() => configureLocale('en'));
   for (const language of ['en', 'zh-cn', 'zh-tw', 'ja']) {
     configureLocale(language);
@@ -545,8 +545,8 @@ test('branch hovers contain only the name and optional upstream; current branch 
       const current = contextValue === 'gb-current';
       assert.equal(treeItem.tooltip, details.join('\n'));
       assert.equal(treeItem.accessibilityInformation.label, (current ? [...details, message('branch.current')] : details).join('\n'));
-      assert.equal(current ? treeItem.iconPath : treeItem.iconPath.id,
-        current ? 'ext/media/current-branch.svg' : contextValue === 'gb-tag' ? 'tag' : 'git-branch');
+      assert.equal(treeItem.iconPath.id, current ? 'check' : contextValue === 'gb-tag' ? 'tag' : 'git-branch');
+      assert.equal(treeItem.iconPath.color?.id, current ? 'charts.yellow' : contextValue === 'gb-head' ? 'charts.blue' : undefined);
       assert.equal(treeItem.contextValue, contextValue);
       assert.equal(treeItem.command.command, 'git-branch.activateRef');
     }

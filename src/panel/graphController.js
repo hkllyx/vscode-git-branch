@@ -626,7 +626,7 @@ class GraphController {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource}; script-src 'nonce-${nonce}';">
 <link rel="stylesheet" href="${asset('graph.css')}">
 <title>${htmlText('view.history')}</title>
 </head>
@@ -638,7 +638,7 @@ class GraphController {
     <input id="filter-text" class="control filter-text" type="search" spellcheck="false" autocomplete="off"
       placeholder="${htmlText('history.filterText')}" aria-label="${htmlText('history.filterText')}" title="${htmlText('history.filterTextHint')}">
   </div>
-  <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}">⟳</button>
+  <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span></button>
   <div id="compare-bar" class="compare-bar" hidden>
     <span id="direction" class="direction"></span>
     <button id="swap" class="control" type="button">${htmlText('history.swap')}</button>
