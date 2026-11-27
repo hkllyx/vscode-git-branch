@@ -96,10 +96,13 @@ class GitReads {
     return new Set(output.split(/\r?\n/).filter(isOid));
   }
 
-  /** The scan cursor counts raw log rows, including rows skipped by the filter. */
-  async historyPage({ tips = [], compare, skip = 0, scan, limit = PAGE_SIZE, filter, signal }) {
+  /** The scan cursor counts raw rows on the requested side, before text filtering. */
+  async historyPage({ tips = [], compare, compareSide, skip = 0, scan, limit = PAGE_SIZE, filter, signal }) {
     if (!compare && !tips.length) return { commits: [], hasMore: false, scanned: scan ?? skip };
     const revs = compare ? ['--left-right', `${assertOid(compare.left.oid)}...${assertOid(compare.right.oid)}`] : ['--stdin'];
+    // Limit the walk before applying skip/max-count, so filtering also works across pages.
+    if (compare && compareSide === 'left') revs.unshift('--left-only');
+    if (compare && compareSide === 'right') revs.unshift('--right-only');
     const input = compare ? undefined : `${tips.map(assertOid).join('\n')}\n`;
     const text = filter?.trim().toLowerCase();
     const base = ['log', '-z', '--topo-order', '--no-decorate', '--no-show-signature', '--no-notes',

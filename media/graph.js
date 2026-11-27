@@ -247,6 +247,8 @@
     });
   }
 
+  const compareControls = [['left', 'history.baseOnly', 'history.baseCount'], ['right', 'history.targetOnly', 'history.targetCount']]
+    .map(([side, label, countLabel]) => ({ control: $(`compare-${side}`), side, label, countLabel }));
   const filterInput = $('filter-text');
   let filterTimer, composingFilter = false;
   function sendFilter(delay = 0) {
@@ -280,15 +282,17 @@
     $('snapshot-tab').textContent = t(mode?.workingTree ? 'history.workingTreeFiles' : 'history.snapshotFiles');
     $('file-tabs').hidden = !mode;
     $('file-title').hidden = Boolean(mode);
-    const counts = $('compare-counts');
-    counts.replaceChildren();
+    $('compare-counts').hidden = !mode || mode.workingTree;
+    for (const { control, side, label, countLabel } of compareControls) {
+      control.disabled = !ready;
+      control.textContent = comparison?.counts ? t(countLabel, { count: comparison.counts[side] }) : t(label);
+      press(control, state.page.compareSide === side);
+    }
     if (mode) {
       const target = mode.workingTree ? mode.right.label : `${mode.right.label} (${mode.right.oid})`;
       $('direction').title = `${mode.left.label} (${mode.left.oid}) → ${target}`;
       $('direction').replaceChildren(el('span', 'side left ellipsis', t('history.baseLabel', { name: mode.left.label })), el('span', '', '→'),
         el('span', 'side right ellipsis', t('history.targetLabel', { name: mode.right.label })));
-      if (comparison?.counts) counts.append(el('span', 'side left', t('history.baseCount', { count: comparison.counts.left })),
-        el('span', 'side right', t('history.targetCount', { count: comparison.counts.right })));
     }
     const notices = [meta.shallow && t('history.shallow'), mode?.stale && t('history.stale'),
       mode && comparison?.common === false && t(meta.shallow ? 'history.noLocalAncestor' : 'history.noAncestor'),
@@ -306,7 +310,7 @@
     else if (page.loading || !state.generation) status.textContent = t('history.loadingCommits');
     else if (page.hasMore) status.append(button('link', t('history.loadMoreCommits'), requestPage));
     else if (!rows.length) {
-      if (page.filter) status.textContent = t('history.filteredEmpty');
+      if (page.filter || (meta.compare && !meta.compare.workingTree && page.compareSide !== 'both')) status.textContent = t('history.filteredEmpty');
       else status.textContent = meta.compare && !meta.compare.workingTree
         ? t(comparison?.same ? 'history.sameTip' : 'history.noUniqueCommits') : t('history.noCommitsInRange');
     }
@@ -556,6 +560,7 @@
     swap: 'swap', recompare: 'recompare', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
     $(id).addEventListener('click', () => send(intent));
   }
+  for (const { control, side } of compareControls) control.addEventListener('click', () => send('toggleCompareSide', { side }));
   filterInput.addEventListener('input', event => { if (!event.isComposing) sendFilter(220); });
   filterInput.addEventListener('compositionstart', () => {
     composingFilter = true;
@@ -605,18 +610,24 @@
       const syncFilter = !state.generation || repoId !== state.repoId;
       if (generation !== state.generation || repoId !== state.repoId) {
         const nextMode = payload.meta.compare;
-        if (!state.meta.compare || !nextMode || state.repoId !== repoId || nextMode.workingTree !== state.meta.compare.workingTree
-          || nextMode.workingTree) state.snapshot = Boolean(nextMode);
-        state.directories.clear();
+        const keepSnapshot = payload.keepSnapshot && state.repoId === repoId;
+        if (!keepSnapshot && (!state.meta.compare || !nextMode || state.repoId !== repoId || nextMode.workingTree !== state.meta.compare.workingTree
+          || nextMode.workingTree)) state.snapshot = Boolean(nextMode);
+        for (const key of state.directories.keys()) {
+          if (!keepSnapshot || !key.startsWith('snapshot:')) state.directories.delete(key);
+        }
         state.parentViews.clear();
         state.commitMenus.clear();
         state.fileMenus.clear();
         clearFileSelection('commit');
-        clearFileSelection('snapshot');
-        state.limit = FILE_BATCH;
-        scroll.scrollTop = files.scrollTop = 0;
+        if (!keepSnapshot) clearFileSelection('snapshot');
+        if (!keepSnapshot || !state.snapshot) {
+          state.limit = FILE_BATCH;
+          files.scrollTop = 0;
+        }
+        scroll.scrollTop = 0;
         painted = '';
-        setPane(nextMode?.workingTree ? 'files' : 'log');
+        if (!keepSnapshot) setPane(nextMode?.workingTree ? 'files' : 'log');
       }
       Object.assign(state, payload, { generation, repoId, pageIntent: false, comparison: payload.comparison });
       state.badges = new Map(payload.meta.badges);

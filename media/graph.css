@@ -62,7 +62,8 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
 .control.icon { display: grid; place-items: center; }
 .has-codicons .control.icon { width: 26px; padding: 0; }
-.control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'] {
+.control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'],
+.compare-counts button[aria-pressed='true'] {
   color: var(--vscode-button-foreground, var(--vscode-foreground));
   background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
 }
@@ -78,6 +79,8 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 }
 .filter-text::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
 .direction, .compare-counts { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.compare-counts { flex-wrap: wrap; }
+.compare-counts button { min-height: 20px; }
 .direction .side { max-width: min(25vw, 225px); }
 .notices {
   max-height: 4.6em;
@@ -182,7 +185,6 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .pill { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
 .pill:empty { display: none; }
 @container (max-width: 350px) { .commit-message .side { display: none; } }
-@container (max-width: 270px) { .compare-counts { display: none; } }
 
 .log-header, .file-header { flex-wrap: wrap; }
 .file-tabs { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; }

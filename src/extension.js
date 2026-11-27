@@ -146,20 +146,48 @@ class WorkbenchActions {
     await vscode.commands.executeCommand('setContext', 'git-branch.tagsVisible', this.registry.showTags);
   }
 
-  async pickRef(repo, title, { localOnly, exclude, preferred } = {}) {
+  async pickRef(repo, title, { localOnly = false, exclude, range } = {}) {
     this.assertActive(repo);
     const { allRefs, head } = repo.snapshot;
-    const items = orderRefs(allRefs, head.ref).filter(item => item.oid && item.ref !== exclude
-      && (item.kind === 'local' || (!localOnly && item.kind === 'remote'))).map(({ ref, name, kind, oid }) => ({
-      ref, label: name,
-      description: `${t(ref === head.ref ? 'branch.current' : `branch.${kind}`)} · ${shortOid(oid)}`
-    }));
-    if (!items.length) throw new BranchError(t('branch.noAvailable'));
-    const first = preferred && items.findIndex(item => item.ref === preferred);
-    if (first > 0) items.unshift(...items.splice(first, 1));
-    const picked = await vscode.window.showQuickPick(items, { title, matchOnDescription: true });
-    this.assertActive(repo);
-    return picked?.ref;
+    const items = [];
+    if (range) {
+      if (head.oid) items.push({ ref: 'HEAD', label: 'HEAD', description: shortOid(head.oid) });
+      items.push({ ref: ALL, label: t('history.allBranches'), description: t('history.allBranchesDescription') });
+    }
+    const groups = [['local', 'branch.local']];
+    if (!localOnly) groups.push(['remote', 'branch.remote']);
+    if (range && this.registry.showTags) groups.push(['tag', 'branch.tags']);
+    const ordered = orderRefs(allRefs, head.ref);
+    for (const [kind, label] of groups) {
+      const refs = ordered.filter(item => item.kind === kind && item.oid && item.ref !== exclude);
+      if (!refs.length) continue;
+      items.push({ label: t(label), kind: vscode.QuickPickItemKind.Separator });
+      items.push(...refs.map(({ ref, name, oid }) => ({
+        ref, label: name, description: shortOid(oid),
+        iconPath: new vscode.ThemeIcon(ref === head.ref ? 'star-full' : kind === 'tag' ? 'tag' : 'git-branch')
+      })));
+    }
+    const preferred = range === 'HEAD' ? head.ref || 'HEAD' : range || head.ref;
+    const active = items.find(item => item.ref && item.ref === preferred) ?? items.find(item => item.ref);
+    if (!active) throw new BranchError(t('branch.noAvailable'));
+    const picker = vscode.window.createQuickPick();
+    const ref = await new Promise(resolve => {
+      picker.title = title;
+      picker.matchOnDescription = true;
+      picker.items = items;
+      picker.activeItems = [active];
+      let accepted;
+      picker.onDidAccept(() => {
+        const candidate = picker.selectedItems[0]?.ref;
+        if (!candidate) return;
+        accepted = candidate;
+        picker.hide();
+      });
+      picker.onDidHide(() => resolve(accepted));
+      picker.show();
+    }).finally(() => picker.dispose());
+    if (ref) this.assertActive(repo);
+    return ref;
   }
 
   async openHistory(node) {
@@ -183,40 +211,7 @@ class WorkbenchActions {
     if (this.tagUpdate) await this.tagUpdate;
     const repo = await this.repo();
     if (!repo) return;
-    const { head, allRefs } = repo.snapshot;
-    const items = [];
-    if (head.oid) items.push({ ref: 'HEAD', label: 'HEAD', description: shortOid(head.oid) });
-    items.push({ ref: ALL, label: t('history.allBranches'), description: t('history.allBranchesDescription') });
-    const groups = [['local', 'branch.local'], ['remote', 'branch.remote']];
-    if (this.registry.showTags) groups.push(['tag', 'branch.tags']);
-    const ordered = orderRefs(allRefs, head.ref);
-    for (const [kind, label] of groups) {
-      const refs = ordered.filter(item => item.kind === kind && item.oid);
-      if (!refs.length) continue;
-      items.push({ label: t(label), kind: vscode.QuickPickItemKind.Separator });
-      items.push(...refs.map(({ ref, name, oid }) => ({
-        ref, label: name, description: shortOid(oid),
-        iconPath: new vscode.ThemeIcon(ref === head.ref ? 'star-full' : kind === 'tag' ? 'tag' : 'git-branch')
-      })));
-    }
-    const range = this.history.range;
-    // Focus the checked-out branch in follow mode, without changing the range until accepted.
-    const preferredRef = range === 'HEAD' ? head.ref || 'HEAD' : range;
-    const preferred = items.find(item => item.ref && item.ref === preferredRef) ?? items[0];
-    const picker = vscode.window.createQuickPick();
-    const ref = await new Promise(resolve => {
-      picker.title = t('history.pickRange');
-      picker.matchOnDescription = true;
-      picker.items = items;
-      picker.activeItems = [preferred];
-      let accepted;
-      picker.onDidAccept(() => {
-        accepted = picker.selectedItems[0]?.ref;
-        if (accepted) picker.hide();
-      });
-      picker.onDidHide(() => resolve(accepted));
-      picker.show();
-    }).finally(() => picker.dispose());
+    const ref = await this.pickRef(repo, t('history.pickRange'), { range: this.history.range });
     if (ref) await this.applyRange(repo, ref, false);
   }
 
@@ -434,7 +429,7 @@ class WorkbenchActions {
   async push(node) {
     const repo = await this.repo(node);
     if (!repo) return;
-    const ref = node?.ref || await this.pickRef(repo, t('action.pushPick'), { localOnly: true, preferred: repo.snapshot.head.ref });
+    const ref = node?.ref || await this.pickRef(repo, t('action.pushPick'), { localOnly: true });
     if (!ref) return;
     const actions = repo.actions;
     const tip = await actions.pushSource(ref);
@@ -540,7 +535,7 @@ class WorkbenchActions {
   async chooseComparison() {
     const repo = await this.repo();
     if (!repo) return;
-    const base = await this.pickRef(repo, t('action.comparePickBase'), { preferred: repo.snapshot.head.ref });
+    const base = await this.pickRef(repo, t('action.comparePickBase'));
     if (!base) return;
     const target = await this.pickRef(repo, t('action.comparePickTarget'), { exclude: base });
     if (target) await this.startComparison(repo, base, target);

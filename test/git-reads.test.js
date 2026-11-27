@@ -166,6 +166,41 @@ test('branch compare uses symmetric reachability and two independent final trees
   assert.equal(await repo.reads.commonAncestor(base, otherRoot), false);
 });
 
+test('comparison side limits run before pagination and compose with text filtering', async t => {
+  const f = await fixture(t);
+  const repo = await f.repo('compare-side-pages');
+  await repo.commit('match shared');
+  await repo.git('branch', 'target');
+  const left = await repo.commit('match base only');
+  await repo.git('switch', 'target');
+  const older = await repo.commit('match older target');
+  const hidden = await repo.commit('other target');
+  const right = await repo.commit('match newest target');
+  const compare = { left: { oid: left }, right: { oid: right } };
+  const page = options => repo.reads.historyPage({ compare, limit: 1, ...options });
+  const ids = result => result.commits.map(row => [row.oid, row.side]);
+
+  const basePage = await page({ compareSide: 'left' });
+  assert.deepEqual(ids(basePage), [[left, 'left']]);
+  assert.equal(basePage.hasMore, false);
+  const first = await page({ compareSide: 'right' });
+  assert.deepEqual(ids(first), [[right, 'right']]);
+  assert.equal(first.hasMore, true);
+  const second = await page({ compareSide: 'right', skip: 1 });
+  assert.deepEqual(ids(second), [[hidden, 'right']]);
+  assert.equal(second.hasMore, true);
+  const filtered = await page({ compareSide: 'right', filter: 'match' });
+  assert.deepEqual(ids(filtered), [[right, 'right']]);
+  assert.equal(filtered.scanned, 2);
+  assert.equal(filtered.hasMore, true);
+  const last = await page({ compareSide: 'right', filter: 'match', scan: filtered.scanned });
+  assert.deepEqual(ids(last), [[older, 'right']]);
+  assert.equal(last.hasMore, false);
+  const empty = await page({ compare: { left: compare.right, right: compare.right }, compareSide: 'right' });
+  assert.deepEqual(empty.commits, []);
+  assert.equal(empty.hasMore, false);
+});
+
 test('working tree comparison shows net tracked differences and uses saved disk content, not just the index', async t => {
   const f = await fixture(t);
   const repo = await f.repo('worktree-diff');

@@ -45,6 +45,8 @@ async function workbench(local, window) {
       range = 'HEAD';
       constructor(_context, _registry, _documents, ui) { this.ui = ui; history = this; }
       setRange(_repo, ref) { this.range = ref; }
+      compare(_repo, left, right) { this.comparison = { left, right }; }
+      async show() {}
       commitCommand(kind, { rows, guard = noop }) { return this.ui.historyCommit(kind, repo, repo.snapshot.head, rows, guard); }
       askCommitMessage(...args) { return window.askCommitMessage(...args); }
     } },
@@ -271,6 +273,67 @@ test('the history range picker stars the current branch and keeps native Local, 
   };
   await history.ui.chooseRange();
   assert.equal(disposed, 3);
+});
+
+test('comparison, history, checkout and push share the native ref layout but constrain their choices', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('ref-picker');
+  const oid = await local.commit('first');
+  await local.git('branch', 'topic');
+  await local.git('update-ref', 'refs/remotes/origin/topic', oid);
+  await local.git('tag', 'v1');
+  const expected = [];
+  const seen = [];
+  const action = await workbench(local, {
+    createQuickPick() {
+      let accept, hide;
+      return {
+        onDidAccept(listener) { accept = listener; }, onDidHide(listener) { hide = listener; },
+        show() {
+          const { title, labels, focus, choose } = expected.shift();
+          seen.push(this.title);
+          assert.equal(this.title, title);
+          assert.deepEqual(this.items.map(item => item.label), labels);
+          assert.equal(this.matchOnDescription, true);
+          assert.equal(this.activeItems[0]?.label, focus);
+          for (const item of this.items.filter(item => item.kind !== -1 && !['HEAD', 'All Branches'].includes(item.label))) {
+            assert.equal(item.description, oid.slice(0, 8));
+            assert.equal(item.iconPath?.id, item.label === 'main' ? 'star-full' : item.label === 'v1' ? 'tag' : 'git-branch');
+          }
+          if (choose) {
+            this.selectedItems = [this.items.find(item => item.label === choose)];
+            accept();
+          } else this.hide();
+        },
+        hide() { hide(); }, dispose() {}
+      };
+    },
+    showErrorMessage: value => assert.fail(value)
+  });
+  const { registry, history } = action;
+  const repo = registry.active;
+  registry.showTags = true;
+  repo.snapshot = await local.reads.snapshot(local.dirs, true);
+  const labels = ['Local', 'main', 'topic', 'Remote', 'origin/topic'];
+  expected.push({ title: message('history.pickRange'), labels: ['HEAD', 'All Branches', ...labels, 'Tags', 'v1'], focus: 'main' });
+  await history.ui.chooseRange();
+  expected.push({ title: message('action.checkoutPick'), labels, focus: 'main' });
+  await action('checkout');
+  expected.push({ title: message('action.pushPick'), labels: ['Local', 'main', 'topic'], focus: 'main' });
+  await action('push');
+  expected.push({ title: message('action.comparePickWith', { name: 'topic' }), labels: ['Local', 'main', 'Remote', 'origin/topic'], focus: 'main', choose: 'origin/topic' });
+  await action('compareWith', 'refs/heads/topic');
+  assert.equal(history.comparison.left.ref, 'refs/heads/topic');
+  assert.equal(history.comparison.right.ref, 'refs/remotes/origin/topic');
+  const base = { title: message('action.comparePickBase'), labels, focus: 'main', choose: 'main' };
+  const target = { title: message('action.comparePickTarget'), labels: ['Local', 'topic', 'Remote', 'origin/topic'], focus: 'topic', choose: 'topic' };
+  expected.push(base, target);
+  await action('compare');
+  assert.deepEqual(expected, []);
+  assert.deepEqual(seen.slice(-2), [base.title, target.title]);
+  assert.equal(history.comparison.left.ref, 'refs/heads/main');
+  assert.equal(history.comparison.right.ref, 'refs/heads/topic');
+  assert.deepEqual(await local.reads.head(), { ref: 'refs/heads/main', oid });
 });
 
 test('Branches switches repositories from the inline action only when multiple repositories are open', async t => {
@@ -521,6 +584,69 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.equal(controller.generation, scope.generation);
   assert.equal(controller.comparison.left.oid, base);
   assert.equal(await local.read('file.txt'), 'on disk');
+});
+
+test('toggling comparison sides reloads commits without replacing the branch file diff or its counts', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('comparison-toggle');
+  await local.commit('shared', { 'file.txt': 'shared' });
+  await local.git('branch', 'topic');
+  const left = await local.commit('base only', { 'file.txt': 'base' });
+  await local.git('switch', 'topic');
+  const right = await local.commit('target only', { 'file.txt': 'target' });
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode: {} });
+  const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local', actions: local.actions,
+    snapshot: await local.reads.snapshot(local.dirs, false), reads: local.reads, commitCache: new Map(), filesCache: new Map() };
+  const controller = new GraphController({}, { active: repo, repositories: new Map([[repo.id, repo]]),
+    onChange: () => ({ dispose() {} }) }, {}, {});
+  t.after(() => controller.dispose());
+  controller.view = { visible: true, webview: { postMessage: () => true } };
+  controller.ready = true;
+  const branches = await Promise.all(['main', 'topic'].map(name => local.actions.named(`refs/heads/${name}`)));
+  const send = (type, args = {}) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...args });
+  const waitRows = async (oids, side) => {
+    await waitFor(() => !controller.pageState().loading && controller.rows.length === oids.length, `load ${side} commits`);
+    assert.deepEqual(new Set(controller.rows.map(row => row.oid)), new Set(oids));
+    assert.equal(controller.pageState().compareSide, side);
+  };
+  controller.compare(repo, ...branches);
+  await waitRows([left, right], 'both');
+  await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.detail, 'load comparison and commit selection');
+  const packet = controller.comparePacket;
+  assert.deepEqual(packet.counts, { left: 1, right: 1 });
+  const [file] = packet.files;
+  await send('selectFiles', { source: 'snapshot', ids: [file.id] });
+
+  const oldGeneration = controller.generation;
+  await send('toggleCompareSide', { side: 'right' });
+  await waitRows([right], 'right');
+  await send('toggleCompareSide', { side: 'left', generation: oldGeneration });
+  assert.equal(controller.compareSide, 'right');
+  assert.equal(controller.selection.focus, right);
+  await send('setFilter', { text: 'base' });
+  await waitRows([], 'right');
+  assert.equal(controller.selection.focus, undefined);
+  await send('toggleCompareSide', { side: 'left' });
+  await waitRows([left], 'left');
+  assert.equal(controller.selection.focus, left);
+  await send('toggleCompareSide', { side: 'left' });
+  await waitRows([left], 'both');
+  await send('setFilter', { text: '' });
+  await waitRows([left, right], 'both');
+  assert.equal(controller.comparePacket, packet);
+  assert.ok(controller.snapshotFiles.has(file.id));
+  assert.deepEqual([...controller.fileSelection.snapshot], [file.id]);
+
+  await send('toggleCompareSide', { side: 'left' });
+  await waitRows([left], 'left');
+  await send('swap');
+  await waitRows([right], 'left');
+  await send('recompare');
+  await waitRows([right], 'left');
+  await send('exitComparison');
+  assert.equal(controller.compareSide, 'both');
+  await send('toggleCompareSide', { side: 'left' });
+  assert.equal(controller.compareSide, 'both');
 });
 
 test('single merge issues distinct parent Diff tokens; multi-select omits parent groups', async t => {

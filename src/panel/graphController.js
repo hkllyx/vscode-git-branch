@@ -43,6 +43,7 @@ class GraphController {
     this.ui = ui;
     this.range = 'HEAD';
     this.filter = '';
+    this.compareSide = 'both';
     const savedColumns = context.workspaceState?.get(COMMIT_COLUMNS);
     const visibleColumns = Array.isArray(savedColumns) ? savedColumns : DEFAULT_COLUMNS;
     this.commitColumns = Object.keys(COLUMN_LABELS).filter(key => visibleColumns.includes(key));
@@ -51,6 +52,7 @@ class GraphController {
     this.requests = new Map();
     this.viewSubs = [];
     this.changeId = 0;
+    this.fileSelection = { commit: new Set(), snapshot: new Set() };
     this.filesLayout = context.workspaceState?.get(FILE_LAYOUT) === 'tree' ? 'tree' : 'list';
     this.registrySub = registry.onChange(() => this.repoChanged());
     this.reset();
@@ -108,8 +110,10 @@ class GraphController {
     this.requests.delete(kind);
   }
 
-  pause() {
-    for (const kind of this.requests.keys()) this.cancel(kind);
+  pause(except) {
+    for (const kind of this.requests.keys()) {
+      if (kind !== except) this.cancel(kind);
+    }
     this.finishEdit();
   }
 
@@ -121,10 +125,12 @@ class GraphController {
     this.send('editPrompt', null);
   }
 
-  reset(keepSelection = false) {
-    this.pause();
+  reset(keepSelection = false, keepSnapshot = false) {
+    // Commit filters do not change the pinned endpoints or their file diff.
+    this.pause(keepSnapshot ? 'comparison' : undefined);
     this.generation++;
-    this.restore = keepSelection ? this.selection?.asPacket() : undefined;
+    this.keepSnapshot = keepSnapshot;
+    this.restore = keepSelection ? this.restore ?? this.selection?.asPacket() : undefined;
     this.selection = new HistorySelection();
     this.rows = [];
     this.known = new Map();
@@ -133,13 +139,16 @@ class GraphController {
     this.scanned = 0;
     this.pageError = undefined;
     this.selectionFiles = new Map();
-    this.snapshotFiles = new Map();
-    this.fileSelection = { commit: new Set(), snapshot: new Set() };
+    this.fileSelection.commit.clear();
     this.selectionPacket = undefined;
-    this.comparePacket = undefined;
+    if (!keepSnapshot) {
+      this.snapshotFiles = new Map();
+      this.fileSelection.snapshot.clear();
+      this.comparePacket = undefined;
+    }
     this.sendReset();
     if (this.canRead) void this.loadPage();
-    if (this.canRead && this.comparison) void this.loadComparison();
+    if (this.canRead && this.comparison && (!this.comparePacket || this.comparePacket.loading)) void this.loadComparison();
   }
 
   repoChanged() {
@@ -148,6 +157,7 @@ class GraphController {
       this.repo = next;
       this.unavailable = !next?.snapshot || Boolean(next.error);
       this.comparison = undefined;
+      this.compareSide = 'both';
       this.range = 'HEAD';
       this.filter = '';
       this.target = next?.snapshot ? historyTarget(next.snapshot, this.range, this.registry.showTags) : undefined;
@@ -178,6 +188,7 @@ class GraphController {
       this.target = target;
       this.range = target.range;
       this.comparison = undefined;
+      this.compareSide = 'both';
       this.reset();
     }
   }
@@ -186,7 +197,13 @@ class GraphController {
     const next = text.trim();
     if (next === this.filter) return;
     this.filter = next;
-    this.reset();
+    this.reset(false, Boolean(this.comparison));
+  }
+
+  toggleCompareSide(side) {
+    if (!this.comparison || this.comparison.workingTree || (side !== 'left' && side !== 'right')) return;
+    this.compareSide = this.compareSide === side ? 'both' : side;
+    this.reset(Boolean(this.rows.length || this.restore), true);
   }
 
   async chooseColumns() {
@@ -201,12 +218,14 @@ class GraphController {
   compare(repo, left, right) {
     if (this.repo !== repo) throw new BranchError(t('repo.switched'));
     this.comparison = { left, right };
+    this.compareSide = 'both';
     this.reset();
   }
 
   compareWorktree(repo, left) {
     if (this.repo !== repo) throw new BranchError(t('repo.switched'));
     this.comparison = { left, workingTree: true };
+    this.compareSide = 'both';
     this.reset();
   }
 
@@ -216,13 +235,14 @@ class GraphController {
     const [left, right] = await Promise.all([comparison.left.ref ? repo.actions.named(comparison.left.ref) : comparison.left,
       comparison.right && repo.actions.named(comparison.right.ref)]);
     if (repo !== this.repo || comparison !== this.comparison) return;
-    if (comparison.workingTree) this.compareWorktree(repo, left);
-    else this.compare(repo, left, right);
+    this.comparison = comparison.workingTree ? { left, workingTree: true } : { left, right };
+    this.reset();
   }
 
   exitComparison() {
     if (!this.comparison) return;
     this.comparison = undefined;
+    this.compareSide = 'both';
     this.reset();
   }
 
@@ -257,12 +277,12 @@ class GraphController {
 
   pageState() {
     return { hasMore: this.hasMore, loading: this.requests.has('page'), error: this.pageError, columns: this.layout.columns,
-      filter: this.filter };
+      filter: this.filter, compareSide: this.compareSide };
   }
 
   sendReset() {
     this.send('reset', { meta: this.meta(), rows: this.rows, page: this.pageState(), filesLayout: this.filesLayout,
-      commitColumns: this.commitColumns,
+      commitColumns: this.commitColumns, keepSnapshot: this.keepSnapshot,
       selection: this.selectionPacket || { ...this.selection.asPacket(), revision: this.selectionRevision }, comparison: this.comparePacket,
       editPrompt: this.editPrompt?.packet });
   }
@@ -285,7 +305,7 @@ class GraphController {
     try {
       const tips = comparison?.workingTree ? [comparison.left.oid] : target?.tips;
       const { commits, hasMore, scanned } = await repo.reads.historyPage({ tips, compare: comparison?.workingTree ? undefined : comparison,
-        skip: this.rows.length, scan: this.scanned, limit: 120, filter: this.filter, signal: request.signal });
+        skip: this.rows.length, scan: this.scanned, limit: 120, filter: this.filter, compareSide: this.compareSide, signal: request.signal });
       if (!this.active('page', request)) return;
       const rows = commits.map(commit => ({ ...commit, shallowBoundary: repo.snapshot.shallowRoots?.has(commit.oid), graph: this.layout.append(commit) }));
       this.rows.push(...rows);
@@ -588,6 +608,7 @@ class GraphController {
       case 'setFilter':
         if (typeof message.text === 'string') return this.setFilter(message.text);
         return;
+      case 'toggleCompareSide': return this.toggleCompareSide(message.side);
       case 'loadMore': return this.loadPage();
       case 'select': {
         const { oid, mode } = message;
@@ -673,7 +694,11 @@ class GraphController {
 <main id="panes" class="panes" data-pane="log">
   <section class="log-pane" aria-label="${htmlText('history.graph')}">
     <div class="pane-header log-header">
-      <span id="log-title" title="${htmlText('history.selectionHint')}">${htmlText('history.graph')}</span><span id="compare-counts" class="compare-counts"></span>
+      <span id="log-title" title="${htmlText('history.selectionHint')}">${htmlText('history.graph')}</span>
+      <div id="compare-counts" class="compare-counts" role="group" aria-label="${htmlText('history.distinct')}" hidden>
+        <button id="compare-left" class="side left" type="button" aria-pressed="false">${htmlText('history.baseOnly')}</button>
+        <button id="compare-right" class="side right" type="button" aria-pressed="false">${htmlText('history.targetOnly')}</button>
+      </div>
       <button id="commit-columns" class="control column-picker" type="button" title="${htmlText('history.chooseColumns')}">${htmlText('history.columns')}</button>
     </div>
     <div id="commits-scroll" class="scroll log-scroll" tabindex="-1">
