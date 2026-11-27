@@ -183,7 +183,7 @@
     const message = el('span', 'commit-message');
     message.append(el('span', 'subject ellipsis', subject));
     if (badges.length) {
-      const badge = codicon(badges.length === 1 ? 'tag' : 'layers', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`);
+      const badge = codicon('tag', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`);
       badge.title = badges.map(item => item.name).join('\n');
       message.append(badge);
     }

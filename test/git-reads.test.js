@@ -71,6 +71,44 @@ test('snapshots include upstream divergence for every local branch, even when HE
   assert.equal((await repo.reads.refs({ ref: 'refs/heads/diverged' }))[0].trackingCount, undefined);
 });
 
+test('branches with the same tip use their own configured upstream, not HEAD or a same-named remote ref', async t => {
+  const f = await fixture(t);
+  const repo = await f.repo('per-branch-upstreams');
+  const base = await repo.commit('base');
+  const shared = await repo.commit('shared local tip');
+  const next = (await repo.git('commit-tree', `${shared}^{tree}`, '-p', shared, '-m', 'next upstream commit')).trim();
+  const trunk = (await repo.git('commit-tree', `${shared}^{tree}`, '-p', next, '-m', 'latest upstream commit')).trim();
+  await repo.git('remote', 'add', 'origin', 'https://example.invalid/origin.git');
+  await repo.git('remote', 'add', 'mirror', 'https://example.invalid/mirror.git');
+  await repo.git('update-ref', 'refs/remotes/origin/main', base);
+  await repo.git('update-ref', 'refs/remotes/origin/topic', shared);
+  await repo.git('update-ref', 'refs/remotes/mirror/trunk', trunk);
+  await repo.git('branch', '--set-upstream-to=origin/main', 'main');
+  await repo.git('branch', 'topic', shared);
+  await repo.git('branch', '--set-upstream-to=mirror/trunk', 'topic');
+
+  async function check(headName, topicUpstream, topicCounts) {
+    const { head, byRef } = await repo.reads.snapshot(repo.dirs, false);
+    assert.equal(head.ref, `refs/heads/${headName}`);
+    for (const [name, upstream, trackingCount] of [
+      ['main', 'refs/remotes/origin/main', { ahead: 1, behind: 0 }], ['topic', topicUpstream, topicCounts]
+    ]) {
+      const branch = byRef.get(`refs/heads/${name}`);
+      assert.equal(branch.oid, shared);
+      assert.equal(branch.upstream.tracking, upstream);
+      assert.deepEqual(branch.trackingCount, trackingCount);
+      const native = (await repo.git('rev-list', '--left-right', '--count', `${name}...${name}@{upstream}`, '--')).trim();
+      assert.equal(native, `${trackingCount.ahead}\t${trackingCount.behind}`);
+    }
+  }
+  await check('main', 'refs/remotes/mirror/trunk', { ahead: 0, behind: 2 });
+  await repo.git('switch', 'topic');
+  await check('topic', 'refs/remotes/mirror/trunk', { ahead: 0, behind: 2 });
+  await repo.git('switch', 'main');
+  await repo.git('branch', '--set-upstream-to=origin/topic', 'topic');
+  await check('main', 'refs/remotes/origin/topic', { ahead: 0, behind: 0 });
+});
+
 test('history pages keep stable tips and topo order while a branch moves', async t => {
   const f = await fixture(t);
   const repo = await f.repo('page');

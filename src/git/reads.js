@@ -64,6 +64,7 @@ class GitReads {
 
   async refs({ tags = false, ref, trackingCounts = false, ...opts } = {}) {
     const patterns = ref ? [ref] : ['refs/heads/', 'refs/remotes/', ...(tags ? ['refs/tags/'] : [])];
+    // Git evaluates upstream:track against each ref's own configured upstream, not HEAD's upstream.
     const format = trackingCounts ? `${REF_FORMAT}%00%(upstream:track,nobracket)` : REF_FORMAT;
     const records = parseRefs(await this.client.text(['for-each-ref', `--format=${format}`, '--', ...patterns], opts));
     if (ref) return records.filter(item => item.ref === ref);
