@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
-    <Identity Language="en-US" Id="git-branch" Version="1.0.0" Publisher="hkllyx" />
+    <Identity Language="en-US" Id="git-branch" Version="2.0.0" Publisher="hkllyx" />
     <DisplayName>Git Branch</DisplayName>
-    <Description xml:space="preserve">Branch management in Source Control: checkout, create, compare, rename, merge, rebase and delete branches.</Description>
-    <Tags>git,branch,scm,source control,compare,rename,checkout,merge,rebase,delete</Tags>
-    <Categories>SCM Providers</Categories>
+    <Description xml:space="preserve">Flat branches in Source Control and a Git history panel with commit graphs and diffs.</Description>
+    <Tags>git,branch,scm,source control,history,commit graph,compare,checkout,diff</Tags>
+    <Categories>SCM Providers,Visualization</Categories>
     <GalleryFlags>Public</GalleryFlags>
     <Properties>
       <Property Id="Microsoft.VisualStudio.Code.Engine" Value="^1.85.0" />
