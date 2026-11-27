@@ -120,13 +120,23 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 }
 .commit-row .commit-subject:hover { background: transparent; }
 .commit-row.focused .subject { font-weight: 600; }
-.commit-subject { padding: 0 6px 0 0; display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1 1 auto; text-align: left; }
-.subject { flex: 1 1 60px; }
-.date, .hash, .author { flex: 0 1 auto; opacity: .85; }
-.hash { width: 8ch; min-width: 5ch; }
-.date { width: 16ch; min-width: 8ch; text-align: end; }
-.author { width: clamp(42px, 17cqw, 116px); min-width: 25px; font-size: .89em; }
-.graph { height: var(--row-height); flex: 0 0 auto; overflow: hidden; }
+.commit-subject {
+  --commit-author-width: clamp(38px, 17cqw, 116px);
+  --commit-hash-width: clamp(36px, 13cqw, 72px);
+  --commit-date-width: clamp(70px, 27cqw, 135px);
+  padding: 0 6px 0 0;
+  display: grid;
+  grid-template-columns: var(--commit-columns);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-align: left;
+}
+.commit-message { display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; }
+.date, .hash, .author { opacity: .85; }
+.author { font-size: .89em; }
+.graph { height: var(--row-height); overflow: hidden; }
 .edge { fill: none; stroke: var(--lane); stroke-width: 1.5; }
 .edge.boundary { stroke-dasharray: 2 2; }
 .dot { fill: var(--lane); stroke: var(--panel); stroke-width: 1; }
@@ -139,8 +149,17 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .lane-4 { --lane: var(--vscode-charts-red, #df6269); }
 .lane-5 { --lane: var(--vscode-charts-yellow, #c59c33); }
 .lane-6 { --lane: var(--vscode-charts-foreground, var(--vscode-foreground)); }
-.badges { display: flex; gap: 4px; flex: 0 1 auto; min-width: 0; max-width: 36%; overflow: hidden; }
-.badge, .side, .pill {
+.ref-badge {
+  flex: 0 0 18px;
+  height: 17px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.ref-badge.current { border-color: var(--blue); }
+.ref-badge path { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.side, .pill {
   display: inline-block;
   padding: 0 5px;
   border: 1px solid var(--border);
@@ -149,15 +168,12 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   font-size: .85em;
   font-weight: normal;
 }
-.badge { min-width: 0; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
-.badge.current { border-color: var(--blue); }
-.badge.tag { border-color: var(--vscode-charts-yellow, #ad842b); }
-.badge.remote { border-style: dashed; }
+.commit-message .side { flex-shrink: 0; }
 .side.left { border-color: var(--purple); }
 .side.right { border-color: var(--blue); }
 .pill { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
 .pill:empty { display: none; }
-@container (max-width: 350px) { .badges, .commit-subject .side { display: none; } }
+@container (max-width: 350px) { .commit-message .side { display: none; } }
 @container (max-width: 270px) { .compare-counts { display: none; } }
 
 .log-header, .file-header { flex-wrap: wrap; }
@@ -185,7 +201,11 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .status-D { color: var(--vscode-gitDecoration-deletedResourceForeground); }
 .status-M { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
 .status-R, .status-C { color: var(--vscode-gitDecoration-renamedResourceForeground); }
-.file-name { flex: 1 1 auto; }
+.file-label { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.file-label .file-name { flex: 0 1 auto; }
+.file-directory { flex: 0 20 auto; font-size: .85em; color: var(--muted); }
+.file-folder > summary .file-name { flex: 1 1 auto; }
+.parent-group > summary { font-weight: 600; }
 .submodule { flex: 0 0 auto; font-size: .9em; color: var(--muted); }
 .file-warning { flex: 0 0 auto; fill: none; stroke: var(--vscode-editorWarning-foreground, var(--muted)); stroke-width: 1.3; stroke-linejoin: round; }
 .file-row.selected { background: var(--vscode-list-inactiveSelectionBackground); color: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground)); }

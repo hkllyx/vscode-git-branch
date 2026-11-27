@@ -167,6 +167,9 @@ test('changes use an empty tree for root, preserve renames and use real merge pa
   const info = await repo.reads.commit(merge);
   assert.deepEqual(info.parents, [left, rename]);
   assert.deepEqual(await changes(repo, merge), []);
+  const clean = await repo.reads.commitFileDetails(merge, info, undefined, true);
+  assert.deepEqual(clean.files, []);
+  assert.deepEqual(clean.parentGroups.map(group => group.oid), [left, rename]);
   const layout = new GraphLayout();
   const { commits } = await repo.reads.historyPage({ tips: [merge] });
   assert.deepEqual(layout.append(commits[0]).edges.map(lane => lane.oid), [left, rename]);
@@ -349,9 +352,16 @@ test('merge files exclude ordinary imports and retain only paths changed against
   await assert.rejects(repo.git('merge', '--no-ff', '-m', 'merge topic', 'topic'));
   assert.deepEqual((await repo.reads.workingState(repo.dirs.gitDir)).conflicted, true);
   const merged = await repo.commit('Resolve topic merge', { 'conflict.txt': 'resolution\n', 'take-parent.txt': 'side\n' });
-  assert.deepEqual((await repo.reads.commit(merged)).parents, [main, side]);
-  const [file, ...rest] = await changes(repo, merged);
+  const info = await repo.reads.commit(merged);
+  assert.deepEqual(info.parents, [main, side]);
+  const { files: [file, ...rest], parentGroups } = await repo.reads.commitFileDetails(merged, info, undefined, true);
   assert.deepEqual(rest, []);
+  assert.deepEqual(parentGroups.map(({ oid, files }) => [oid, files.map(change => change.path)]), [
+    [main, ['conflict.txt', 'side.txt', 'take-parent.txt']], [side, ['conflict.txt', 'main.txt']]
+  ]);
+  assert.equal(await repo.reads.blob(parentGroups[1].files[0].old), 'side\n');
+  assert.equal(await repo.reads.blob(parentGroups[1].files[0].new), 'resolution\n');
+  assert.deepEqual(await changes(repo, merged), [file]);
   assert.equal(file.path, 'conflict.txt');
   assert.equal(await repo.reads.blob(file.old), 'main\n');
   assert.equal(await repo.reads.blob(file.new), 'resolution\n');

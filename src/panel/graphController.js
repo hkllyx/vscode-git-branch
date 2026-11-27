@@ -303,16 +303,31 @@ class GraphController {
     return commit;
   }
 
-  async readFiles(repo, oid, commit, signal) {
-    const shallow = repo.snapshot.shallow;
-    const key = `${shallow}:${oid}`;
+  async readFiles(repo, oid, commit, signal, includeParents) {
+    const grouped = includeParents && commit.parents.length > 1;
+    const key = `${repo.snapshot.shallow}:${oid}`;
+    const groupKey = `${key}:parents`;
     let files = repo.filesCache.get(key);
-    if (!files) {
-      files = await repo.reads.commitFiles(oid, commit, { signal });
-      // Do not retain huge changesets in the history cache.
-      if (files.length < 3000) repo.filesCache.set(key, files);
+    let parentGroups = grouped ? repo.filesCache.get(groupKey) : [];
+    if (grouped && (!files || !parentGroups)) {
+      ({ files, parentGroups } = await repo.reads.commitFileDetails(oid, commit, { signal }, true));
+      if (parentGroups.reduce((total, group) => total + group.files.length, 0) < 3000) repo.filesCache.set(groupKey, parentGroups);
+    } else if (!files) files = await repo.reads.commitFiles(oid, commit, { signal });
+    // Do not retain huge changesets in the history cache.
+    if (files.length < 3000) repo.filesCache.set(key, files);
+    return { files: files.map(file => ({ ...file, baseOid: commit.parents[0], afterOid: oid })), parentGroups };
+  }
+
+  async parentSubject(repo, oid, signal) {
+    const row = this.known.get(oid);
+    if (row) return row.subject;
+    try {
+      const { message } = await this.readCommit(repo, oid, signal);
+      return message.trimStart().split(/\r?\n\s*\r?\n/, 1)[0].replace(/\r?\n/g, ' ');
+    } catch (error) {
+      if (signal.aborted) throw error;
+      return '';
     }
-    return files.map(file => ({ ...file, baseOid: commit.parents[0], afterOid: oid }));
   }
 
   toClient(file, tokens, caption) {
@@ -321,7 +336,7 @@ class GraphController {
     return { id, path: file.path, pathKey: file.pathKey,
       from: file.status === 'R' || file.status === 'C' ? file.old?.path : undefined,
       status: file.status, submodule: file.old?.mode === '160000' || file.new?.mode === '160000',
-      ambiguous: file.ambiguous, includesGap: file.includesGap, apply: canApply(file),
+      ambiguous: file.ambiguous, includesGap: file.includesGap, apply: canApply(file), parentGroup: file.parentGroup,
       repositoryVersion: Boolean(repositoryVersion(file) && repositoryVersion(file).mode !== '160000'),
       sourceCandidate: regularMode(editableFileSide(file)?.mode)
     };
@@ -349,13 +364,13 @@ class GraphController {
     try {
       const items = await mapWithLimit(selected, 4, signal, async oid => {
         const row = this.known.get(oid);
-        let commit, files, error;
+        let commit, files, parentGroups, error;
         try {
           commit = await this.readCommit(repo, oid, signal);
-          files = await this.readFiles(repo, oid, commit, signal);
+          ({ files, parentGroups } = await this.readFiles(repo, oid, commit, signal, !multi));
         } catch (failure) { if (signal.aborted) throw failure; error = errorText(failure); }
         if (this.active('selection', request)) publish({ loading: true, total: selected.length, processed: ++processed });
-        return { row, commit, files, error };
+        return { row, commit, files, parentGroups, error };
       });
       if (!this.active('selection', request)) return;
       const focus = items.find(item => item.row.oid === state.focus);
@@ -366,9 +381,17 @@ class GraphController {
       const merged = multi ? await combineChanges(items.filter(item => item.files),
         oid => repo.reads.firstParentHistory(oid, { signal }), signal) : focus.files || [];
       if (!this.active('selection', request)) return;
-      const files = merged.map(file => this.toClient({ ...file, partial: failures.length > 0 }, this.selectionFiles,
-        `${file.baseOid ? shortOid(file.baseOid) : t('history.emptyTree')} → ${shortOid(file.afterOid)}`));
-      publish({ detail, failures, files, total: selected.length });
+      const parents = !multi && focus.parentGroups?.length
+        ? await mapWithLimit(focus.parentGroups, 4, signal, async group => ({ ...group, subject: await this.parentSubject(repo, group.oid, signal) }))
+        : [];
+      if (!this.active('selection', request)) return;
+      const caption = file => `${file.baseOid ? shortOid(file.baseOid) : t('history.emptyTree')} → ${shortOid(file.afterOid)}`;
+      const files = merged.map(file => this.toClient({ ...file, partial: failures.length > 0 }, this.selectionFiles, caption(file)));
+      const parentGroups = parents.map(({ oid, subject, files }) => ({ oid, subject, files: files.map(file => {
+        const change = { ...file, baseOid: oid, afterOid: focus.row.oid, parentGroup: oid };
+        return this.toClient(change, this.selectionFiles, caption(change));
+      }) }));
+      publish({ detail, failures, files, parentGroups, total: selected.length });
     } catch (error) {
       if (this.active('selection', request)) publish({ failures: [errorText(error)] });
     } finally {
@@ -479,7 +502,10 @@ class GraphController {
     };
     if (kind === 'editSource') return this.documents.openSource(repo, change, guard);
     if (kind === 'openRepositoryVersion') return this.documents.openVersion(repo, change, guard);
-    if (kind === 'applyFiles') return this.ui.applyHistoryFiles(repo, head, chosen, guard);
+    if (kind === 'applyFiles') {
+      if (chosen.some(file => file.parentGroup !== change.parentGroup)) throw new BranchError(t('history.mixedParentChanges'));
+      return this.ui.applyHistoryFiles(repo, head, chosen, guard);
+    }
   }
 
   async probeCommitMenu(oid) {

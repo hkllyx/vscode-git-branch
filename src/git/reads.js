@@ -163,23 +163,38 @@ class GitReads {
   }
 
   async commitFiles(oid, commit, opts) {
+    return (await this.commitFileDetails(oid, commit, opts)).files;
+  }
+
+  async commitFileDetails(oid, commit, opts, includeParents = false) {
     assertOid(oid);
     const [base, ...otherParents] = commit.parents;
-    if (!base) return parseRawDiff(await this.client.buffer(['diff-tree', '--root', '--no-commit-id', ...DIFF, oid, '--'], opts));
+    const parentGroups = [];
+    if (!base) {
+      const files = parseRawDiff(await this.client.buffer(['diff-tree', '--root', '--no-commit-id', ...DIFF, oid, '--'], opts));
+      return { files, parentGroups };
+    }
     for (const parent of commit.parents) {
       if (!(await this.resolveCommit(assertOid(parent), opts))) {
         throw new BranchError(t('git.missingParent', { oid: shortOid(parent) }));
       }
     }
+    const grouped = includeParents && otherParents.length > 0;
+    const remember = (oid, files) => { if (grouped && files.length) parentGroups.push({ oid, files }); };
     let files = await this.commitFilesFromParent(oid, base, opts);
-    // Like IDEA's default combined view, only keep paths changed against every
-    // parent. Keep the first-parent sides for opening an ordinary two-way Diff.
+    remember(base, files);
+    // The combined view keeps paths changed against every parent. Reuse the
+    // same reads for the full parent-to-merge diffs when they are requested.
     for (const parent of otherParents) {
-      if (!files.length) break;
-      const paths = new Set((await this.commitFilesFromParent(oid, parent, opts)).map(file => file.pathKey));
-      files = files.filter(file => paths.has(file.pathKey));
+      if (!files.length && !grouped) break;
+      const changes = await this.commitFilesFromParent(oid, parent, opts);
+      remember(parent, changes);
+      if (files.length) {
+        const paths = new Set(changes.map(file => file.pathKey));
+        files = files.filter(file => paths.has(file.pathKey));
+      }
     }
-    return files;
+    return { files, parentGroups };
   }
 
   async branchFiles(left, right, opts) {

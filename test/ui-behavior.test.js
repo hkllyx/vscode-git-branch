@@ -395,6 +395,52 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.equal(await local.read('file.txt'), 'on disk');
 });
 
+test('single merge issues distinct parent Diff tokens; multi-select omits parent groups', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('merge-parents');
+  await local.commit('initial', { 'src/client.txt': 'base\n' });
+  await local.git('switch', '-c', 'topic');
+  const side = await local.commit('Topic change', { 'src/client.txt': 'topic\n', 'side.txt': 'side\n' });
+  await local.git('switch', 'main');
+  const main = await local.commit('Main change', { 'src/client.txt': 'main\n', 'main.txt': 'main\n' });
+  await assert.rejects(local.git('merge', '--no-ff', '-m', 'Merge topic', 'topic'));
+  const merge = await local.commit('Resolve merge', { 'src/client.txt': 'resolution\n' });
+  const vscode = { workspace: { isTrusted: true } };
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode });
+  const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local',
+    snapshot: await local.reads.snapshot(local.dirs, false), reads: local.reads,
+    commitCache: new Map(), filesCache: new Map() };
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
+  const opened = [];
+  const controller = new GraphController({}, registry, { open: (_, change) => opened.push(change) }, {});
+  t.after(() => controller.dispose());
+  controller.view = { visible: true, webview: { postMessage: () => true } };
+  await controller.onMessage({ type: 'ready' });
+  await waitFor(() => controller.selectionPacket?.parentGroups?.length === 2, 'merge parent groups');
+  const send = (type, data) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...data });
+  const { files: [combined], parentGroups: [first, second] } = controller.selectionPacket;
+  assert.equal(combined.path, 'src/client.txt');
+  assert.deepEqual([first, second].map(group => [group.oid, group.subject]), [[main, 'Main change'], [side, 'Topic change']]);
+  const byPath = (group, path) => group.files.find(file => file.path === path);
+  const fromMain = byPath(first, combined.path);
+  const fromSide = byPath(second, combined.path);
+  for (const file of [combined, fromMain, fromSide]) await send('openDiff', { token: file.id });
+  assert.equal(new Set([combined.id, fromMain.id, fromSide.id]).size, 3);
+  assert.deepEqual(opened.map(change => [change.baseOid, change.afterOid]), [[main, merge], [main, merge], [side, merge]]);
+  assert.equal(await local.reads.blob(opened[2].old), 'topic\n');
+  const ids = [byPath(first, 'side.txt').id, byPath(second, 'main.txt').id];
+  await send('selectFiles', { source: 'commit', ids });
+  await assert.rejects(controller.fileCommand('applyFiles', { webview: 'git-branch.log', gbArea: 'file',
+    gbGeneration: controller.generation, gbRepo: repo.id, gbRevision: controller.selectionRevision,
+    gbHeadRef: repo.snapshot.head.ref, gbHeadOid: merge, gbSource: 'commit', gbToken: ids[0], gbFiles: ids.join(',') }),
+  { message: message('history.mixedParentChanges') });
+  await send('select', { oid: main, mode: 'toggle' });
+  assert.deepEqual(controller.selectionPacket.parentGroups, []);
+  assert.equal(controller.selectionPacket.detail, undefined);
+  await send('openDiff', { token: fromSide.id });
+  assert.equal(opened.length, 3);
+});
+
 test('history columns default to Author, Hash, Date and persist checked items without restarting the log', async t => {
   const packets = [];
   const values = new Map();

@@ -24,7 +24,7 @@
     X: t('history.statusUnknown'), B: t('history.statusRewritten')
   };
   const state = { generation: 0, rows: [], rowsByOid: new Map(), known: new Set(), meta: {}, badges: new Map(), page: {}, selection: {},
-    directories: new Map(), commitMenus: new Map(), fileMenus: new Map(), filesLayout: 'list', commitColumns: [],
+    directories: new Map(), parentViews: new Map(), commitMenus: new Map(), fileMenus: new Map(), filesLayout: 'list', commitColumns: [],
     selectedFiles: { commit: new Set(), snapshot: new Set() }, anchors: {}, snapshot: false, limit: FILE_BATCH, pageIntent: false };
 
   function el(tag, cls, text, title) {
@@ -158,15 +158,19 @@
     summary.setAttribute('aria-setsize', state.page.hasMore ? -1 : state.rows.length);
     const badges = state.badges.get(row.oid) || [];
     const side = row.side && t(row.side === 'left' ? 'history.baseOnly' : 'history.targetOnly');
-    summary.title = [subject, `${row.oid} · ${row.author}`, time.title, side, badges.map(item => item.name).join(' · ')].filter(Boolean).join('\n');
-    summary.append(graph(row, laneLimit), el('span', 'subject ellipsis', subject));
+    const refs = badges.map(item => item.name).join('\n');
+    summary.title = [subject, `${row.oid} · ${row.author}`, time.title, side, refs].filter(Boolean).join('\n');
+    const message = el('span', 'commit-message');
     if (badges.length) {
-      const strip = el('span', 'badges');
-      for (const item of badges.slice(0, 2)) strip.append(el('span', `badge ${item.kind}${item.current ? ' current' : ''}`, item.name));
-      if (badges.length > 2) strip.append(el('span', 'pill', `+${badges.length - 2}`));
-      summary.append(strip);
+      const badge = el('span', `ref-badge${badges.some(item => item.current) ? ' current' : ''}`, undefined, refs);
+      const icon = svgNode('svg', { width: 12, height: 12, viewBox: '0 0 16 16', 'aria-hidden': 'true' });
+      icon.append(svgNode('path', { d: 'M2 2h6l6 6-6 6-6-6z M5.5 5.5h.01' }));
+      badge.append(icon);
+      message.append(badge);
     }
-    if (side) summary.append(el('span', `side ${row.side}`, side));
+    message.append(el('span', 'subject ellipsis', subject));
+    if (side) message.append(el('span', `side ${row.side}`, side));
+    summary.append(graph(row, laneLimit), message);
     const values = { author: row.author || '—', hash: short(row.oid), date: time.label };
     for (const key of state.commitColumns) {
       summary.append(el('span', `${key} ellipsis${key === 'author' ? '' : ' mono'}`, values[key]));
@@ -190,7 +194,9 @@
     const key = `${start}:${end}:${width}`;
     if (!force && painted === key) return;
     painted = key;
-    const laneLimit = Math.max(1, Math.min(DRAW_LANES, Math.floor((width * .32 - 5) / LANE)));
+    const laneLimit = Math.max(1, Math.min(DRAW_LANES, Math.floor((width * .25 - 5) / LANE)));
+    const columns = state.commitColumns.map(column => `var(--commit-${column}-width)`);
+    commits.style.setProperty('--commit-columns', ['max-content', 'minmax(0, 1fr)', ...columns].join(' '));
     const focused = document.activeElement?.closest('.commit-row');
     const oid = focused?.dataset.oid;
     const selected = new Set(state.selection.selected);
@@ -296,7 +302,10 @@
     const set = selected.has(file.id) ? [...selected] : [file.id];
     return { ...baseContext('file'), gbToken: file.id, gbSource: source, gbFiles: set.join(','),
       gbCanEditSource: state.fileMenus.get(file.id) ?? file.sourceCandidate, gbCanOpenVersion: file.repositoryVersion,
-      gbCanApplyFiles: set.every(id => state.renderedFiles.get(id)?.apply) };
+      gbCanApplyFiles: set.every(id => {
+        const candidate = state.renderedFiles.get(id);
+        return candidate?.apply && candidate.parentGroup === file.parentGroup;
+      }) };
   }
 
   function selectFile(event, file, source) {
@@ -325,8 +334,10 @@
     if (!additive && !event.shiftKey && !file.ambiguous) send('openDiff', { token: file.id });
   }
 
-  function fileRow(file, source, compactName) {
+  function fileRow(file, source, inTree = false) {
     const path = file.from ? `${file.from} → ${file.path}` : file.path;
+    const separator = file.path.lastIndexOf('/');
+    const name = file.path.slice(separator + 1);
     const label = STATUS[file.status] || t('history.statusChange');
     const note = file.ambiguous ? t('history.cannotCombine') : file.includesGap ? t('history.includesUnselected') : '';
     const row = button('file-row', '', event => selectFile(event, file, source), [label, path, note].filter(Boolean).join(' · '));
@@ -335,7 +346,10 @@
     row.classList.toggle('selected', selected);
     press(row, selected);
     row.append(el('span', `file-status status-${file.status}`, file.status, label));
-    row.append(el('span', 'file-name mono ellipsis', file.from ? path : compactName || file.path));
+    const fileLabel = el('span', 'file-label');
+    fileLabel.append(el('span', 'file-name ellipsis', name));
+    if (!inTree && separator >= 0) fileLabel.append(el('span', 'file-directory ellipsis', file.path.slice(0, separator)));
+    row.append(fileLabel);
     if (file.submodule) row.append(el('span', 'submodule', t('history.submodule')));
     if (note) {
       const warning = svgNode('svg', { class: 'file-warning', width: 14, height: 14, viewBox: '0 0 16 16', 'aria-hidden': 'true' });
@@ -350,7 +364,7 @@
     return row;
   }
 
-  function fileTree(root, list, source) {
+  function fileTree(root, list, source, scope) {
     const tree = { dirs: new Map(), files: [] };
     list.forEach(file => {
       const raw = atob(file.pathKey).split('/');
@@ -358,11 +372,11 @@
       let folder = tree;
       for (let i = 0; i < raw.length - 1; i++) {
         if (!folder.dirs.has(raw[i])) folder.dirs.set(raw[i], {
-          name: names[i], key: `${source}:${btoa(raw.slice(0, i + 1).join('/'))}`, dirs: new Map(), files: []
+          name: names[i], key: `${source}:${scope}:${btoa(raw.slice(0, i + 1).join('/'))}`, dirs: new Map(), files: []
         });
         folder = folder.dirs.get(raw[i]);
       }
-      folder.files.push({ file, name: names.at(-1) });
+      folder.files.push(file);
     });
     const fill = (container, folder) => {
       for (const dir of folder.dirs.values()) {
@@ -376,9 +390,41 @@
         entry.addEventListener('toggle', () => { if (entry.isConnected) state.directories.set(dir.key, entry.open); });
         container.append(entry);
       }
-      for (const { file, name } of folder.files) container.append(fileRow(file, source, name));
+      for (const file of folder.files) container.append(fileRow(file, source, true));
     };
     fill(root, tree);
+  }
+
+  function renderFileBatch(root, list, source, scope, limit, showMore) {
+    const shown = list.slice(0, limit);
+    for (const file of shown) state.renderedFiles.set(file.id, file);
+    if (state.filesLayout === 'tree') fileTree(root, shown, source, scope);
+    else for (const file of shown) root.append(fileRow(file, source));
+    if (shown.length < list.length) root.append(button('link retry', t('history.moreFiles'), showMore));
+  }
+
+  function renderParentGroup(root, group) {
+    const { oid, subject, files: list } = group;
+    const view = state.parentViews.get(oid) || { open: false, limit: FILE_BATCH };
+    state.parentViews.set(oid, view);
+    const entry = el('details', 'file-folder parent-group');
+    const summary = el('summary');
+    const title = t('history.changesToParent', { parent: [short(oid), subject].filter(Boolean).join(' ') });
+    summary.append(el('span', 'file-name ellipsis', title, title));
+    const children = el('div', 'file-children');
+    entry.append(summary, children);
+    entry.open = view.open;
+    const fill = () => {
+      children.replaceChildren();
+      renderFileBatch(children, list, 'commit', oid, view.limit, () => { view.limit += FILE_BATCH; fill(); });
+    };
+    if (entry.open) fill();
+    entry.addEventListener('toggle', () => {
+      if (!entry.isConnected) return;
+      view.open = entry.open;
+      if (entry.open && !children.hasChildNodes()) fill();
+    });
+    root.append(entry);
   }
 
   function renderFiles() {
@@ -390,8 +436,7 @@
     const list = packet?.files || [];
     const merge = !snapshot && !multi && selection.detail?.parents.length > 1;
     const currentTab = snapshot ? 'snapshot' : 'commit';
-    const shown = list.slice(0, state.limit);
-    state.renderedFiles = new Map(shown.map(item => [item.id, item]));
+    state.renderedFiles = new Map();
     $('file-layout').textContent = t(state.filesLayout === 'tree' ? 'history.viewList' : 'history.viewTree');
     $('file-layout').disabled = Boolean(meta.message);
     press($('commit-tab'), !snapshot);
@@ -412,14 +457,13 @@
       else {
         if (!snapshot && packet?.failures?.length) status(t('history.partialSelection', { detail: packet.failures.join('\n') }), 'retrySelection', 'error');
         if (list.length) {
-          if (state.filesLayout === 'tree') fileTree(root, shown, currentTab);
-          else for (const item of shown) root.append(fileRow(item, currentTab));
-          if (state.limit < list.length) root.append(button('link retry', t('history.moreFiles'), () => { state.limit += FILE_BATCH; renderFiles(); }));
+          renderFileBatch(root, list, currentTab, '', state.limit, () => { state.limit += FILE_BATCH; renderFiles(); });
         } else if (!packet?.failures?.length) {
           if (snapshot) status(t(workingTree ? 'history.noWorktreeChanges' : 'history.noSnapshotChanges'));
           else if (multi) status(t('history.noSelectedChanges'));
           else status(t(merge ? 'history.noMergedConflicts' : selection.focus ? 'history.noCommitChanges' : 'history.chooseCommit'));
         }
+        if (merge) for (const group of selection.parentGroups || []) renderParentGroup(root, group);
         if (snapshot) root.append(el('div', 'empty muted', t(workingTree ? 'history.worktreeNote' : 'history.snapshotNote')));
       }
     }
@@ -552,6 +596,7 @@
         if (!state.meta.compare || !nextMode || state.repoId !== repoId || nextMode.workingTree !== state.meta.compare.workingTree
           || nextMode.workingTree) state.snapshot = Boolean(nextMode);
         state.directories.clear();
+        state.parentViews.clear();
         state.commitMenus.clear();
         state.fileMenus.clear();
         clearFileSelection('commit');
@@ -602,6 +647,10 @@
           if (payload.revision < state.selection.revision) return;
           if (payload.revision !== state.selection.revision) {
             for (const file of state.selection.files ?? []) state.fileMenus.delete(file.id);
+            for (const group of state.selection.parentGroups ?? []) {
+              for (const file of group.files) state.fileMenus.delete(file.id);
+            }
+            state.parentViews.clear();
             state.commitMenus.clear();
             clearFileSelection('commit');
             if (!state.snapshot) state.limit = FILE_BATCH;
