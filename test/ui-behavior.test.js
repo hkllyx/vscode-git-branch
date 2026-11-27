@@ -23,22 +23,28 @@ async function workbench(local, window) {
   const noop = () => {};
   const repo = { id: local.url, root: { fsPath: local.dir, scheme: 'file' }, name: path.basename(local.dir),
     snapshot: await local.reads.snapshot(local.dirs, false), actions: local.actions, reads: local.reads, repository: { inputBox: { value: '' } } };
-  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: noop, connect: noop,
+  const listeners = [];
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: listener => listeners.push(listener), connect: noop,
     write: (_repo, task) => task(local.actions) };
-  const commands = new Map();
+  const commands = new Map(), contextKeys = new Map();
+  const tree = { onDidChangeSelection: noop, onDidChangeVisibility: noop };
+  let history;
   const vscode = {
     env: { language: 'en' }, InputBoxValidationSeverity: { Error: 3 }, ProgressLocation: { Notification: 15 },
+    QuickPickItemKind: { Separator: -1 }, ThemeIcon: class { constructor(id) { this.id = id; } },
     workspace: { isTrusted: true, textDocuments: [], registerTextDocumentContentProvider: noop },
-    commands: { executeCommand: noop, registerCommand: (key, action) => commands.set(key, action) },
+    commands: { executeCommand: (_command, key, value) => contextKeys.set(key, value), registerCommand: (key, action) => commands.set(key, action) },
     window: {
-      createTreeView: () => ({ onDidChangeSelection: noop, onDidChangeVisibility: noop }),
+      createTreeView: () => tree,
       registerWebviewViewProvider: noop, withProgress: (_options, task) => task(), ...window
     }
   };
   const { activate } = loadWithMocks(require.resolve('../src/extension'), {
     vscode, './model/repoModel': { RepoRegistry: function () { return registry; } },
-    './views/branchesProvider': { BranchesProvider: class {} }, './panel/graphController': { GraphController: class {
-      constructor(_context, _registry, _documents, ui) { this.ui = ui; }
+    './views/branchesProvider': { BranchesProvider: class { refresh() {} } }, './panel/graphController': { GraphController: class {
+      range = 'HEAD';
+      constructor(_context, _registry, _documents, ui) { this.ui = ui; history = this; }
+      setRange(_repo, ref) { this.range = ref; }
       commitCommand(kind, { rows, guard = noop }) { return this.ui.historyCommit(kind, repo, repo.snapshot.head, rows, guard); }
       askCommitMessage(...args) { return window.askCommitMessage(...args); }
     } },
@@ -46,7 +52,7 @@ async function workbench(local, window) {
   });
   activate({ subscriptions: [] });
   const action = (id, arg) => commands.get(`git-branch.${id}`)(typeof arg === 'string' ? { repoId: repo.id, ref: arg } : arg);
-  return Object.assign(action, { repository: repo.repository });
+  return Object.assign(action, { repository: repo.repository, registry, history, tree, contextKeys, notify: () => listeners.forEach(listener => listener()) });
 }
 
 function nameInput() {
@@ -192,29 +198,102 @@ test('create from a branch shows the source, prefills its exact name and provide
   assert.deepEqual(await local.reads.head(), { ref: 'refs/heads/main', oid: headOid });
 });
 
-test('create from HEAD prefills the attached branch name and leaves detached HEAD blank', async t => {
+test('the history range picker stars the current branch and keeps native Local, Remote and optional Tags sections', async t => {
   const f = await fixture(t);
   const local = await f.repo('local');
-  const oid = await local.commit('source commit');
-  const inputs = [];
-  const setup = () => workbench(local, {
-    showQuickPick: items => items[0],
-    createInputBox: () => { const input = nameInput(); inputs.push(input); return input; },
-    showWarningMessage: () => assert.fail('cancelled input must not open a confirmation')
+  const oid = await local.commit('source commit', { 'base.txt': 'base' });
+  await local.git('branch', 'a-topic');
+  await local.git('update-ref', 'refs/remotes/origin/main', oid);
+  await local.git('tag', '-a', 'v1', '-m', 'Version 1');
+  await local.git('tag', 'blob-tag', 'HEAD:base.txt');
+  let scenario;
+  let disposed = 0;
+  const action = await workbench(local, {
+    createQuickPick() {
+      let accept, hide;
+      return {
+        onDidAccept(listener) { accept = listener; },
+        onDidHide(listener) { hide = listener; },
+        show() { scenario(this, accept); },
+        hide() { hide(); },
+        dispose() { disposed++; }
+      };
+    }
   });
-  const attached = (await setup())('create');
-  try { await waitFor(() => inputs[0]?.validationMessage, 'validate the current branch name'); }
-  finally { inputs[0]?.hide(); }
-  await attached;
+  const { registry, history } = action;
+  const { active: repo } = registry;
+  // Exercise visibility even with cached tag refs present after a toggle.
+  repo.snapshot = await local.reads.snapshot(local.dirs, true);
+  scenario = (picker, accept) => {
+    assert.deepEqual(picker.items.map(item => item.label), ['HEAD', 'All Branches', 'Local', 'main', 'a-topic', 'Remote', 'origin/main']);
+    assert.deepEqual(picker.items.filter(item => item.kind === -1).map(item => item.label), ['Local', 'Remote']);
+    assert.deepEqual(picker.activeItems, [picker.items[3]]);
+    assert.equal(picker.activeItems[0].iconPath.id, 'star-full');
+    assert.equal(picker.activeItems[0].description, oid.slice(0, 8));
+    assert.equal(picker.matchOnDescription, true);
+    picker.selectedItems = [picker.items[5]];
+    accept();
+    picker.hide();
+  };
+  await history.ui.chooseRange();
+  assert.equal(history.range, 'HEAD', 'a separator or a cancellation does not change the range');
+  let finishRefresh;
+  registry.setTags = show => new Promise(resolve => {
+    registry.showTags = show;
+    finishRefresh = resolve;
+  });
+  const enabling = action('showTags');
+  history.range = 'refs/remotes/origin/main';
+  scenario = (picker, accept) => {
+    assert.equal(picker.activeItems[0].ref, 'refs/remotes/origin/main');
+    assert.deepEqual(picker.items.filter(item => item.kind === -1).map(item => item.label), ['Local', 'Remote', 'Tags']);
+    assert.ok(picker.items.find(item => item.ref === 'refs/heads/main').iconPath);
+    assert.ok(!picker.items.some(item => item.label === 'blob-tag'));
+    assert.equal(picker.items.at(-1).iconPath.id, 'tag');
+    picker.selectedItems = [picker.items.at(-1)];
+    accept();
+  };
+  const chooseTag = history.ui.chooseRange();
+  await delay(5);
+  assert.equal(disposed, 1, 'opening the picker waits for the tag refresh');
+  finishRefresh();
+  await Promise.all([enabling, chooseTag]);
+  assert.equal(history.range, 'refs/tags/v1');
+  assert.deepEqual(await local.reads.head(), { ref: 'refs/heads/main', oid });
   await local.git('switch', '--detach', oid);
-  const detached = (await setup())('create');
-  try { await waitFor(() => inputs[1]?.visible, 'show the detached input'); }
-  finally { inputs[1]?.hide(); }
-  await detached;
-  assert.deepEqual(inputs.map(({ title, value }) => ({ title, value })), [
-    { title: `Create Branch from HEAD (main) (${oid.slice(0, 8)})`, value: 'main' },
-    { title: `Create Branch from HEAD (Detached) (${oid.slice(0, 8)})`, value: '' }
-  ]);
+  repo.snapshot = await local.reads.snapshot(local.dirs, true);
+  history.range = 'HEAD';
+  scenario = picker => {
+    assert.equal(picker.activeItems[0].ref, 'HEAD');
+    assert.ok(!picker.items.some(item => item.iconPath?.id === 'star-full'));
+    picker.hide();
+  };
+  await history.ui.chooseRange();
+  assert.equal(disposed, 3);
+});
+
+test('Branches switches repositories from the inline action only when multiple repositories are open', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('local');
+  const action = await workbench(local, { showQuickPick: items => items.find(item => item.id === 'other') });
+  const { registry, tree, contextKeys } = action;
+  const key = 'git-branch.hasMultipleRepositories';
+  assert.equal(contextKeys.get(key), false);
+  assert.equal(tree.description, undefined);
+  const other = { id: 'other', name: 'other' };
+  registry.repositories.set(other.id, other);
+  registry.choices = () => [...registry.repositories.values()];
+  registry.select = async id => { registry.active = registry.repositories.get(id); action.notify(); };
+  action.notify();
+  assert.equal(contextKeys.get(key), true);
+  assert.equal(tree.description, 'local');
+  await action('selectRepository');
+  assert.equal(registry.active, other);
+  assert.equal(tree.description, 'other');
+  registry.repositories.delete(local.url);
+  action.notify();
+  assert.equal(contextKeys.get(key), false);
+  assert.equal(tree.description, undefined);
 });
 
 test('remote checkout reports same-name conflicts without prompting and directly uses the derived local name', async t => {
@@ -358,6 +437,13 @@ test('Branches keeps the native tree and exposes the expected menu for each bran
   const branches = contributes.views.scm.find(view => view.id === 'git-branch.branches');
   assert.ok(branches);
   assert.equal(branches.type ?? 'tree', 'tree');
+  const titleMenu = contributes.menus['view/title'];
+  assert.deepEqual(titleMenu.filter(item => item.group.startsWith('navigation@')), [
+    { command: 'git-branch.selectRepository', when: 'view == git-branch.branches && git-branch.hasMultipleRepositories', group: 'navigation@1' },
+    { command: 'git-branch.refresh', when: 'view == git-branch.branches', group: 'navigation@2' }
+  ]);
+  assert.equal(titleMenu.filter(item => item.command === 'git-branch.selectRepository').length, 1);
+  assert.ok(!contributes.commands.some(item => ['git-branch.find', 'git-branch.create'].includes(item.command)));
   const menu = contributes.menus['view/item/context'];
   const menuFor = kind => menu.filter(item => {
     assert.ok(item.when.startsWith('view == git-branch.branches && '));
@@ -612,8 +698,8 @@ test('branch hovers contain only the name and optional upstream; the current bra
       const current = contextValue === 'gb-current';
       assert.equal(treeItem.tooltip, details.join('\n'));
       assert.equal(treeItem.accessibilityInformation.label, (current ? [...details, message('branch.current')] : details).join('\n'));
-      assert.equal(treeItem.iconPath.id, current ? 'star-full' : contextValue === 'gb-tag' ? 'tag' : 'git-branch');
-      assert.equal(treeItem.iconPath.color?.id, current ? 'charts.yellow' : contextValue === 'gb-head' ? 'charts.blue' : undefined);
+      assert.equal(treeItem.iconPath?.id, current ? 'star-full' : contextValue === 'gb-tag' ? 'tag' : contextValue === 'gb-head' ? undefined : 'git-branch');
+      assert.equal(treeItem.iconPath?.color?.id, current ? 'charts.yellow' : undefined);
       assert.equal(treeItem.contextValue, contextValue);
       assert.equal(treeItem.command.command, 'git-branch.activateRef');
     }

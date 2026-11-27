@@ -26,6 +26,15 @@ function activate(context) {
   const history = new GraphController(context, registry, documents, ui);
   ui.history = history;
   let activeRepo = registry.active;
+  let hasMultipleRepositories;
+  const updateRepositoryPresentation = () => {
+    const multiple = registry.repositories.size > 1;
+    tree.description = multiple ? registry.active?.name : undefined;
+    if (hasMultipleRepositories !== multiple) {
+      hasMultipleRepositories = multiple;
+      void vscode.commands.executeCommand('setContext', 'git-branch.hasMultipleRepositories', multiple);
+    }
+  };
   context.subscriptions.push(registry, branches, tree, history, documents,
     vscode.workspace.registerTextDocumentContentProvider(SCHEME, documents),
     vscode.window.registerWebviewViewProvider('git-branch.log', history, { webviewOptions: { retainContextWhenHidden: true } }),
@@ -34,9 +43,10 @@ function activate(context) {
     registry.onChange(() => {
       if (activeRepo !== registry.active) branchActivation.reset();
       activeRepo = registry.active;
-      tree.description = registry.repositories.size > 1 ? activeRepo?.name : undefined;
+      updateRepositoryPresentation();
       branches.refresh();
     }));
+  updateRepositoryPresentation();
   void vscode.commands.executeCommand('setContext', 'git-branch.tagsVisible', registry.showTags);
   const register = (id, action) => context.subscriptions.push(vscode.commands.registerCommand(`git-branch.${id}`, async node => {
     try { return await action(node); }
@@ -52,8 +62,6 @@ function activate(context) {
     if (branchActivation.activate(node, nativeDoubleClick)) return ui.openHistory(node);
   });
   register('openHistory', node => { branchActivation.reset(); return ui.openHistory(node); });
-  register('find', () => ui.find());
-  register('create', () => ui.create());
   register('createFrom', node => node && ui.create(node));
   register('checkout', node => ui.checkout(node));
   register('checkoutRemote', node => ui.checkout(node));
@@ -131,29 +139,24 @@ class WorkbenchActions {
   }
 
   async setTags(show) {
-    await this.registry.setTags(show);
-    await vscode.commands.executeCommand('setContext', 'git-branch.tagsVisible', show);
+    const update = this.registry.setTags(show);
+    this.tagUpdate = update;
+    try { await update; }
+    finally { if (this.tagUpdate === update) this.tagUpdate = undefined; }
+    await vscode.commands.executeCommand('setContext', 'git-branch.tagsVisible', this.registry.showTags);
   }
 
-  items(repo, { includeTags = false, localOnly = false, includeHead = false, includeAll = false } = {}) {
-    const { snapshot } = repo;
-    const items = [];
-    const kindLabels = { local: t('branch.local'), remote: t('branch.remote'), tag: t('branch.tag') };
-    if (includeAll) items.push({ ref: ALL, label: t('history.allBranches'), description: t('history.allBranchesDescription') });
-    if (includeHead && snapshot.head.oid) items.push({ ref: 'HEAD', label: 'HEAD', description: shortOid(snapshot.head.oid) });
-    items.push(...orderRefs(snapshot.allRefs, snapshot.head.ref).filter(item => item.oid && (!localOnly || item.kind === 'local')
-      && (item.kind !== 'tag' || (includeTags && this.registry.showTags))).map(({ ref, name, kind, oid }) => ({
-      ref, label: name,
-      description: `${ref === snapshot.head.ref ? t('branch.current') : kindLabels[kind]} · ${shortOid(oid)}`
-    })));
-    return items;
-  }
-
-  async pickRef(repo, title, options = {}) {
+  async pickRef(repo, title, { localOnly, exclude, preferred } = {}) {
     this.assertActive(repo);
-    let items = this.items(repo, options).filter(item => item.ref !== options.exclude);
-    if (options.preferred) items = [...items.filter(item => item.ref === options.preferred), ...items.filter(item => item.ref !== options.preferred)];
+    const { allRefs, head } = repo.snapshot;
+    const items = orderRefs(allRefs, head.ref).filter(item => item.oid && item.ref !== exclude
+      && (item.kind === 'local' || (!localOnly && item.kind === 'remote'))).map(({ ref, name, kind, oid }) => ({
+      ref, label: name,
+      description: `${t(ref === head.ref ? 'branch.current' : `branch.${kind}`)} · ${shortOid(oid)}`
+    }));
     if (!items.length) throw new BranchError(t('branch.noAvailable'));
+    const first = preferred && items.findIndex(item => item.ref === preferred);
+    if (first > 0) items.unshift(...items.splice(first, 1));
     const picked = await vscode.window.showQuickPick(items, { title, matchOnDescription: true });
     this.assertActive(repo);
     return picked?.ref;
@@ -175,17 +178,45 @@ class WorkbenchActions {
     if (show) await this.history.show();
   }
 
-  async find() {
-    const repo = await this.repo();
-    if (!repo) return;
-    const ref = await this.pickRef(repo, t('branch.findRef'), { includeTags: true, includeHead: true });
-    if (ref) await this.applyRange(repo, ref);
-  }
-
   async chooseRange() {
+    // A range opened during Show Tags should use the new tag snapshot, not the old one.
+    if (this.tagUpdate) await this.tagUpdate;
     const repo = await this.repo();
     if (!repo) return;
-    const ref = await this.pickRef(repo, t('history.pickRange'), { includeTags: true, includeHead: true, includeAll: true, preferred: this.history.range });
+    const { head, allRefs } = repo.snapshot;
+    const items = [];
+    if (head.oid) items.push({ ref: 'HEAD', label: 'HEAD', description: shortOid(head.oid) });
+    items.push({ ref: ALL, label: t('history.allBranches'), description: t('history.allBranchesDescription') });
+    const groups = [['local', 'branch.local'], ['remote', 'branch.remote']];
+    if (this.registry.showTags) groups.push(['tag', 'branch.tags']);
+    const ordered = orderRefs(allRefs, head.ref);
+    for (const [kind, label] of groups) {
+      const refs = ordered.filter(item => item.kind === kind && item.oid);
+      if (!refs.length) continue;
+      items.push({ label: t(label), kind: vscode.QuickPickItemKind.Separator });
+      items.push(...refs.map(({ ref, name, oid }) => ({
+        ref, label: name, description: shortOid(oid),
+        iconPath: ref === head.ref ? new vscode.ThemeIcon('star-full') : kind === 'tag' ? new vscode.ThemeIcon('tag') : undefined
+      })));
+    }
+    const range = this.history.range;
+    // Focus the checked-out branch in follow mode, without changing the range until accepted.
+    const preferredRef = range === 'HEAD' ? head.ref || 'HEAD' : range;
+    const preferred = items.find(item => item.ref && item.ref === preferredRef) ?? items[0];
+    const picker = vscode.window.createQuickPick();
+    const ref = await new Promise(resolve => {
+      picker.title = t('history.pickRange');
+      picker.matchOnDescription = true;
+      picker.items = items;
+      picker.activeItems = [preferred];
+      let accepted;
+      picker.onDidAccept(() => {
+        accepted = picker.selectedItems[0]?.ref;
+        if (accepted) picker.hide();
+      });
+      picker.onDidHide(() => resolve(accepted));
+      picker.show();
+    }).finally(() => picker.dispose());
     if (ref) await this.applyRange(repo, ref, false);
   }
 
@@ -272,14 +303,10 @@ class WorkbenchActions {
   async create(node) {
     const repo = await this.repo(node);
     if (!repo) return;
-    if (!repo.snapshot.head.oid && !node) throw new BranchError(t('branch.firstCommit'));
-    const startRef = node?.ref || await this.pickRef(repo, t('action.createStart'), { includeHead: true, preferred: 'HEAD' });
-    if (!startRef) return;
     const actions = repo.actions;
-    const tip = await actions.named(startRef);
-    const startName = tip.ref === 'HEAD' ? tip.headRef?.slice(HEADS.length) : tip.name;
+    const tip = await actions.named(node.ref);
     const source = { name: tip.name, oid: shortOid(tip.oid) };
-    const name = await this.askName(repo, t('action.createName', source), startName, value => actions.assertFree(value));
+    const name = await this.askName(repo, t('action.createName', source), tip.name, value => actions.assertFree(value));
     if (!name) return;
     const result = await this.run(repo, t('action.creating', { name }), git => git.create({ name, tip }), { notify: false });
     if (result && !result.warning) await this.offerCheckout(repo, name, tip.oid);

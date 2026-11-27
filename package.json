@@ -22,12 +22,10 @@
   },
   "contributes": {
     "commands": [
-      { "command": "git-branch.find", "title": "%command.find%", "category": "Git Branch", "icon": "$(search)" },
-      { "command": "git-branch.create", "title": "%command.create%", "category": "Git Branch", "icon": "$(add)" },
       { "command": "git-branch.refresh", "title": "%command.refresh%", "category": "Git Branch", "icon": "$(refresh)" },
       { "command": "git-branch.showTags", "title": "%command.showTags%", "category": "Git Branch" },
       { "command": "git-branch.hideTags", "title": "%command.hideTags%", "category": "Git Branch" },
-      { "command": "git-branch.selectRepository", "title": "%command.selectRepository%", "category": "Git Branch" },
+      { "command": "git-branch.selectRepository", "title": "%command.selectRepository%", "category": "Git Branch", "icon": "$(repo)" },
       { "command": "git-branch.openLog", "title": "%command.openLog%", "category": "Git Branch" },
       { "command": "git-branch.openHistory", "title": "%command.openHistory%", "category": "Git Branch" },
       { "command": "git-branch.createFrom", "title": "%command.createFrom%", "category": "Git Branch" },
@@ -73,10 +71,8 @@
     },
     "menus": {
       "view/title": [
-        { "command": "git-branch.find", "when": "view == git-branch.branches", "group": "navigation@1" },
-        { "command": "git-branch.create", "when": "view == git-branch.branches", "group": "navigation@2" },
-        { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@3" },
-        { "command": "git-branch.selectRepository", "when": "view == git-branch.branches", "group": "1_repository@1" },
+        { "command": "git-branch.selectRepository", "when": "view == git-branch.branches && git-branch.hasMultipleRepositories", "group": "navigation@1" },
+        { "command": "git-branch.refresh", "when": "view == git-branch.branches", "group": "navigation@2" },
         { "command": "git-branch.showTags", "when": "view == git-branch.branches && !git-branch.tagsVisible", "group": "2_history@1" },
         { "command": "git-branch.hideTags", "when": "view == git-branch.branches && git-branch.tagsVisible", "group": "2_history@1" },
         { "command": "git-branch.openLog", "when": "view == git-branch.branches", "group": "2_history@2" },

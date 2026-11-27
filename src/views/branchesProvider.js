@@ -58,8 +58,7 @@ class BranchesProvider {
       label: headLabel,
       description: !head.oid ? t('branch.noCommits') : !head.ref ? shortOid(head.oid) : undefined,
       tooltip: refTooltip(head.ref ? head.ref.slice('refs/heads/'.length) : headLabel, upstream),
-      contextValue: head.oid ? 'gb-head' : undefined,
-      icon: 'git-branch', color: 'charts.blue'
+      contextValue: head.oid ? 'gb-head' : undefined
     }];
     const kinds = [['local', t('branch.local')], ['remote', t('branch.remote')]];
     if (this.registry.showTags) kinds.push(['tag', t('branch.tags')]);

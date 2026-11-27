@@ -159,7 +159,8 @@ class RepoRegistry {
   async setTags(show) {
     if (this.showTags === show) return;
     this.showTags = show;
-    this.emitter.fire();
+    // Hide immediately, but don't render an empty Tags section while enabling it.
+    if (!show) this.emitter.fire();
     await this.store.update(TAGS, show);
     if (this.active) await this.refresh(this.active);
   }
