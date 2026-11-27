@@ -11,8 +11,9 @@ const refTooltip = (name, tracking) => [name,
   tracking && t('branch.upstreamLabel', { name: tracking.replace(/^refs\/(?:remotes|heads)\//, '') })].filter(Boolean).join('\n');
 
 class BranchesProvider {
-  constructor(registry) {
+  constructor(registry, extensionUri) {
     this.registry = registry;
+    this.currentBranchIcon = vscode.Uri.joinPath(extensionUri, 'media', 'codicons', 'git-branch-yellow.svg');
     this.emitter = new vscode.EventEmitter();
     this.onDidChangeTreeData = this.emitter.event;
   }
@@ -26,7 +27,9 @@ class BranchesProvider {
     item.description = node.description;
     item.tooltip = node.tooltip;
     item.contextValue = node.contextValue;
-    if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon, node.color ? new vscode.ThemeColor(node.color) : undefined);
+    // TreeView overrides ThemeIcon colors on selection. Use the official glyph with a fixed fill here.
+    if (node.contextValue === 'gb-current') item.iconPath = this.currentBranchIcon;
+    else if (node.icon) item.iconPath = new vscode.ThemeIcon(node.icon, node.color ? new vscode.ThemeColor(node.color) : undefined);
     if (node.ref && node.oid) {
       item.accessibilityInformation = { label: [node.tooltip, node.contextValue === 'gb-current' && t('branch.current')].filter(Boolean).join('\n') };
       item.command = { command: 'git-branch.activateRef', title: t('command.openHistory'), arguments: [node] };
@@ -76,9 +79,7 @@ class BranchesProvider {
     const contextValue = current ? 'gb-current' : item.kind === 'tag' && !item.oid ? 'gb-noncommit-tag' : `gb-${item.kind}`;
     return {
       repoId: repo.id, ref: item.ref, oid: item.oid, label: item.name, contextValue,
-      // Selection overrides ThemeIcon colors, so distinguish the current ref by shape too.
-      icon: current ? 'check' : item.kind === 'tag' ? 'tag' : 'git-branch',
-      color: current ? 'charts.yellow' : undefined,
+      icon: item.kind === 'tag' ? 'tag' : 'git-branch',
       description: item.kind === 'tag' && !item.oid ? t('branch.nonCommit') : formatTracking(item.trackingCount),
       tooltip: refTooltip(item.name, tracking)
     };

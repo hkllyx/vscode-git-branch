@@ -24,4 +24,4 @@
 - 需要桌面版 VS Code 1.85 或更高版本、Git 和启用的内置 Git 扩展。使用本地 `.vsix` 时，从扩展视图的 `…` 菜单选择 **Install from VSIX…** 即可安装。
 - 界面跟随 VS Code 的显示语言，支持简体中文、繁體中文和英文，其他语言回退到英文。
 
-Git 历史面板内使用 [Microsoft Codicons](https://github.com/microsoft/vscode-codicons/tree/fe3a7b00f32d8349a4457ac9778ae3b6d2fa82eb/src/icons) 的原始图标资源（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)），按当前主题着色。
+图标来自 [Microsoft Codicons](https://github.com/microsoft/vscode-codicons/tree/fe3a7b00f32d8349a4457ac9778ae3b6d2fa82eb/src/icons)（[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)）。当前分支使用官方 `git-branch` 图形，仅将填充色改为金黄色；Git 历史面板内的图标按当前主题着色。
