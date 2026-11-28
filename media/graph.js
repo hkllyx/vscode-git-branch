@@ -83,10 +83,7 @@
   }
 
   function graph(row, laneLimit) {
-    if (!row.graph) {
-      // Synthetic rows (Working Tree changes) are not part of the commit DAG.
-      return svgNode('svg', { class: 'graph', width: LANE + 5, height: ROW, 'aria-hidden': 'true' });
-    }
+    if (!row.graph) return svgNode('svg', { class: 'graph', width: LANE + 5, height: ROW, 'aria-hidden': 'true' });
     const { column, color, incoming, through, edges } = row.graph;
     const columns = Math.max(1, Math.min(laneLimit, state.page.columns || 1));
     const width = columns * LANE + 5, mid = ROW / 2;
@@ -200,7 +197,7 @@
     }
     summary.append(graph(row, laneLimit), message);
     const values = { author, hash, date: time.label };
-    for (const key of state.commitColumns) summary.append(el('span', `${key} ellipsis${key === 'author' ? '' : ' mono'}`, values[key]));
+    if (!row.worktree) for (const key of state.commitColumns) summary.append(el('span', `${key} ellipsis${key === 'author' ? '' : ' mono'}`, values[key]));
     line.append(summary);
     rowContext(line, () => commitActionContext(row), () => {
       const active = state.selectedCommits.has(row.oid);
@@ -340,14 +337,17 @@
     $('repo').disabled = !meta.repositoryCount;
     const comparing = Boolean(mode || meta.compareDraft);
     const picking = Boolean(meta.pickingEndpoint);
-    const refControl = (id, label, oid) => {
+    const refControl = (id, label, side) => {
       const control = $(id);
-      control.textContent = `${label} ▾`;
-      control.title = oid ? `${label} (${oid})` : label;
+      const title = side ? t(`history.${side}Label`, { name: label }) : label;
+      control.title = title;
+      control.setAttribute('aria-label', title);
+      control.replaceChildren(...(side ? [el('span', `pill endpoint-role ${side}`, t(`history.${side}Badge`))] : []),
+        el('span', 'ellipsis', label), codicon('chevron-down', 'ref-chevron'));
       control.disabled = !ready || picking;
     };
-    refControl('range', comparing ? t('history.baseLabel', { name: mode?.left.label ?? meta.compareDraft }) : meta.range || t('history.pickRange'), mode?.left.oid);
-    refControl('target', mode ? t('history.targetLabel', { name: mode.right.label }) : t('history.selectTarget'), mode?.right.oid);
+    refControl('range', mode?.left.label ?? meta.compareDraft ?? meta.range ?? t('history.pickRange'), comparing ? 'base' : undefined);
+    refControl('target', mode?.right.label ?? t('history.selectTarget'), mode ? 'target' : undefined);
     $('target').hidden = !comparing;
     filterInput.disabled = !ready;
     $('commit-columns').disabled = !state.generation;
@@ -355,7 +355,6 @@
     $('start-compare').hidden = comparing;
     $('start-compare').disabled = !ready || !meta.canCompare;
     $('compare-bar').hidden = !comparing;
-    $('log-title').textContent = t(mode ? 'history.distinct' : 'history.graph');
     $('swap').hidden = !mode;
     $('swap').disabled = !ready || picking;
     const notices = [meta.shallow && t('history.shallow'), mode?.stale && t('history.stale'),
@@ -378,7 +377,7 @@
       else if (page.filter) status.textContent = t('history.filteredEmpty');
       else status.textContent = t(meta.compare ? 'history.noUniqueCommits' : 'history.noCommitsInRange');
     }
-    else status.textContent = countText('history.commitCount', rows.length);
+    status.hidden = !status.hasChildNodes();
   }
 
   function fileActionContext(file, source) {
@@ -550,15 +549,21 @@
     $('file-count').textContent = meta.message || packet?.selectionOverLimit ? '' : multi
       ? t('history.combinedSummary', { selected: selection.selected.length, count: list.length })
       : (packet?.files ? countText('history.fileCount', list.length) : '');
+    const caption = $('snapshot-caption');
+    caption.hidden = !snapshot || Boolean(meta.message);
+    if (caption.hidden) {
+      caption.textContent = '';
+      caption.removeAttribute('title');
+    } else {
+      const label = endpoint => endpoint.worktree ? endpoint.label : short(endpoint.oid);
+      caption.textContent = `${label(meta.compare.left)} → ${label(meta.compare.right)}`;
+      caption.title = t(workingTree ? 'history.worktreeNote' : 'history.snapshotNote');
+    }
     const root = document.createDocumentFragment();
     const status = (text, retry, cls = 'muted') => root.append(el('div', `empty ${cls}`, text),
       ...(retry ? [button('link retry', t('history.retry'), () => send(retry))] : []));
     if (meta.message) status(t('history.waitForRepository'));
     else {
-      if (snapshot) {
-        const label = endpoint => endpoint.worktree ? endpoint.label : short(endpoint.oid);
-        root.append(el('div', 'snapshot-caption mono', `${label(meta.compare.left)} → ${label(meta.compare.right)}`));
-      }
       if (packet?.loading || (snapshot && !packet)) status(multi
         ? t('history.loadingSelection', { processed: packet.processed, total: packet.total }) : t('history.loadingFiles'));
       else if (snapshot && packet?.error) status(packet.error, 'retryComparison', 'error');
@@ -575,7 +580,6 @@
           else status(t(merge ? 'history.noMergedConflicts' : selection.focus ? 'history.noCommitChanges' : 'history.chooseCommit'));
         }
         for (const group of parentGroups) renderParentGroup(root, group);
-        if (snapshot) root.append(el('div', 'empty muted', t(workingTree ? 'history.worktreeNote' : 'history.snapshotNote')));
       }
     }
     const offset = files.dataset.tab === currentTab ? files.scrollTop : 0;
@@ -590,10 +594,13 @@
 
   function renderDetail() {
     const box = $('detail-content');
+    const pane = $('details');
     const { detail, loading, focus, selected } = state.selection;
     const multi = (selected?.length || 0) > 1;
     const hidden = multi || Boolean(state.meta.compare && (state.snapshot || !detail));
-    $('details').hidden = hidden;
+    const offset = pane.dataset.oid === detail?.oid ? pane.scrollTop : 0;
+    pane.dataset.oid = detail?.oid || '';
+    pane.hidden = hidden;
     const detailTab = paneControls.find(tab => tab.dataset.pane === 'details');
     detailTab.hidden = hidden;
     if (hidden && panes.dataset.pane === 'details') setPane('files');
@@ -601,6 +608,7 @@
     if (hidden) return;
     if (!detail || state.meta.message) {
       box.append(el('p', 'muted', t(focus && loading && !state.meta.message ? 'history.loadingDetails' : 'history.chooseCommit')));
+      pane.scrollTop = offset;
       return;
     }
     const props = el('dl', 'detail-meta');
@@ -611,11 +619,11 @@
     ]) props.append(el('dt', '', t(key)), el('dd', cls, value));
     box.append(el('pre', 'message', detail.message || t('history.noMessage')), props);
     if (detail.parents.length > 1) box.append(el('p', 'muted', t('history.mergeDiffNote')));
+    pane.scrollTop = offset;
   }
 
   function setPane(pane) {
     panes.dataset.pane = pane;
-    if (pane === 'details') $('details').open = true;
     paneControls.forEach(control => press(control, control.dataset.pane === pane));
     onViewport();
   }

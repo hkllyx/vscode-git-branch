@@ -1,10 +1,20 @@
 'use strict';
 
 const { t } = require('../i18n');
-const { compareName } = require('../util/format');
+const { BranchError, compareName } = require('../util/format');
 
 const ALL = 'all';
+const WORKTREE = 'worktree';
 const MAX_SELECTION = 50;
+
+async function resolveComparisonEndpoint(repo, ref) {
+  if (ref !== WORKTREE) return repo.actions.named(ref);
+  const { oid } = await repo.reads.head();
+  if (!oid) throw new BranchError(t('branch.firstCommit'));
+  return { name: t('history.workingTree'), oid, worktree: true };
+}
+
+const comparisonRef = endpoint => endpoint?.worktree ? WORKTREE : endpoint?.ref;
 
 function historyTarget(snapshot, range, tags) {
   const ref = snapshot.byRef.get(range);
@@ -163,4 +173,4 @@ async function mapWithLimit(items, limit, signal, run) {
   return results;
 }
 
-module.exports = { ALL, MAX_SELECTION, HistorySelection, historyTarget, combineChanges, mapWithLimit };
+module.exports = { ALL, WORKTREE, MAX_SELECTION, HistorySelection, historyTarget, resolveComparisonEndpoint, comparisonRef, combineChanges, mapWithLimit };

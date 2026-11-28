@@ -12,7 +12,7 @@ const { HistoryDocuments, SCHEME } = require('./panel/historyDocuments');
 const { HEADS } = require('./git/refs');
 const { RESET_MODES } = require('./git/historyActions');
 const { SelectedChanges } = require('./git/selectedChanges');
-const { ALL } = require('./panel/historyState');
+const { ALL, WORKTREE, resolveComparisonEndpoint } = require('./panel/historyState');
 const { BranchError, errorText, shortOid } = require('./util/format');
 
 function activate(context) {
@@ -147,27 +147,36 @@ class WorkbenchActions {
     await vscode.commands.executeCommand('setContext', 'git-branch.tagsVisible', this.registry.showTags);
   }
 
-  async pickRef(repo, title, { localOnly = false, exclude, range, current, signal } = {}) {
+  async pickRef(repo, title, { localOnly = false, exclude, range, current, side, signal } = {}) {
     if (signal?.aborted) return;
     this.assertActive(repo);
     const snapshot = repo.snapshot;
     const { head } = snapshot;
     const items = [];
+    const badge = endpoint => t(endpoint === 'left' ? 'history.baseBadge' : 'history.targetBadge');
+    const description = (ref, oid) => side ? (ref === current ? badge(side)
+      : ref === exclude ? badge(side === 'left' ? 'right' : 'left') : undefined) : range ? undefined : shortOid(oid);
     if (range) {
-      if (head.oid) items.push({ ref: 'HEAD', label: 'HEAD', description: shortOid(head.oid) });
+      if (head.oid) items.push({ ref: 'HEAD', label: 'HEAD' });
       items.push({ ref: ALL, label: t('history.allBranches'), description: t('history.allBranchesDescription') });
     }
+    if (side && head.oid) {
+      items.push({ ref: WORKTREE, label: t('history.workingTree'), description: description(WORKTREE), iconPath: new vscode.ThemeIcon('folder') });
+      if (current === 'HEAD' || exclude === 'HEAD') items.push({ ref: 'HEAD', label: 'HEAD', description: description('HEAD') });
+    }
     for (const { kind, label } of refSections({ remotes: !localOnly, tags: Boolean(range && this.registry.showTags) })) {
-      const refs = sectionRefs(snapshot, kind).filter(item => item.oid && item.ref !== exclude);
+      const refs = sectionRefs(snapshot, kind).filter(item => item.oid && (side || item.ref !== exclude));
       if (!refs.length) continue;
       items.push({ label, kind: vscode.QuickPickItemKind.Separator });
       items.push(...refs.map(item => ({
-        ref: item.ref, label: item.name, description: shortOid(item.oid),
+        ref: item.ref, label: item.name, description: description(item.ref, item.oid),
         iconPath: new vscode.ThemeIcon(refAppearance(item, head).icon)
       })));
     }
+    const available = item => item.ref && item.ref !== exclude;
     const preferred = range === 'HEAD' ? head.ref || 'HEAD' : range || current || head.ref;
-    const active = items.find(item => item.ref && item.ref === preferred) ?? items.find(item => item.ref);
+    const active = items.find(item => available(item) && item.ref === preferred) ??
+      items.find(item => available(item) && item.ref !== WORKTREE) ?? items.find(available);
     if (!active) throw new BranchError(t('branch.noAvailable'));
     const picker = vscode.window.createQuickPick();
     const cancel = () => picker.hide();
@@ -179,7 +188,7 @@ class WorkbenchActions {
       let accepted;
       picker.onDidAccept(() => {
         const candidate = picker.selectedItems[0]?.ref;
-        if (!candidate) return;
+        if (!candidate || candidate === exclude) return;
         accepted = candidate;
         picker.hide();
       });
@@ -195,8 +204,8 @@ class WorkbenchActions {
     return ref;
   }
 
-  pickComparisonRef(repo, side, options) {
-    return this.pickRef(repo, t(side === 'left' ? 'action.comparePickBase' : 'action.comparePickTarget'), options);
+  pickComparisonRef(repo, side, { title, ...options } = {}) {
+    return this.pickRef(repo, title ?? t(side === 'left' ? 'action.comparePickBase' : 'action.comparePickTarget'), { ...options, side });
   }
 
   async openHistory(node) {
@@ -481,7 +490,7 @@ class WorkbenchActions {
     if (kind === 'compareLocal') {
       await history.assertCommit(oid);
       guard();
-      this.history.compareWorktree(repo, { name: revision, oid });
+      await this.history.compareWorktree(repo, { name: revision, oid }, guard);
       return;
     }
     if (kind === 'newBranch' || kind === 'newTag') {
@@ -535,7 +544,7 @@ class WorkbenchActions {
   }
 
   async startComparison(repo, base, target) {
-    const [left, right] = await Promise.all([repo.actions.named(base), repo.actions.named(target)]);
+    const [left, right] = await Promise.all([resolveComparisonEndpoint(repo, base), resolveComparisonEndpoint(repo, target)]);
     this.assertActive(repo);
     this.history.compare(repo, left, right);
     await this.history.show();
@@ -563,17 +572,14 @@ class WorkbenchActions {
     if (!node) return;
     const repo = await this.repo(node);
     const base = await repo.actions.named(node.ref);
-    const target = await this.pickRef(repo, t('action.comparePickWith', { name: base.name }), { exclude: base.ref });
+    const target = await this.pickComparisonRef(repo, 'right', { title: t('action.comparePickWith', { name: base.name }), exclude: base.ref });
     if (target) await this.startComparison(repo, base.ref, target);
   }
 
   async compareWorktree(node) {
     if (!node) return;
     const repo = await this.repo(node);
-    const base = await repo.actions.named(node.ref);
-    this.assertActive(repo);
-    this.history.compareWorktree(repo, base);
-    await this.history.show();
+    await this.startComparison(repo, node.ref, WORKTREE);
   }
 }
 

@@ -232,7 +232,8 @@ test('the history range picker stars the current branch and keeps native Local, 
     assert.deepEqual(picker.activeItems, [picker.items[3]]);
     assert.equal(picker.activeItems[0].iconPath.id, 'star-full');
     assert.deepEqual(picker.items.map(item => item.iconPath?.id), [undefined, undefined, undefined, 'star-full', 'git-branch', undefined, 'git-branch']);
-    assert.equal(picker.activeItems[0].description, oid.slice(0, 8));
+    assert.equal(picker.activeItems[0].description, undefined);
+    assert.equal(picker.items[0].description, undefined);
     assert.equal(picker.matchOnDescription, true);
     picker.selectedItems = [picker.items[5]];
     accept();
@@ -290,22 +291,27 @@ test('comparison, history, checkout and push share the native ref layout but con
       return {
         onDidAccept(listener) { accept = listener; }, onDidHide(listener) { hide = listener; },
         show() {
-          const { title, labels, focus, choose } = expected.shift();
+          const { title, labels, focus, choose, shortHashes, roles = {}, unavailable } = expected.shift();
           seen.push(this.title);
           assert.equal(this.title, title);
           assert.deepEqual(this.items.map(item => item.label), labels);
           assert.equal(this.matchOnDescription, true);
           assert.equal(this.activeItems[0]?.label, focus);
           for (const item of this.items.filter(item => item.kind !== -1 && !['HEAD', 'All Branches'].includes(item.label))) {
-            assert.equal(item.description, oid.slice(0, 8));
-            assert.equal(item.iconPath?.id, item.label === 'main' ? 'star-full' : item.label === 'v1' ? 'tag' : 'git-branch');
+            assert.equal(item.description, shortHashes ? oid.slice(0, 8) : roles[item.label]);
+            assert.equal(item.iconPath?.id, ({ main: 'star-full', v1: 'tag', 'Working Tree': 'folder' })[item.label] ?? 'git-branch');
+          }
+          if (unavailable) {
+            this.selectedItems = [this.items.find(item => item.label === unavailable)];
+            accept();
+            assert.equal(this.hidden, undefined, 'the opposite endpoint is marked but cannot be accepted');
           }
           if (choose) {
             this.selectedItems = [this.items.find(item => item.label === choose)];
             accept();
           } else this.hide();
         },
-        hide() { hide(); }, dispose() {}
+        hide() { this.hidden = true; hide(); }, dispose() {}
       };
     },
     showErrorMessage: value => assert.fail(value)
@@ -315,25 +321,28 @@ test('comparison, history, checkout and push share the native ref layout but con
   registry.showTags = true;
   repo.snapshot = await local.reads.snapshot(local.dirs, true);
   const labels = ['Local', 'main', 'topic', 'Remote', 'origin/topic'];
+  const compareLabels = ['Working Tree', ...labels];
   expected.push({ title: message('history.pickRange'), labels: ['HEAD', 'All Branches', ...labels, 'Tags', 'v1'], focus: 'main' });
   await history.ui.chooseRange();
-  expected.push({ title: message('action.checkoutPick'), labels, focus: 'main' });
+  expected.push({ title: message('action.checkoutPick'), labels, focus: 'main', shortHashes: true });
   await action('checkout');
-  expected.push({ title: message('action.pushPick'), labels: ['Local', 'main', 'topic'], focus: 'main' });
+  expected.push({ title: message('action.pushPick'), labels: ['Local', 'main', 'topic'], focus: 'main', shortHashes: true });
   await action('push');
-  expected.push({ title: message('action.comparePickWith', { name: 'topic' }), labels: ['Local', 'main', 'Remote', 'origin/topic'], focus: 'main', choose: 'origin/topic' });
+  expected.push({ title: message('action.comparePickWith', { name: 'topic' }), labels: compareLabels,
+    focus: 'main', choose: 'origin/topic', roles: { topic: 'Base' }, unavailable: 'topic' });
   await action('compareWith', 'refs/heads/topic');
   assert.equal(history.comparison.left.ref, 'refs/heads/topic');
   assert.equal(history.comparison.right.ref, 'refs/remotes/origin/topic');
-  const base = { title: message('action.comparePickBase'), labels, focus: 'main', choose: 'main' };
-  const target = { title: message('action.comparePickTarget'), labels: ['Local', 'topic', 'Remote', 'origin/topic'], focus: 'topic', choose: 'topic' };
+  const base = { title: message('action.comparePickBase'), labels: compareLabels, focus: 'main', choose: 'Working Tree' };
+  const target = { title: message('action.comparePickTarget'), labels: compareLabels,
+    focus: 'main', choose: 'topic', roles: { 'Working Tree': 'Base' }, unavailable: 'Working Tree' };
   expected.push(base, target);
   await action('compare');
   assert.deepEqual(expected, []);
   assert.deepEqual(seen.slice(-2), [base.title, target.title]);
-  assert.equal(history.comparison.left.ref, 'refs/heads/main');
+  assert.deepEqual(history.comparison.left, { name: 'Working Tree', oid, worktree: true });
   assert.equal(history.comparison.right.ref, 'refs/heads/topic');
-  expected.push({ title: target.title, labels: ['Local', 'topic', 'Remote', 'origin/topic'], focus: 'origin/topic' });
+  expected.push({ title: target.title, labels: compareLabels, focus: 'origin/topic', roles: { main: 'Base', 'origin/topic': 'Target' } });
   assert.equal(await history.ui.pickComparisonRef(repo, 'right', { exclude: 'refs/heads/main', current: 'refs/remotes/origin/topic' }), undefined);
   assert.deepEqual(expected, []);
   assert.deepEqual(await local.reads.head(), { ref: 'refs/heads/main', oid });
@@ -563,7 +572,7 @@ test('history opens the working tree Diff using a host-issued file token and sav
   t.after(() => { controller.dispose(); documents.dispose(); });
   controller.ready = true;
   controller.view = { visible: true, webview: { postMessage: () => true } };
-  controller.compareWorktree(repo, await local.actions.named('refs/heads/base'));
+  await controller.compareWorktree(repo, await local.actions.named('refs/heads/base'));
   await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.files, 'load worktree comparison and synthetic selection');
   const scope = { repoId: repo.id, generation: controller.generation };
   const send = (type, data) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...data });
@@ -572,6 +581,10 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.deepEqual(controller.comparePacket.counts, { left: 0, right: 2 });
   const synthetic = controller.rows.find(row => row.worktree);
   assert.equal(synthetic.side, 'right');
+  assert.equal(synthetic.subject, 'Uncommitted Changes');
+  assert.deepEqual(synthetic.parents, [current]);
+  assert.deepEqual(synthetic.graph.edges.map(edge => edge.oid), [current]);
+  assert.equal(controller.known.get(current).graph.incoming, true);
   assert.equal(controller.selection.focus, synthetic.oid);
   assert.equal(controller.selectionPacket.detail, undefined);
   assert.ok(controller.selectionPacket.files.every(file => !file.apply));
@@ -611,7 +624,10 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.equal(controller.comparison.right.oid, base);
   assert.equal(controller.comparison.left.worktree, true);
   assert.deepEqual(controller.comparePacket.counts, { left: 2, right: 0 });
-  assert.equal(controller.rows.find(row => row.worktree).side, 'left');
+  const leftWorktree = controller.rows.find(row => row.worktree);
+  assert.equal(leftWorktree.side, 'left');
+  assert.deepEqual(leftWorktree.graph.edges.map(edge => edge.oid), [current]);
+  assert.equal(controller.known.get(current).graph.incoming, true);
   assert.equal(controller.comparePacket.files.find(file => file.path === 'untracked.txt').status, 'D');
   await send('openDiff', { token: controller.comparePacket.files.find(file => file.path === 'file.txt').id });
   assert.deepEqual(calls.at(-1).slice(1, 3).map(uri => documents.provideTextDocumentContent(uri)), ['on disk', 'on branch']);
@@ -635,6 +651,12 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.equal(controller.comparison.left.oid, newHead);
   assert.equal(controller.meta().compare.stale, false);
   assert.equal(await local.read('file.txt'), 'saved after commit');
+
+  await controller.compareWorktree(repo, await local.actions.named('refs/heads/main'));
+  await waitFor(() => controller.comparePacket?.files && controller.rows.length, 'worktree comparison against its own HEAD');
+  assert.deepEqual(controller.rows.map(row => row.oid), [`worktree:${newHead}`]);
+  assert.deepEqual(controller.rows[0].graph.edges.map(edge => edge.oid), [newHead]);
+  assert.equal(controller.known.has(newHead), false, 'a shared HEAD is not injected into the unique commits');
 });
 
 test('the toolbar picks either comparison endpoint and cancels drafts on dismissal or repository change', async t => {
@@ -708,6 +730,27 @@ test('the toolbar picks either comparison endpoint and cancels drafts on dismiss
   picker.resolve(topic);
   await choosing;
   assert.equal(controller.comparison.left, pinnedLeft);
+  assert.equal(controller.comparison.right.ref, topic);
+
+  const pinnedTopic = controller.comparison.right;
+  choosing = send('chooseTarget');
+  picker.resolve('worktree');
+  await choosing;
+  assert.equal(controller.comparison.left, pinnedLeft);
+  const pinnedWorktree = controller.comparison.right;
+  assert.equal(pinnedWorktree.worktree, true);
+  assert.equal(pinnedWorktree.oid, oid);
+  choosing = send('chooseRange');
+  assert.equal(picker.current, other);
+  assert.equal(picker.exclude, 'worktree');
+  picker.resolve('worktree');
+  await choosing;
+  assert.equal(controller.comparison.left, pinnedLeft);
+  assert.equal(controller.comparison.right, pinnedWorktree, 'reject choosing the opposite worktree endpoint');
+  choosing = send('chooseTarget');
+  assert.equal(picker.current, 'worktree');
+  picker.resolve(pinnedTopic.ref);
+  await choosing;
   assert.equal(controller.comparison.right.ref, topic);
 
   await send('exitComparison');
@@ -1046,6 +1089,9 @@ test('history HTML embeds Codicons from installed VS Code assets without allowin
     assert.match(html, /default-src 'none'/);
     assert.doesNotMatch(html, /font-src/);
     assert.match(html, /class="refresh-label">[^<]+</);
+    assert.match(html, /id="filter-text"[\s\S]*id="refresh"[\s\S]*id="swap"[\s\S]*id="exit-compare"[\s\S]*id="commit-columns"/);
+    assert.doesNotMatch(html, /id="log-title"/);
+    assert.match(html, /id="files"[\s\S]*<footer id="snapshot-caption"[\s\S]*<section id="details"[\s\S]*<h2 id="detail-title"/);
     assert.match(html, /src="media\/historyRows\.js"[\s\S]*src="media\/graph\.js"/);
   }
 });
