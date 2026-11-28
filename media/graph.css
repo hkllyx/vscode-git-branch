@@ -6,6 +6,7 @@
   --mono: var(--vscode-editor-font-family, monospace);
   --blue: var(--vscode-charts-blue, #6da7e8);
   --purple: var(--vscode-charts-purple, #b392f0);
+  --warning: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow, #c59c33));
 }
 
 * { box-sizing: border-box; }
@@ -34,7 +35,7 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .codicon-warning::before { content: '!'; }
 .codicon-chevron-down::before { content: '▾'; }
 .codicon-chevron-right::before { content: '▸'; }
-.codicon-refresh { display: none; width: 16px; font-size: 16px; }
+.codicon-refresh, .codicon-git-compare { display: none; width: 16px; font-size: 16px; }
 .codicon-close { display: none; width: 16px; font-size: 16px; }
 .codicon-arrow-swap { display: none; width: 16px; font-size: 16px; }
 .codicon-ellipsis { display: none; width: 16px; font-size: 16px; }
@@ -45,8 +46,9 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .has-codicons .codicon-warning::before { content: '\ea6c'; }
 .has-codicons .codicon-chevron-down::before { content: '\eab4'; }
 .has-codicons .codicon-chevron-right::before { content: '\eab6'; }
-.has-codicons .codicon-refresh { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-refresh, .has-codicons .codicon-git-compare { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-refresh::before { content: '\eb37'; }
+.has-codicons .codicon-git-compare::before { content: '\eafd'; }
 .has-codicons .codicon-close { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-close::before { content: '\ea76'; }
 .has-codicons .codicon-arrow-swap { display: inline-block; font-size: 16px; }
@@ -99,8 +101,6 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   border-color: var(--vscode-input-border, var(--border));
 }
 .filter-text::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
-.direction { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.direction .side { max-width: min(25vw, 225px); }
 .notices {
   max-height: 4.6em;
   flex: 0 0 auto;
@@ -190,7 +190,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .lane-6 { --lane: var(--vscode-charts-foreground, var(--vscode-foreground)); }
 .ref-badge { flex: 0 0 auto; }
 .ref-badge.current { color: var(--blue); }
-.side, .pill {
+.pill {
   display: inline-block;
   padding: 0 5px;
   border: 1px solid var(--border);
@@ -198,11 +198,9 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   white-space: nowrap;
   font-size: .85em;
   font-weight: normal;
+  color: var(--vscode-badge-foreground);
+  background: var(--vscode-badge-background);
 }
-.side.left, .commit-section.left { --side-accent: var(--purple); }
-.side.right, .commit-section.right { --side-accent: var(--blue); }
-.direction .side { border-color: var(--side-accent); }
-.pill { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
 .pill:empty { display: none; }
 .commit-section {
   width: 100%;
@@ -214,12 +212,12 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   font-size: 1.05em;
   font-weight: 600;
   text-align: start;
-  color: var(--side-accent);
-  background: color-mix(in srgb, var(--side-accent) 9%, var(--panel));
-  box-shadow: inset 3px 0 var(--side-accent);
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--warning) 14%, var(--panel));
+  box-shadow: inset 3px 0 var(--warning);
 }
-.commit-section:enabled:hover { background: color-mix(in srgb, var(--side-accent) 17%, var(--panel)); }
-.section-chevron { flex: 0 0 auto; }
+.commit-section:enabled:hover { background: color-mix(in srgb, var(--warning) 22%, var(--panel)); }
+.section-chevron, .section-count { flex: 0 0 auto; }
 .section-label { display: flex; gap: .3em; min-width: 0; }
 .section-label > :last-child { flex: 0 0 auto; }
 .commit-row.worktree-row .commit-message .subject { font-style: italic; }
@@ -320,7 +318,6 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   .splitter, .panes[data-pane='log'] .right-pane, .panes:not([data-pane='log']) .log-pane,
   .panes[data-pane='files'] .details, .panes[data-pane='details'] .file-pane { display: none; }
   .panes[data-pane='details'] .details { flex: 1 1 0; max-height: none; }
-  .direction .side { max-width: min(35vw, 200px); }
 }
 
 ::-webkit-scrollbar { width: 9px; height: 9px; }

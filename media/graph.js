@@ -219,9 +219,12 @@
     }
     const entries = [];
     for (const { side, collapsed, rows } of comparisonGroups(state.rows, state.meta.compare.collapsed)) {
+      const total = state.page.filter ? undefined : state.comparison?.counts?.[side];
       // An unfiltered side may have commits on later pages; show its heading as soon as the count is known.
-      if (!rows.length && !(!state.page.filter && state.page.hasMore && state.comparison?.counts?.[side] > 0)) continue;
-      entries.push({ side });
+      if (!rows.length && !(state.page.hasMore && total > 0)) continue;
+      const count = total ?? rows.length;
+      const badge = total == null && state.page.hasMore ? t('history.groupCountAtLeast', { count }) : countText('history.groupCount', count);
+      entries.push({ side, badge });
       if (collapsed) continue;
       const size = state.page.hasMore ? -1 : rows.length;
       for (const [index, row] of rows.entries()) entries.push({ row, side, index, size });
@@ -233,8 +236,8 @@
     return `${state.meta.compare[side].label} ${t('history.branchOnlySuffix')}`;
   }
 
-  function sectionRow(side) {
-    const label = sectionLabel(side);
+  function sectionRow({ side, badge }) {
+    const label = `${sectionLabel(side)} · ${badge}`;
     const expanded = !state.meta.compare.collapsed.includes(side);
     const line = button(`commit-section ${side}`, '', () => send('toggleComparisonGroup', { side }), label);
     line.dataset.section = side;
@@ -242,7 +245,7 @@
     line.setAttribute('aria-label', label);
     const branch = el('span', 'section-label');
     branch.append(el('span', 'ellipsis', state.meta.compare[side].label), el('span', '', ` ${t('history.branchOnlySuffix')}`));
-    line.append(codicon(expanded ? 'chevron-down' : 'chevron-right', 'section-chevron'), branch);
+    line.append(codicon(expanded ? 'chevron-down' : 'chevron-right', 'section-chevron'), branch, el('span', 'pill section-count', badge));
     return line;
   }
 
@@ -271,7 +274,7 @@
     for (let i = start; i < end; i++) {
       const entry = state.entries[i];
       if (!entry.row) {
-        const heading = sectionRow(entry.side);
+        const heading = sectionRow(entry);
         if (entry.side === section) restore = heading;
         fragment.append(heading);
         continue;
@@ -335,25 +338,26 @@
     $('repo').textContent = `${meta.repository || t('repo.pick')} ▾`;
     $('repo').title = meta.repositoryPath || t('repo.pick');
     $('repo').disabled = !meta.repositoryCount;
-    $('range').textContent = `${meta.range || 'HEAD'} ▾`;
-    $('range').title = meta.range || t('history.pickRange');
-    $('range').disabled = !ready;
-    $('range').hidden = Boolean(mode);
+    const comparing = Boolean(mode || meta.compareDraft);
+    const picking = Boolean(meta.pickingEndpoint);
+    const refControl = (id, label, oid) => {
+      const control = $(id);
+      control.textContent = `${label} ▾`;
+      control.title = oid ? `${label} (${oid})` : label;
+      control.disabled = !ready || picking;
+    };
+    refControl('range', comparing ? t('history.baseLabel', { name: mode?.left.label ?? meta.compareDraft }) : meta.range || t('history.pickRange'), mode?.left.oid);
+    refControl('target', mode ? t('history.targetLabel', { name: mode.right.label }) : t('history.selectTarget'), mode?.right.oid);
+    $('target').hidden = !comparing;
     filterInput.disabled = !ready;
     $('commit-columns').disabled = !state.generation;
-    const refresh = $('refresh');
-    refresh.disabled = !meta.repository;
-    const before = mode ? $('swap') : $('compare-bar');
-    if (refresh.nextElementSibling !== before) before.before(refresh);
-    $('compare-bar').hidden = !mode;
+    $('refresh').disabled = !meta.repository || picking;
+    $('start-compare').hidden = comparing;
+    $('start-compare').disabled = !ready || !meta.canCompare;
+    $('compare-bar').hidden = !comparing;
     $('log-title').textContent = t(mode ? 'history.distinct' : 'history.graph');
-    $('swap').disabled = !ready;
-    if (mode) {
-      const label = endpoint => endpoint.worktree ? endpoint.label : `${endpoint.label} (${endpoint.oid})`;
-      $('direction').title = `${label(mode.left)} → ${label(mode.right)}`;
-      $('direction').replaceChildren(el('span', 'side left ellipsis', t('history.baseLabel', { name: mode.left.label })), el('span', '', '→'),
-        el('span', 'side right ellipsis', t('history.targetLabel', { name: mode.right.label })));
-    }
+    $('swap').hidden = !mode;
+    $('swap').disabled = !ready || picking;
     const notices = [meta.shallow && t('history.shallow'), mode?.stale && t('history.stale'),
       mode && comparison?.common === false && t(meta.shallow ? 'history.noLocalAncestor' : 'history.noAncestor'),
       comparison?.graphError && t('history.partialCompare', { detail: comparison.graphError })].filter(Boolean);
@@ -684,8 +688,8 @@
     if (!event.target.closest('button, summary, a') && window.getSelection()?.isCollapsed) list.focus({ preventScroll: true });
   });
 
-  for (const [id, intent] of Object.entries({ repo: 'chooseRepository', range: 'chooseRange', refresh: 'refresh',
-    swap: 'swap', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
+  for (const [id, intent] of Object.entries({ repo: 'chooseRepository', range: 'chooseRange', target: 'chooseTarget', refresh: 'refresh',
+    'start-compare': 'startComparison', swap: 'swap', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
     $(id).addEventListener('click', () => send(intent));
   }
   filterInput.addEventListener('input', event => { if (!event.isComposing) sendFilter(220); });

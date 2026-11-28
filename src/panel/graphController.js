@@ -7,7 +7,7 @@ const vscode = require('vscode');
 const { comparisonGroups } = require('../../media/historyRows');
 const { historyMessages, locale, t } = require('../i18n');
 const { GraphLayout } = require('../graph/layout');
-const { sameHead } = require('../git/refs');
+const { HEADS, sameHead } = require('../git/refs');
 const { MAX_SELECTION, HistorySelection, historyTarget, combineChanges, mapWithLimit } = require('./historyState');
 const { editableFileSide, repositoryVersion, canApply, MAX_PATCH_FILES } = require('../git/selectedChanges');
 const { regularMode, safeWorktreeFile } = require('../git/worktreePaths');
@@ -95,6 +95,7 @@ class GraphController {
     this.ready = false;
     this.view = undefined;
     for (const subscription of this.viewSubs.splice(0)) subscription.dispose();
+    this.cancelEndpointPick();
     this.pause();
   }
 
@@ -165,6 +166,7 @@ class GraphController {
   repoChanged() {
     const next = this.registry.active;
     if (next !== this.repo) {
+      this.cancelEndpointPick();
       this.repo = next;
       this.unavailable = !next?.snapshot || Boolean(next.error);
       this.comparison = undefined;
@@ -176,6 +178,7 @@ class GraphController {
       return;
     }
     if (!next?.snapshot || next.error) {
+      this.cancelEndpointPick();
       this.pause();
       this.unavailable = true;
       this.sendReset();
@@ -195,7 +198,8 @@ class GraphController {
   setRange(repo, range) {
     if (this.repo !== repo || !repo.snapshot) throw new BranchError(t('repo.switchedOrLoading'));
     const target = historyTarget(repo.snapshot, range, this.registry.showTags);
-    if (this.comparison || target.range !== this.range) {
+    if (this.comparison || this.endpointPick || target.range !== this.range) {
+      this.cancelEndpointPick();
       this.target = target;
       this.range = target.range;
       this.comparison = undefined;
@@ -232,8 +236,52 @@ class GraphController {
     await this.context.workspaceState?.update(COMMIT_COLUMNS, this.commitColumns);
   }
 
+  comparisonBase() {
+    const snapshot = this.repo?.snapshot;
+    const ref = snapshot?.byRef.get(this.range);
+    if (ref?.oid && (ref.kind === 'local' || ref.kind === 'remote')) return { ref: ref.ref, label: ref.name };
+    // All Branches and tags are history ranges, not comparison branches.
+    const head = snapshot?.head;
+    if (head?.oid) return { ref: head.ref || 'HEAD', label: head.ref ? head.ref.slice(HEADS.length) : t('branch.headDetached') };
+  }
+
+  cancelEndpointPick() {
+    const previous = this.endpointPick;
+    this.endpointPick = undefined;
+    previous?.request.abort();
+  }
+
+  async pickComparisonEndpoint(side) {
+    if (!this.canRead || this.endpointPick) return;
+    const { repo, comparison } = this;
+    const base = !comparison && side === 'right' ? this.comparisonBase() : undefined;
+    if (!comparison && !base) return;
+    const request = new AbortController();
+    const pick = this.endpointPick = { base, request };
+    const { signal } = request;
+    const current = comparison?.[side];
+    const peer = comparison?.[side === 'left' ? 'right' : 'left'];
+    this.send('meta', this.meta());
+    try {
+      const ref = await this.ui.pickComparisonRef(repo, side, { exclude: peer?.ref ?? base?.ref, current: current?.ref, signal });
+      if (signal.aborted || !ref || ref === current?.ref) return;
+      const endpoint = await repo.actions.named(ref);
+      const left = base ? await repo.actions.named(base.ref) : side === 'left' ? endpoint : peer;
+      const right = side === 'right' ? endpoint : peer;
+      if (!signal.aborted) this.compare(repo, left, right);
+    } catch (error) {
+      if (!signal.aborted) throw error;
+    } finally {
+      if (this.endpointPick === pick) {
+        this.endpointPick = undefined;
+        this.send('meta', this.meta());
+      }
+    }
+  }
+
   compare(repo, left, right) {
     if (this.repo !== repo) throw new BranchError(t('repo.switched'));
+    this.cancelEndpointPick();
     this.comparison = { left, right };
     this.collapsedGroups.clear();
     this.reset();
@@ -259,13 +307,18 @@ class GraphController {
       return endpoint.ref ? repo.actions.named(endpoint.ref) : endpoint;
     };
     const [left, right] = await Promise.all([resolve(comparison.left), resolve(comparison.right)]);
-    if (repo !== this.repo || comparison !== this.comparison || generation !== this.generation) return;
+    if (repo !== this.repo || comparison !== this.comparison || generation !== this.generation || this.endpointPick) return;
     this.comparison = { left, right };
     this.reset(true);
   }
 
   exitComparison() {
-    if (!this.comparison) return;
+    const picking = Boolean(this.endpointPick);
+    this.cancelEndpointPick();
+    if (!this.comparison) {
+      if (picking) this.send('meta', this.meta());
+      return;
+    }
     this.comparison = undefined;
     this.collapsedGroups.clear();
     this.reset();
@@ -289,6 +342,8 @@ class GraphController {
     return {
       repository: repo?.name, repositoryPath: repo?.root.fsPath, repositoryCount: this.registry.repositories.size,
       range: this.target?.label || 'HEAD', rangeKey: this.range, shallow: Boolean(snapshot?.shallow), head: snapshot?.head,
+      canCompare: Boolean(this.comparisonBase()), pickingEndpoint: Boolean(this.endpointPick),
+      compareDraft: this.endpointPick?.base?.label,
       message: !repo ? this.registry.noRepositoryMessage : repo.error ? t('repo.readError', { detail: repo.error }) : !snapshot ? t('repo.reading') : undefined,
       compare: comparison ? {
         left: this.comparisonLabel(comparison.left), right: this.comparisonLabel(comparison.right),
@@ -689,13 +744,20 @@ class GraphController {
     if (!this.visible || message.generation !== this.generation || message.repoId !== this.repo?.id) return;
     switch (message.type) {
       case 'chooseRepository': return this.ui.chooseRepository();
-      case 'chooseRange': return this.ui.chooseRange();
+      case 'chooseRange': return this.comparison || this.endpointPick ? this.pickComparisonEndpoint('left') : this.ui.chooseRange();
+      case 'chooseTarget':
+        if (this.comparison) return this.pickComparisonEndpoint('right');
+        return;
+      case 'startComparison':
+        if (!this.comparison) return this.pickComparisonEndpoint('right');
+        return;
       case 'chooseColumns': return this.chooseColumns();
       case 'refresh': {
+        if (this.endpointPick) return;
         const { repo, comparison } = this;
         await this.registry.refresh();
         // In a comparison, Refresh also re-pins the endpoints, replacing "Compare Again".
-        if (repo !== this.repo || comparison !== this.comparison) return;
+        if (repo !== this.repo || comparison !== this.comparison || this.endpointPick) return;
         if (comparison) return this.recompare();
         if (message.generation === this.generation) this.reset(true);
         return;
@@ -747,7 +809,7 @@ class GraphController {
       }
       case 'openDiff': return this.openDiff(message.token);
       case 'swap':
-        if (!this.comparison) return;
+        if (!this.comparison || this.endpointPick) return;
         this.comparison = { left: this.comparison.right, right: this.comparison.left };
         this.collapsedGroups = new Set([...this.collapsedGroups].map(side => side === 'left' ? 'right' : 'left'));
         this.reset(true);
@@ -775,13 +837,14 @@ class GraphController {
 <header id="toolbar" class="toolbar" aria-label="${htmlText('history.toolbar')}">
   <button id="repo" class="control repo" type="button" title="${htmlText('repo.pick')}">${htmlText('repo.pick')} ▾</button>
   <button id="range" class="control range" type="button" title="${htmlText('history.pickRange')}">${escapeHtml(this.target?.label || 'HEAD')} ▾</button>
+  <button id="target" class="control range" type="button" title="${htmlText('history.selectTarget')}" hidden>${htmlText('history.selectTarget')} ▾</button>
   <div class="filters" role="search">
     <input id="filter-text" class="control filter-text" type="search" spellcheck="false" autocomplete="off"
       placeholder="${htmlText('history.filterText')}" aria-label="${htmlText('history.filterText')}" title="${htmlText('history.filterTextHint')}">
   </div>
   <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span><span class="refresh-label">${htmlText('command.refresh')}</span></button>
+  <button id="start-compare" class="control icon" type="button" aria-label="${htmlText('history.startCompare')}" title="${htmlText('history.startCompare')}"><span class="codicon codicon-git-compare" aria-hidden="true"></span><span class="icon-label">${htmlText('history.startCompare')}</span></button>
   <div id="compare-bar" class="compare-bar" hidden>
-    <span id="direction" class="direction"></span>
     <button id="swap" class="control icon" type="button" aria-label="${htmlText('history.swap')}" title="${htmlText('history.swap')}"><span class="codicon codicon-arrow-swap" aria-hidden="true"></span><span class="icon-label swap-label">${htmlText('history.swap')}</span></button>
     <button id="exit-compare" class="control icon" type="button" aria-label="${htmlText('history.exitCompare')}" title="${htmlText('history.exitCompare')}"><span class="codicon codicon-close" aria-hidden="true"></span><span class="icon-label exit-label">${htmlText('history.exitCompare')}</span></button>
   </div>

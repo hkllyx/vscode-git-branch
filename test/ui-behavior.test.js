@@ -333,6 +333,9 @@ test('comparison, history, checkout and push share the native ref layout but con
   assert.deepEqual(seen.slice(-2), [base.title, target.title]);
   assert.equal(history.comparison.left.ref, 'refs/heads/main');
   assert.equal(history.comparison.right.ref, 'refs/heads/topic');
+  expected.push({ title: target.title, labels: ['Local', 'topic', 'Remote', 'origin/topic'], focus: 'origin/topic' });
+  assert.equal(await history.ui.pickComparisonRef(repo, 'right', { exclude: 'refs/heads/main', current: 'refs/remotes/origin/topic' }), undefined);
+  assert.deepEqual(expected, []);
   assert.deepEqual(await local.reads.head(), { ref: 'refs/heads/main', oid });
 });
 
@@ -632,6 +635,97 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.equal(controller.comparison.left.oid, newHead);
   assert.equal(controller.meta().compare.stale, false);
   assert.equal(await local.read('file.txt'), 'saved after commit');
+});
+
+test('the toolbar picks either comparison endpoint and cancels drafts on dismissal or repository change', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('comparison-picker');
+  const oid = await local.commit('first');
+  await local.git('branch', 'topic');
+  await local.git('branch', 'other');
+  await local.git('tag', 'version');
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode: {} });
+  const main = 'refs/heads/main', topic = 'refs/heads/topic', other = 'refs/heads/other';
+  const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local', actions: local.actions,
+    snapshot: await local.reads.snapshot(local.dirs, true), reads: local.reads, commitCache: new Map(), filesCache: new Map() };
+  const second = { ...repo, id: 'second', commitCache: new Map(), filesCache: new Map() };
+  const registry = { active: repo, showTags: true, repositories: new Map([[repo.id, repo], [second.id, second]]),
+    onChange: () => ({ dispose() {} }) };
+  const messages = [];
+  let picker;
+  const controller = new GraphController({}, registry, {}, {
+    pickComparisonRef: (repository, side, options) => new Promise(resolve => { picker = { ...options, repository, side, resolve }; })
+  });
+  t.after(() => controller.dispose());
+  controller.view = { visible: true, webview: { postMessage: packet => messages.push(packet) } };
+  controller.ready = true;
+  const send = type => controller.onMessage({ type, generation: controller.generation, repoId: controller.repo.id });
+  const switchTo = next => { registry.active = next; controller.repoChanged(); };
+
+  for (const [range, base, draft] of [['all', main, 'main'], ['refs/tags/version', main, 'main'], [topic, topic, 'topic']]) {
+    controller.setRange(repo, range);
+    const generation = controller.generation;
+    const pending = send('startComparison');
+    assert.equal(messages.at(-1).type, 'meta');
+    assert.equal(messages.at(-1).payload.compareDraft, draft);
+    assert.equal(picker.exclude, base);
+    assert.equal(picker.side, 'right');
+    assert.equal(picker.repository, repo);
+    assert.equal(controller.meta().compare, undefined);
+    picker.resolve(undefined);
+    await pending;
+    assert.equal(controller.meta().compareDraft, undefined);
+    assert.equal(controller.generation, generation);
+    assert.equal(controller.range, range);
+  }
+
+  let choosing = send('startComparison');
+  picker.resolve(main);
+  await choosing;
+  assert.deepEqual([controller.comparison.left.ref, controller.comparison.right.ref], [topic, main]);
+  assert.equal(controller.meta().compareDraft, undefined);
+  assert.equal(controller.meta().pickingEndpoint, false);
+
+  const pinnedRight = controller.comparison.right;
+  choosing = send('chooseRange');
+  assert.equal(picker.side, 'left');
+  assert.equal(picker.current, topic);
+  assert.equal(picker.exclude, main);
+  picker.resolve(other);
+  await choosing;
+  const pinnedLeft = controller.comparison.left;
+  assert.equal(pinnedLeft.ref, other);
+  assert.equal(controller.comparison.right, pinnedRight, 'do not re-pin the other endpoint');
+
+  choosing = send('chooseTarget');
+  assert.equal(picker.side, 'right');
+  assert.equal(picker.current, main);
+  assert.equal(picker.exclude, other);
+  picker.resolve(undefined);
+  await choosing;
+  assert.equal(controller.comparison.right, pinnedRight, 'cancelling keeps the existing comparison');
+  choosing = send('chooseTarget');
+  picker.resolve(topic);
+  await choosing;
+  assert.equal(controller.comparison.left, pinnedLeft);
+  assert.equal(controller.comparison.right.ref, topic);
+
+  await send('exitComparison');
+  assert.equal(controller.range, topic, 'exiting restores the pre-comparison history range');
+  choosing = send('startComparison');
+  picker.resolve(main);
+  await choosing;
+  choosing = send('chooseRange');
+  const pending = picker;
+  switchTo(second);
+  assert.equal(pending.signal.aborted, true);
+  assert.equal(controller.meta().compare, undefined);
+  assert.equal(controller.range, 'HEAD');
+  switchTo(repo);
+  pending.resolve(other);
+  await choosing;
+  assert.equal(controller.meta().compare, undefined, 'a late result cannot revive comparison after a repository switch');
+  assert.deepEqual(await local.reads.head(), { ref: main, oid });
 });
 
 test('comparison groups fold independently without reloading history or changing File Diff', async t => {

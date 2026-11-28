@@ -147,7 +147,8 @@ class WorkbenchActions {
     await vscode.commands.executeCommand('setContext', 'git-branch.tagsVisible', this.registry.showTags);
   }
 
-  async pickRef(repo, title, { localOnly = false, exclude, range } = {}) {
+  async pickRef(repo, title, { localOnly = false, exclude, range, current, signal } = {}) {
+    if (signal?.aborted) return;
     this.assertActive(repo);
     const snapshot = repo.snapshot;
     const { head } = snapshot;
@@ -165,10 +166,11 @@ class WorkbenchActions {
         iconPath: new vscode.ThemeIcon(refAppearance(item, head).icon)
       })));
     }
-    const preferred = range === 'HEAD' ? head.ref || 'HEAD' : range || head.ref;
+    const preferred = range === 'HEAD' ? head.ref || 'HEAD' : range || current || head.ref;
     const active = items.find(item => item.ref && item.ref === preferred) ?? items.find(item => item.ref);
     if (!active) throw new BranchError(t('branch.noAvailable'));
     const picker = vscode.window.createQuickPick();
+    const cancel = () => picker.hide();
     const ref = await new Promise(resolve => {
       picker.title = title;
       picker.matchOnDescription = true;
@@ -182,10 +184,19 @@ class WorkbenchActions {
         picker.hide();
       });
       picker.onDidHide(() => resolve(accepted));
+      signal?.addEventListener('abort', cancel, { once: true });
       picker.show();
-    }).finally(() => picker.dispose());
+    }).finally(() => {
+      signal?.removeEventListener('abort', cancel);
+      picker.dispose();
+    });
+    if (signal?.aborted) return;
     if (ref) this.assertActive(repo);
     return ref;
+  }
+
+  pickComparisonRef(repo, side, options) {
+    return this.pickRef(repo, t(side === 'left' ? 'action.comparePickBase' : 'action.comparePickTarget'), options);
   }
 
   async openHistory(node) {
@@ -533,9 +544,9 @@ class WorkbenchActions {
   async chooseComparison() {
     const repo = await this.repo();
     if (!repo) return;
-    const base = await this.pickRef(repo, t('action.comparePickBase'));
+    const base = await this.pickComparisonRef(repo, 'left');
     if (!base) return;
-    const target = await this.pickRef(repo, t('action.comparePickTarget'), { exclude: base });
+    const target = await this.pickComparisonRef(repo, 'right', { exclude: base });
     if (target) await this.startComparison(repo, base, target);
   }
 
