@@ -190,6 +190,7 @@
 
 - **工作台适配**：通过 `contributes.views.scm` 注册 `Branches` TreeView，菜单和节点状态用 `contextValue` 区分；底栏由一个 `WebviewView` 维护分栏与选中。提交与文件行用 `data-vscode-context` 传入目标和状态，通过 `webview/context` 声明原生菜单，只在这些行抑制默认剪切／复制／粘贴。菜单可见性兼容工作台使用的 `webview`／`webviewId` 两种上下文键，并限制在本扩展的历史行内。宿主不以菜单置灰状态代替执行校验。不改 VS Code 内部 DOM，不绑定私有视图命令。
 - **图标**：TreeView 和历史范围 Quick Pick 使用 `ThemeIcon`。Webview 不继承工作台字体，从 `vscode.env.appRoot` 下的工作台字体路径读取 VS Code 自带 Codicon，找不到时尝试读取内置 Simple Browser 样式中的同源字体。只将字体数据随 HTML 传入，Webview 用二进制 `FontFace` 加载，不发起字体 URL 请求，不开放安装目录，也不打包字体或 SVG。找不到字体或字体无法解析时，刷新退回文字，引用使用系统符号，警告保留 `!`，原有说明浮层不变。
+- **共用界面规则**：`src/views/refPresentation.js` 为分支树和引用选择器提供相同的分组顺序、引用排序和图标；各入口仍决定哪些引用可选、如何显示跟踪信息。`media/historyRows.js` 由宿主和 Webview 共用，保证对比列表的分组顺序、折叠状态与范围选择／全选一致。普通历史和比较共用文件标签、列表／树渲染与选中态；宿主回传选区时只更新界面，不发回选择请求。
 - **本地化**：清单中的标题、命令和描述通过 `%key%` 引用 `package.nls*.json`。扩展激活时按 `vscode.env.language` 使用同一套资源，默认英文；历史面板只接收当前语言的所需文案。文案不参与分支选择或 Git 参数判断，Git 子进程的输出语言保持不变。新增可见文案时同时更新三份资源，静态检查校验词条及占位符是否一致。
 - **仓库注册与刷新**：使用内置 Git 扩展的 `getAPI(1)` 获取已打开仓库、Git 可执行路径与状态事件。以 worktree 根 URI（包含环境和路径）为显示仓库标识；共享 Git 目录的 worktree 共用本扩展的写队列。只刷新受影响仓库，原生 Changes 仍由内置 Git 独立刷新。
 - **Git 服务**：分为引用、历史、对象读取和写操作。Git 在对应仓库工作目录和扩展宿主运行，参数数组执行，不经 shell。使用 `for-each-ref` 获取完整 ref、tip、上游和符号目标，读取仓库快照时同批读取本地分支的 `upstream:track`，不为每条分支启动单独的 Git 进程。用 `status --porcelain=v2 -z` 与 `diff-tree --raw -z` 读取机器可解析的状态和路径。不以显示名或短哈希作为操作标识，支持 SHA-1 和 SHA-256 格式的完整 OID，不按空格切文件名。

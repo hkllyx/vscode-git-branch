@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { fixture } = require('../test-support/gitFixture');
-const { parseRawDiff, orderRefs } = require('../src/git/parse');
+const { parseRawDiff } = require('../src/git/parse');
+const { orderRefs } = require('../src/git/refs');
 const { MAX_SELECTION, HistorySelection, historyTarget, combineChanges } = require('../src/panel/historyState');
 const { GraphLayout } = require('../src/graph/layout');
 

@@ -6,12 +6,12 @@ const { configureLocale, t } = require('./i18n');
 const { RepoRegistry } = require('./model/repoModel');
 const { BranchesProvider } = require('./views/branchesProvider');
 const { BranchActivation } = require('./views/branchActivation');
+const { refSections, sectionRefs, refAppearance } = require('./views/refPresentation');
 const { GraphController } = require('./panel/graphController');
 const { HistoryDocuments, SCHEME } = require('./panel/historyDocuments');
-const { HEADS } = require('./git/actions');
+const { HEADS } = require('./git/refs');
 const { RESET_MODES } = require('./git/historyActions');
 const { SelectedChanges } = require('./git/selectedChanges');
-const { orderRefs } = require('./git/parse');
 const { ALL } = require('./panel/historyState');
 const { BranchError, errorText, shortOid } = require('./util/format');
 
@@ -149,23 +149,20 @@ class WorkbenchActions {
 
   async pickRef(repo, title, { localOnly = false, exclude, range } = {}) {
     this.assertActive(repo);
-    const { allRefs, head } = repo.snapshot;
+    const snapshot = repo.snapshot;
+    const { head } = snapshot;
     const items = [];
     if (range) {
       if (head.oid) items.push({ ref: 'HEAD', label: 'HEAD', description: shortOid(head.oid) });
       items.push({ ref: ALL, label: t('history.allBranches'), description: t('history.allBranchesDescription') });
     }
-    const groups = [['local', 'branch.local']];
-    if (!localOnly) groups.push(['remote', 'branch.remote']);
-    if (range && this.registry.showTags) groups.push(['tag', 'branch.tags']);
-    const ordered = orderRefs(allRefs, head.ref);
-    for (const [kind, label] of groups) {
-      const refs = ordered.filter(item => item.kind === kind && item.oid && item.ref !== exclude);
+    for (const { kind, label } of refSections({ remotes: !localOnly, tags: Boolean(range && this.registry.showTags) })) {
+      const refs = sectionRefs(snapshot, kind).filter(item => item.oid && item.ref !== exclude);
       if (!refs.length) continue;
-      items.push({ label: t(label), kind: vscode.QuickPickItemKind.Separator });
-      items.push(...refs.map(({ ref, name, oid }) => ({
-        ref, label: name, description: shortOid(oid),
-        iconPath: new vscode.ThemeIcon(ref === head.ref ? 'star-full' : kind === 'tag' ? 'tag' : 'git-branch')
+      items.push({ label, kind: vscode.QuickPickItemKind.Separator });
+      items.push(...refs.map(item => ({
+        ref: item.ref, label: item.name, description: shortOid(item.oid),
+        iconPath: new vscode.ThemeIcon(refAppearance(item, head).icon)
       })));
     }
     const preferred = range === 'HEAD' ? head.ref || 'HEAD' : range || head.ref;

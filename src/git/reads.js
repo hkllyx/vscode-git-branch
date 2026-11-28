@@ -267,21 +267,23 @@ class GitReads {
     return decodeText(await this.client.buffer(['cat-file', 'blob', oid], { signal, maxBuffer: MAX_BLOB + 1024 }));
   }
 
+  async #readPaths(args) {
+    return (await this.client.text(args)).split('\0').filter(Boolean);
+  }
+
   async changedPaths(from, to) {
-    const output = await this.client.text(['diff-tree', '-r', '--no-commit-id', '--name-only', '-z', '--no-renames',
+    return this.#readPaths(['diff-tree', '-r', '--no-commit-id', '--name-only', '-z', '--no-renames',
       '--ignore-submodules=none', assertOid(from), assertOid(to), '--']);
-    return output.split('\0').filter(Boolean);
   }
 
   async replayPaths(base, head) {
-    const output = await this.client.text(['log', '--format=', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv',
+    return this.#readPaths(['log', '--format=', '--name-only', '-z', '--no-renames', '--no-ext-diff', '--no-textconv',
       '--ignore-submodules=none', `${assertOid(base)}..${assertOid(head)}`, '--']);
-    return output.split('\0').filter(Boolean);
   }
 
   async ignoredPaths() {
-    const output = await this.client.text(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '--no-empty-directory', '-z']);
-    return output.split('\0').filter(Boolean).map(file => file.replace(/\/$/, ''));
+    const paths = await this.#readPaths(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '--no-empty-directory', '-z']);
+    return paths.map(file => file.replace(/\/$/, ''));
   }
 
   async workingState(gitDir) {

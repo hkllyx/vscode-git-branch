@@ -2,8 +2,8 @@
 
 const vscode = require('vscode');
 const { t } = require('../i18n');
-const { orderRefs } = require('../git/parse');
 const { formatTracking, shortOid } = require('../util/format');
+const { refSections, sectionRefs, refAppearance } = require('./refPresentation');
 
 const COLLAPSED = vscode.TreeItemCollapsibleState.None;
 const EXPANDED = vscode.TreeItemCollapsibleState.Expanded;
@@ -39,8 +39,7 @@ class BranchesProvider {
     const repo = this.registry.active;
     if (!node) return this.roots(repo);
     if (node.section && repo?.id === node.repoId && repo.snapshot) {
-      return orderRefs(repo.snapshot.allRefs.filter(ref => ref.kind === node.section), repo.snapshot.head.ref)
-        .map(ref => this.branch(repo, ref));
+      return sectionRefs(repo.snapshot, node.section).map(ref => this.branch(repo, ref));
     }
     return [];
   }
@@ -60,9 +59,7 @@ class BranchesProvider {
       tooltip: refTooltip(head.ref ? head.ref.slice('refs/heads/'.length) : headLabel, upstream),
       contextValue: head.oid ? 'gb-head' : undefined
     }];
-    const kinds = [['local', t('branch.local')], ['remote', t('branch.remote')]];
-    if (this.registry.showTags) kinds.push(['tag', t('branch.tags')]);
-    for (const [section, label] of kinds) {
+    for (const { kind: section, label } of refSections({ tags: this.registry.showTags })) {
       const count = snapshot.allRefs.filter(ref => ref.kind === section).length;
       nodes.push({ repoId: repo.id, section, label, count, description: count ? undefined : t('branch.none') });
     }
@@ -70,13 +67,12 @@ class BranchesProvider {
   }
 
   branch(repo, item) {
-    const current = item.ref === repo.snapshot.head.ref;
+    const { current, icon } = refAppearance(item, repo.snapshot.head);
     const tracking = item.upstream?.tracking;
     const contextValue = current ? 'gb-current' : item.kind === 'tag' && !item.oid ? 'gb-noncommit-tag' : `gb-${item.kind}`;
     return {
       repoId: repo.id, ref: item.ref, oid: item.oid, label: item.name, contextValue,
-      icon: current ? 'star-full' : item.kind === 'tag' ? 'tag' : 'git-branch',
-      color: current ? 'charts.yellow' : undefined,
+      icon, color: current ? 'charts.yellow' : undefined,
       description: item.kind === 'tag' && !item.oid ? t('branch.nonCommit') : formatTracking(item.trackingCount),
       tooltip: refTooltip(item.name, tracking)
     };

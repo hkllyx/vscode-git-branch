@@ -7,6 +7,7 @@ const { createHash } = require('node:crypto');
 const { t } = require('../i18n');
 const { BranchError, errorText, isOid, shortOid } = require('../util/format');
 const { pathsOverlap, UpdateStash } = require('./updateChanges');
+const { sameHead } = require('./refs');
 
 const TAGS = 'refs/tags/';
 const RESET_MODES = ['soft', 'mixed', 'keep', 'hard'];
@@ -17,7 +18,6 @@ const APPLY_OPTIONS = ['--whitespace=nowarn', '--no-ignore-whitespace', '--no-re
 const SAFE_CHECKOUT = ['-c', 'submodule.recurse=false'];
 const SEQUENCER = [...SAFE_CHECKOUT, '-c', 'rerere.enabled=false', '-c', 'merge.directoryRenames=false'];
 const fail = (key, values) => new BranchError(t(key, values));
-const sameHead = (a, b) => a.ref === b.ref && a.oid === b.oid;
 
 class HistoryActions {
   constructor(branches) {

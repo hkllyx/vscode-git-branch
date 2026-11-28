@@ -9,13 +9,11 @@ const { GitClient, GitError } = require('./gitClient');
 const { GitReads, ensureResult } = require('./reads');
 const { HistoryActions } = require('./historyActions');
 const { parseFetchRules, mappedTracking, mappedSources } = require('./parse');
+const { HEADS, REMOTES, sameHead } = require('./refs');
 const { pathsOverlap, UpdateStash } = require('./updateChanges');
 const { BranchError, errorText, shortOid, stripLineEnd } = require('../util/format');
 
-const HEADS = 'refs/heads/';
-const REMOTES = 'refs/remotes/';
 const changed = key => new BranchError(t('git.changed', { what: t(key) }));
-const sameHead = (a, b) => a.ref === b.ref && a.oid === b.oid;
 const sameUpstream = (a, b) => a?.tracking === b?.tracking && a?.remote === b?.remote && a?.source === b?.source;
 const branchName = ref => ref.slice(HEADS.length);
 const localRef = name => HEADS + name;
@@ -154,9 +152,8 @@ class GitActions {
   async assertBranchEditable(tip, rename) {
     const { head } = await this.working();
     const current = head.ref === tip.ref;
-    const occupied = (await this.client.text(['worktree', 'list', '--porcelain', '-z'])).split('\0')
-      .filter(field => field === `branch ${tip.ref}`).length;
-    if (occupied > Number(current)) throw new BranchError(t('git.branchInAnotherWorktree', { name: tip.name }));
+    const occupied = await this.#checkedOutPaths(tip.ref);
+    if (occupied.length > Number(current)) throw new BranchError(t('git.branchInAnotherWorktree', { name: tip.name }));
     if (current && !rename) throw new BranchError(t('git.cannotDeleteCurrent'));
     return current;
   }
@@ -234,16 +231,11 @@ class GitActions {
     if (!sameUpstream(upstream, await this.mappingFor(tip.ref))) throw changed('git.changedRemoteMapping');
     if (await this.deleteEndpoint(upstream) !== plan.url) throw changed('git.changedPushUrl');
     await this.verifyTip(tip);
-    try {
-      // Exact lease: do not delete if the server branch gained (or lost) commits
-      // since the confirmed snapshot. No unconditional force or mirror push.
-      await this.client.text([...SINGLE_PUSH, `--force-with-lease=${upstream.source}:${tip.oid}`,
-        '--', upstream.remote, `:${upstream.source}`], NETWORK);
-    } catch (error) {
-      const known = error instanceof GitError && (error.rejected || error.auth) && !error.remoteFailure;
-      throw new BranchError(t(known ? 'git.remoteDeleteRejected' : 'git.remoteDeleteUnconfirmed', { detail: errorText(error) }),
-        { warning: false, terminal: error.auth });
-    }
+    // Exact lease: do not delete if the server branch gained (or lost) commits
+    // since the confirmed snapshot. No unconditional force or mirror push.
+    await this.#pushSingle(upstream.remote, `:${upstream.source}`, {
+      lease: `${upstream.source}:${tip.oid}`, rejected: 'git.remoteDeleteRejected', unconfirmed: 'git.remoteDeleteUnconfirmed'
+    });
     return { message: t('git.remoteDeleted', { remote: upstream.remote, name }) };
   }
 
@@ -314,17 +306,18 @@ class GitActions {
     }
   }
 
-  async checkedOutPath(ref) {
+  async #checkedOutPaths(ref) {
     const list = await this.client.text(['worktree', 'list', '--porcelain', '-z']);
+    const matches = [];
     for (const record of list.split('\0\0')) {
-      const fields = record.split('\0');
-      if (fields[0].startsWith('worktree ') && fields.includes(`branch ${ref}`)) return fields[0].slice(9);
+      const [worktree, ...fields] = record.split('\0');
+      if (worktree.startsWith('worktree ') && fields.includes(`branch ${ref}`)) matches.push(worktree.slice('worktree '.length));
     }
-    return undefined;
+    return matches;
   }
 
   async assertNotCheckedOut(tip) {
-    const directory = await this.checkedOutPath(tip.ref);
+    const [directory] = await this.#checkedOutPaths(tip.ref);
     if (directory) throw new BranchError(t('git.branchCheckedOutAt', { name: tip.name, path: directory }));
   }
 
@@ -335,7 +328,7 @@ class GitActions {
       return { tip, upstream, newBranch: true, suggestedName: localNameFor(tip, upstream) };
     }
     if (tip.kind !== 'local') throw new BranchError(t('git.explicitBranch'));
-    const occupied = await this.checkedOutPath(ref);
+    const [occupied] = await this.#checkedOutPaths(ref);
     return { tip, newBranch: Boolean(occupied), suggestedName: tip.name };
   }
 
@@ -678,13 +671,9 @@ class GitActions {
     if ((await this.remoteEndpoint(plan.remote, true)) !== plan.url) throw changed('git.changedPushUrl');
     if (plan.tracking && await this.pushTracking(plan.remote, plan.target) !== plan.tracking) throw changed('git.changedRemoteMapping');
     await this.verifyTip(plan.tip);
-    try {
-      await this.client.text([...SINGLE_PUSH, '--', plan.remote, `${plan.tip.oid}:${plan.target}`], NETWORK);
-    } catch (error) {
-      const known = error instanceof GitError && (error.rejected || error.auth) && !error.remoteFailure;
-      const message = t(known ? 'git.pushRejected' : 'git.pushUnconfirmed', { detail: errorText(error) });
-      throw new BranchError(message, { warning: false, terminal: error.auth });
-    }
+    await this.#pushSingle(plan.remote, `${plan.tip.oid}:${plan.target}`, {
+      rejected: 'git.pushRejected', unconfirmed: 'git.pushUnconfirmed'
+    });
     const message = t('git.pushed', { name: plan.tip.name, remote: plan.remote, target: plan.name });
     if (!plan.tracking) return { message };
     try {
@@ -697,6 +686,15 @@ class GitActions {
       return { warning: true, message: `${message}\n${t('git.upstreamSetFailed', { detail: errorText(error) })}` };
     }
   }
+
+  async #pushSingle(remote, refspec, { lease, rejected, unconfirmed }) {
+    try {
+      await this.client.text([...SINGLE_PUSH, ...(lease ? [`--force-with-lease=${lease}`] : []), '--', remote, refspec], NETWORK);
+    } catch (error) {
+      const known = error instanceof GitError && (error.rejected || error.auth) && !error.remoteFailure;
+      throw new BranchError(t(known ? rejected : unconfirmed, { detail: errorText(error) }), { warning: false, terminal: error.auth });
+    }
+  }
 }
 
-module.exports = { GitActions, WriteQueue, HEADS, sameHead };
+module.exports = { GitActions, WriteQueue };

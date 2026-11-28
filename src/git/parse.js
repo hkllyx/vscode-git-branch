@@ -1,7 +1,7 @@
 'use strict';
 
 const { t } = require('../i18n');
-const { isOid, compareName, BranchError } = require('../util/format');
+const { isOid, BranchError } = require('../util/format');
 
 const REF_FORMAT = [
   'refname', 'objectname', 'objecttype', 'symref', '*objectname', '*objecttype',
@@ -147,8 +147,4 @@ function mappedSources(rules, tracking) {
   return [...sources];
 }
 
-function orderRefs(refs, current) {
-  return [...refs].sort((a, b) => Number(b.ref === current) - Number(a.ref === current) || compareName(a.name, b.name));
-}
-
-module.exports = { REF_FORMAT, LOG_FORMAT, parseRefs, parseLog, parseCommit, parseRawDiff, filePath, parseFetchRules, mappedTracking, mappedSources, orderRefs };
+module.exports = { REF_FORMAT, LOG_FORMAT, parseRefs, parseLog, parseCommit, parseRawDiff, filePath, parseFetchRules, mappedTracking, mappedSources };

@@ -32,6 +32,7 @@
   const FILE_BATCH = 200;
   const FILE_PATCH_LIMIT = Number(files.dataset.patchLimit);
   const commitTime = globalThis.gitBranchFormatCommitTime;
+  const comparisonGroups = globalThis.gitBranchComparisonGroups;
   const STATUS = {
     A: t('history.statusAdded'), C: t('history.statusCopied'), D: t('history.statusDeleted'), M: t('history.statusModified'),
     R: t('history.statusRenamed'), T: t('history.statusTypeChange'), U: t('history.statusConflict'),
@@ -216,15 +217,12 @@
       state.entries = state.rows.map((row, index) => ({ row, index, size }));
       return;
     }
-    const groups = { left: [], right: [] };
-    for (const row of state.rows) groups[row.side]?.push(row);
     const entries = [];
-    for (const side of ['left', 'right']) {
-      const rows = groups[side];
+    for (const { side, collapsed, rows } of comparisonGroups(state.rows, state.meta.compare.collapsed)) {
       // An unfiltered side may have commits on later pages; show its heading as soon as the count is known.
       if (!rows.length && !(!state.page.filter && state.page.hasMore && state.comparison?.counts?.[side] > 0)) continue;
       entries.push({ side });
-      if (state.meta.compare.collapsed.includes(side)) continue;
+      if (collapsed) continue;
       const size = state.page.hasMore ? -1 : rows.length;
       for (const [index, row] of rows.entries()) entries.push({ row, side, index, size });
     }
@@ -391,14 +389,20 @@
       }) };
   }
 
-  function updateFileSelection(source, next) {
+  function markFileSelection(row, selected) {
+    row.classList.toggle('selected', selected);
+    press(row, selected);
+  }
+
+  function setFileSelection(source, next) {
     state.selectedFiles[source] = next;
+    if (files.dataset.tab !== source) return;
+    for (const row of files.querySelectorAll('.file-row')) markFileSelection(row, next.has(row.dataset.fileId));
+  }
+
+  function updateFileSelection(source, next) {
+    setFileSelection(source, next);
     send('selectFiles', { source, ids: [...next] });
-    for (const row of files.querySelectorAll('.file-row')) {
-      const active = next.has(row.dataset.fileId);
-      row.classList.toggle('selected', active);
-      press(row, active);
-    }
   }
 
   function selectFile(event, file, source) {
@@ -429,9 +433,7 @@
     row.dataset.fileId = file.id;
     // A single click only moves the selection; the Diff opens on double click.
     row.addEventListener('dblclick', () => { if (!file.ambiguous) send('openDiff', { token: file.id }); });
-    const selected = state.selectedFiles[source].has(file.id);
-    row.classList.toggle('selected', selected);
-    press(row, selected);
+    markFileSelection(row, state.selectedFiles[source].has(file.id));
     row.append(el('span', `file-status status-${file.status}`, file.status, label));
     const fileLabel = el('span', 'file-label');
     fileLabel.append(el('span', 'file-name ellipsis', name));
@@ -445,6 +447,17 @@
       if (file.sourceCandidate && !state.fileMenus.has(file.id)) probe('probeFileMenu', { source, token: file.id });
     });
     return row;
+  }
+
+  function fileFolder(label, open, onToggle, className = 'file-folder') {
+    const entry = el('details', className);
+    const summary = el('summary');
+    summary.append(el('span', 'file-name ellipsis', label, label));
+    const children = el('div', 'file-children');
+    entry.append(summary, children);
+    entry.open = open;
+    entry.addEventListener('toggle', () => { if (entry.isConnected) onToggle(entry.open); });
+    return { entry, children };
   }
 
   function fileTree(root, list, source, scope) {
@@ -463,14 +476,9 @@
     });
     const fill = (container, folder) => {
       for (const dir of folder.dirs.values()) {
-        const entry = el('details', 'file-folder');
-        const summary = el('summary');
-        summary.append(el('span', 'file-name ellipsis', dir.name, dir.name));
-        const children = el('div', 'file-children');
-        entry.append(summary, children);
-        entry.open = state.directories.get(dir.key) ?? true;
+        const { entry, children } = fileFolder(dir.name, state.directories.get(dir.key) ?? true,
+          open => state.directories.set(dir.key, open));
         fill(children, dir);
-        entry.addEventListener('toggle', () => { if (entry.isConnected) state.directories.set(dir.key, entry.open); });
         container.append(entry);
       }
       for (const file of folder.files) container.append(fileRow(file, source, true));
@@ -489,23 +497,16 @@
     const { oid, subject, files: list } = group;
     const view = state.parentViews.get(oid) || { open: false, limit: FILE_BATCH };
     state.parentViews.set(oid, view);
-    const entry = el('details', 'file-folder parent-group');
-    const summary = el('summary');
     const title = t('history.changesToParent', { parent: [short(oid), subject].filter(Boolean).join(' ') });
-    summary.append(el('span', 'file-name ellipsis', title, title));
-    const children = el('div', 'file-children');
-    entry.append(summary, children);
-    entry.open = view.open;
+    const { entry, children } = fileFolder(title, view.open, open => {
+      view.open = open;
+      if (open && !children.hasChildNodes()) fill();
+    }, 'file-folder parent-group');
     const fill = () => {
       children.replaceChildren();
       renderFileBatch(children, list, 'commit', oid, view.limit, () => { view.limit += FILE_BATCH; fill(); });
     };
     if (entry.open) fill();
-    entry.addEventListener('toggle', () => {
-      if (!entry.isConnected) return;
-      view.open = entry.open;
-      if (entry.open && !children.hasChildNodes()) fill();
-    });
     root.append(entry);
   }
 
@@ -854,14 +855,8 @@
         case 'fileSelection': {
           const { source, ids } = payload;
           if (!state.selectedFiles[source]) return;
-          state.selectedFiles[source] = new Set(ids);
           state.anchors[source] = ids[0];
-          if (files.dataset.tab !== source) return;
-          for (const row of files.querySelectorAll('.file-row')) {
-            const active = state.selectedFiles[source].has(row.dataset.fileId);
-            row.classList.toggle('selected', active);
-            press(row, active);
-          }
+          setFileSelection(source, new Set(ids));
           return;
         }
         case 'editPrompt': renderEdit(payload); return;

@@ -904,6 +904,12 @@ test('history context targets the clicked commit or its selection and rejects st
   await controller.commitCommand('checkoutRevision', { ...context, gbOid: b.oid });
   assert.deepEqual(calls.map(call => [call.kind, call.oids]), [['copyRevision', [a.oid, c.oid]], ['checkoutRevision', [b.oid]]]);
   calls[0].guard();
+  // HEAD identity includes the branch, even if switching branches keeps the same OID.
+  repo.snapshot.head = { ...head, ref: 'refs/heads/topic' };
+  assert.throws(calls[0].guard, stale);
+  repo.snapshot.head = { ...head, oid: b.oid };
+  assert.throws(calls[0].guard, stale);
+  repo.snapshot.head = head;
   controller.selectionRevision++;
   assert.throws(calls[0].guard, stale);
   assert.equal(calls[0].r, repo);
@@ -935,6 +941,7 @@ test('history HTML embeds Codicons from installed VS Code assets without allowin
     assert.match(html, /default-src 'none'/);
     assert.doesNotMatch(html, /font-src/);
     assert.match(html, /class="refresh-label">[^<]+</);
+    assert.match(html, /src="media\/historyRows\.js"[\s\S]*src="media\/graph\.js"/);
   }
 });
 

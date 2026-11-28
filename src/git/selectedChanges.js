@@ -3,6 +3,7 @@
 const { t } = require('../i18n');
 const { BranchError, errorText, isOid } = require('../util/format');
 const { PATCH, APPLY_OPTIONS } = require('./historyActions');
+const { sameHead } = require('./refs');
 const { pathsOverlap } = require('./updateChanges');
 const { regularMode, pathParts, safeWorktreeFile } = require('./worktreePaths');
 
@@ -47,7 +48,7 @@ class SelectedChanges {
     if (!files.length || files.length > MAX_PATCH_FILES) throw new BranchError(t('git.historyPatchFileLimit', { count: MAX_PATCH_FILES }));
     if (files.some(file => !canApply(file))) throw new BranchError(t('git.historyPatchUnsupported'));
     const work = await this.branches.working();
-    if (expectedHead && (work.head.ref !== expectedHead.ref || work.head.oid !== expectedHead.oid)) throw new BranchError(t('history.staleAction'));
+    if (expectedHead && !sameHead(work.head, expectedHead)) throw new BranchError(t('history.staleAction'));
     const before = [], after = [], paths = new Map();
     const ignoreCase = await this.branches.ignoresCase();
     for (const [index, file] of files.entries()) {

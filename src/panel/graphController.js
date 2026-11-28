@@ -4,8 +4,10 @@ const { randomBytes } = require('node:crypto');
 const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
+const { comparisonGroups } = require('../../media/historyRows');
 const { historyMessages, locale, t } = require('../i18n');
 const { GraphLayout } = require('../graph/layout');
+const { sameHead } = require('../git/refs');
 const { MAX_SELECTION, HistorySelection, historyTarget, combineChanges, mapWithLimit } = require('./historyState');
 const { editableFileSide, repositoryVersion, canApply, MAX_PATCH_FILES } = require('../git/selectedChanges');
 const { regularMode, safeWorktreeFile } = require('../git/worktreePaths');
@@ -344,7 +346,7 @@ class GraphController {
 
   displayRows() {
     if (!this.comparison) return this.rows;
-    return ['left', 'right'].flatMap(side => this.collapsedGroups.has(side) ? [] : this.rows.filter(row => row.side === side));
+    return comparisonGroups(this.rows, [...this.collapsedGroups]).flatMap(group => group.collapsed ? [] : group.rows);
   }
 
   async loadPage() {
@@ -577,7 +579,7 @@ class GraphController {
       if (!this.canRead || this.registry.active !== repo || !vscode.workspace.isTrusted || context?.webview !== 'git-branch.log' ||
         context.gbArea !== area || context.gbGeneration !== generation || this.generation !== generation || context.gbRepo !== repo.id ||
         context.gbRevision !== revision || this.selectionRevision !== revision || (head?.ref || '') !== context.gbHeadRef ||
-        (head?.oid || '') !== context.gbHeadOid || repo.snapshot.head.ref !== head?.ref || repo.snapshot.head.oid !== head?.oid) {
+        (head?.oid || '') !== context.gbHeadOid || !sameHead(repo.snapshot.head, head)) {
         throw new BranchError(t('history.staleAction'));
       }
     };
@@ -647,7 +649,7 @@ class GraphController {
     const request = this.start('commitMenu');
     try {
       const actions = await repo.actions.history.eligibility(rows, head, request.signal);
-      if (this.active('commitMenu', request) && repo.snapshot.head.ref === head?.ref && repo.snapshot.head.oid === head?.oid) {
+      if (this.active('commitMenu', request) && sameHead(repo.snapshot.head, head)) {
         this.send('commitMenu', { oid, revision, head, actions });
       }
     } catch { /* Menu probes are advisory; execution performs its own checks. */ }
@@ -839,6 +841,7 @@ class GraphController {
 </dialog>
 <script nonce="${nonce}" src="${asset('translate.js')}"></script>
 <script nonce="${nonce}" src="${asset('commitTime.js')}"></script>
+<script nonce="${nonce}" src="${asset('historyRows.js')}"></script>
 <script nonce="${nonce}" src="${asset('graph.js')}"></script>
 </body>
 </html>`;
