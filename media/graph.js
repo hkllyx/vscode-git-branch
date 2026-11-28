@@ -604,7 +604,7 @@
   function renderDetail() {
     const { detail, loading, focus, selected } = state.selection;
     const multi = (selected?.length || 0) > 1;
-    const hidden = multi || Boolean(state.meta.compare && (state.snapshot || !detail));
+    const hidden = multi || Boolean(state.rowsByOid.get(focus)?.worktree || (state.meta.compare && (state.snapshot || !detail)));
     const offset = details.dataset.oid === detail?.oid ? detailBody.scrollTop : 0;
     details.dataset.oid = detail?.oid || '';
     details.hidden = hidden;

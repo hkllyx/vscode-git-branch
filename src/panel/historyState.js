@@ -24,7 +24,8 @@ function historyTarget(snapshot, range, tags) {
   const tips = [...new Set(tip.filter(Boolean))].sort();
   const label = range === ALL ? t('history.allBranches') : range === 'HEAD'
     ? snapshot.head.ref?.slice('refs/heads/'.length) || 'HEAD' : ref.name;
-  return { range, tips, shallow: snapshot.shallow, key: JSON.stringify([range, snapshot.shallow, tips]), label };
+  const worktreeOid = snapshot.head.ref && (range === 'HEAD' || range === snapshot.head.ref) ? snapshot.head.oid : undefined;
+  return { range, tips, shallow: snapshot.shallow, key: JSON.stringify([range, snapshot.shallow, tips, worktreeOid]), label, worktreeOid };
 }
 
 class HistorySelection {

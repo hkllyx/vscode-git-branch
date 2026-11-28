@@ -147,6 +147,8 @@ class GraphController {
     this.layout = new GraphLayout();
     this.sideLayouts = { left: new GraphLayout(), right: new GraphLayout() };
     this.hasMore = true;
+    this.pageLoaded = false;
+    this.historyWorktreeVersion = undefined;
     this.scanned = 0;
     this.pageError = undefined;
     this.selectionFiles = new Map();
@@ -192,7 +194,10 @@ class GraphController {
     if ((!this.comparison && previous?.key !== this.target.key) || (this.comparison && previous?.shallow !== this.target.shallow)) {
       this.reset(previous?.range === this.target.range);
     } else if (recovered) this.resume();
-    else this.send('meta', this.meta());
+    else {
+      this.send('meta', this.meta());
+      void this.syncHistoryWorktree();
+    }
   }
 
   setRange(repo, range) {
@@ -373,18 +378,18 @@ class GraphController {
   resume() {
     this.sendReset();
     if (!this.canRead) return;
-    if (!this.rows.length && this.hasMore && !this.pageError) void this.loadPage();
+    if (!this.pageLoaded && this.hasMore && !this.pageError) void this.loadPage();
+    else void this.syncHistoryWorktree();
     if (this.comparison && (!this.comparePacket || this.comparePacket.loading)) void this.loadComparison();
     if (this.rows.length && (!this.selectionPacket || this.selectionPacket.loading)) void this.loadSelection();
   }
 
-  async worktreeChanges(repo, comparison) {
+  async worktreeChanges(repo, oid, version = this.comparison ?? repo.snapshot) {
     const current = this.worktreeSnapshot;
-    if (current?.comparison === comparison && !current.request.signal.aborted) return current.pending;
+    if (current?.repo === repo && current.oid === oid && current.version === version && !current.request.signal.aborted) return current.pending;
     const request = this.start('worktree');
-    const endpoint = comparison.left.worktree ? comparison.left : comparison.right;
-    const pending = Promise.resolve().then(() => repo.reads.worktreeFiles(endpoint.oid, { signal: request.signal }));
-    const snapshot = this.worktreeSnapshot = { comparison, request, pending };
+    const pending = Promise.resolve().then(() => repo.reads.worktreeFiles(oid, { signal: request.signal }));
+    const snapshot = this.worktreeSnapshot = { repo, oid, version, request, pending };
     try { return await pending; }
     catch (error) {
       if (this.worktreeSnapshot === snapshot) this.worktreeSnapshot = undefined;
@@ -392,6 +397,44 @@ class GraphController {
     } finally {
       if (this.active('worktree', request)) this.requests.delete('worktree');
     }
+  }
+
+  async readWorktreeRow(repo, oid, version, side) {
+    if (!oid) return;
+    const subject = t('history.workingTreeCommit');
+    if (!subject.toLowerCase().includes(this.filter.toLowerCase())) return;
+    const changes = await this.worktreeChanges(repo, oid, version);
+    // The virtual node attaches to the pinned HEAD, not to an arbitrary visible commit.
+    if (changes.length) return { oid: `worktree:${oid}`, baseOid: oid, worktree: true, parents: [oid], side, subject };
+  }
+
+  async syncHistoryWorktree() {
+    const { repo, target, comparison, generation } = this;
+    const snapshot = repo?.snapshot;
+    if (!this.canRead || comparison || !target?.worktreeOid || !this.pageLoaded || this.historyWorktreeVersion === snapshot) return;
+    // Status notifications can change local files without moving HEAD or invalidating a loaded page.
+    const row = await this.readWorktreeRow(repo, target.worktreeOid, snapshot).catch(() => null);
+    if (row === null || !this.canRead || this.generation !== generation || repo.snapshot !== snapshot || this.historyWorktreeVersion === snapshot) return;
+    this.historyWorktreeVersion = snapshot;
+    const previous = this.rows[0]?.worktree ? this.rows[0] : undefined;
+    const changed = Boolean(previous) !== Boolean(row);
+    const wasSelected = this.selection.selected.has(previous?.oid);
+    if (changed) {
+      if (row) {
+        this.rows.unshift(row);
+        this.known.set(row.oid, row);
+      } else {
+        this.rows.shift();
+        this.known.delete(previous.oid);
+      }
+      this.relayout();
+      if (wasSelected) {
+        this.selection.restore(this.selection.asPacket(), this.rows);
+        this.selectionPacket = undefined;
+      }
+      this.sendReset();
+    }
+    if (wasSelected) void this.loadSelection();
   }
 
   layoutFor(row) { return this.sideLayouts[row.side] || this.layout; }
@@ -405,7 +448,8 @@ class GraphController {
     if (!this.canRead || !this.hasMore || this.requests.has('page')) return;
     const request = this.start('page');
     const { repo, comparison, target } = this;
-    const first = this.rows.length === 0;
+    const snapshot = repo.snapshot;
+    const first = !this.pageLoaded;
     this.pageError = undefined;
     this.send('page', this.pageState());
     try {
@@ -414,23 +458,22 @@ class GraphController {
         skip: this.rows.filter(row => !row.worktree).length, scan: this.scanned, limit: 120, filter: this.filter, signal: request.signal });
       if (!this.active('page', request)) return;
       const rows = [];
-      const worktreeSide = comparison?.left.worktree ? 'left' : comparison?.right.worktree ? 'right' : undefined;
-      if (first && worktreeSide) {
-        // A failed working-tree read is reported by loadComparison; do not hide valid Git history.
-        const changes = await this.worktreeChanges(repo, comparison).catch(() => []);
+      if (first) {
+        const side = comparison?.left.worktree ? 'left' : comparison?.right.worktree ? 'right' : undefined;
+        const oid = comparison ? side && comparison[side].oid : target?.worktreeOid;
+        // A failed local diff must not prevent valid Git history from loading.
+        const row = await this.readWorktreeRow(repo, oid, comparison ?? snapshot, side).catch(() => undefined);
         if (!this.active('page', request)) return;
-        const subject = t('history.workingTreeCommit');
-        const text = this.filter.toLowerCase();
-        if (changes.length && (!text || subject.toLowerCase().includes(text))) {
-          rows.push(this.worktreeRow(comparison[worktreeSide].oid, worktreeSide, subject));
-        }
+        if (row) rows.push(row);
+        if (!comparison) this.historyWorktreeVersion = snapshot;
       }
-      for (const commit of commits) rows.push({ ...commit, shallowBoundary: repo.snapshot.shallowRoots?.has(commit.oid) });
+      for (const commit of commits) rows.push({ ...commit, shallowBoundary: snapshot.shallowRoots?.has(commit.oid) });
       for (const row of rows) row.graph = this.layoutFor(row).append(row);
       this.rows.push(...rows);
       for (const row of rows) this.known.set(row.oid, row);
+      this.pageLoaded = true;
       this.hasMore = hasMore;
-      this.scanned = scanned ?? this.rows.length;
+      this.scanned = scanned ?? this.rows.filter(row => !row.worktree).length;
       if (!hasMore && [this.layout, ...Object.values(this.sideLayouts)].some(layout => layout.byOid.size)) {
         // Parents excluded from the completed range don't reserve a lane indefinitely.
         this.relayout();
@@ -440,6 +483,7 @@ class GraphController {
         this.selection.restore(this.restore, this.displayRows());
         this.restore = undefined;
         void this.loadSelection();
+        void this.syncHistoryWorktree();
       }
     } catch (error) {
       if (this.active('page', request)) this.pageError = errorText(error);
@@ -451,16 +495,12 @@ class GraphController {
     }
   }
 
-  worktreeRow(oid, side, subject) {
-    // The virtual node attaches to the pinned HEAD, not to an arbitrary visible commit.
-    return { oid: `worktree:${oid}`, baseOid: oid, worktree: true, parents: [oid], side, subject };
-  }
-
-  /** Rebuilds lane geometry after the final page. */
+  /** Rebuilds lane geometry, retaining unknown parents while more pages may contain them. */
   relayout() {
     this.layout = new GraphLayout();
     this.sideLayouts = { left: new GraphLayout(), right: new GraphLayout() };
-    for (const row of this.rows) row.graph = this.layoutFor(row).append(row, this.known);
+    const known = this.hasMore ? undefined : this.known;
+    for (const row of this.rows) row.graph = this.layoutFor(row).append(row, known);
   }
 
   async readCommit(repo, oid, signal) {
@@ -522,7 +562,7 @@ class GraphController {
       this.selectionPacket = { ...state, revision, ...packet };
       this.send('selection', this.selectionPacket);
     };
-    const { repo, comparison } = this;
+    const { repo } = this;
     if (!this.canRead || !state.focus || state.selected.length > MAX_SELECTION) {
       this.cancel('selection');
       publish(state.selected.length > MAX_SELECTION ? { selectionOverLimit: MAX_SELECTION } : {});
@@ -540,7 +580,7 @@ class GraphController {
         let commit, files, parentGroups, error;
         try {
           if (row?.worktree) {
-            files = await this.worktreeChanges(repo, comparison);
+            files = await this.worktreeChanges(repo, row.baseOid);
             files = files.map(file => ({ ...file, baseOid: row.baseOid, afterOid: oid }));
           } else {
             commit = await this.readCommit(repo, oid, signal);
@@ -590,7 +630,7 @@ class GraphController {
     const opts = { signal: request.signal };
     const side = left.worktree ? 'left' : right.worktree ? 'right' : undefined;
     const other = side === 'left' ? right : left;
-    const local = side ? this.worktreeChanges(repo, comparison) : Promise.resolve([]);
+    const local = side ? this.worktreeChanges(repo, comparison[side].oid, comparison) : Promise.resolve([]);
     const fileDiff = !side ? repo.reads.branchFiles(left.oid, right.oid, opts)
       : left.oid === right.oid ? local : repo.reads.worktreeFiles(other.oid, opts);
     const [diff, counts, ancestor, changes] = await Promise.allSettled([

@@ -114,7 +114,7 @@ test('history follows the checked-out branch by default and preserves manually c
   const reads = { historyPage: async options => {
     tips.push(options.tips);
     return { commits: [], hasMore: false, scanned: 0 };
-  } };
+  }, worktreeFiles: async () => [] };
   const repo = { id: 'repo', name: 'repo', root: {}, reads };
   const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
   const controller = new GraphController({}, registry, {}, {});
@@ -133,7 +133,7 @@ test('history follows the checked-out branch by default and preserves manually c
   assert.equal(controller.meta().range, 'HEAD', 'detached HEAD keeps showing the checked-out revision');
   checkout({ ref: 'refs/heads/unborn' });
   assert.equal(controller.meta().range, 'unborn');
-  assert.deepEqual(tips, [[main.oid], [other.oid], []]);
+  assert.deepEqual(tips, [[main.oid], [other.oid], [other.oid], []], 'detaching re-queries to remove any working-tree row');
   controller.setRange(repo, 'all');
   checkout(main);
   assert.equal(controller.meta().range, message('history.allBranches'));
@@ -553,6 +553,112 @@ test('Branches keeps the native tree and exposes the expected menu for each bran
   assert.equal(label('checkoutRemote'), 'Checkout');
   assert.equal(label('pull'), 'Update');
   assert.equal(label('deleteBranch'), 'Delete…');
+});
+
+test('current branch history shows a shared Uncommitted Changes row before HEAD without consuming a page slot', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('current-worktree');
+  const base = await local.commit('initial', { 'staged.txt': 'old', 'tracked.txt': 'old', '.gitignore': 'ignored.txt\n' });
+  const oid = await local.commit('newest');
+  await local.git('branch', 'topic'); // Same OID does not make it the checked-out branch.
+  await local.git('update-ref', 'refs/remotes/origin/main', oid);
+  await local.git('tag', 'tip');
+  await local.write('staged.txt', 'new staged');
+  await local.git('add', '--', 'staged.txt');
+  await local.write('tracked.txt', 'saved but unstaged');
+  await local.write('new.txt', 'untracked');
+  await local.write('ignored.txt', 'ignored');
+  const originalPage = local.reads.historyPage.bind(local.reads);
+  local.reads.historyPage = options => originalPage({ ...options, limit: 1 });
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode: {} });
+  const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local', reads: local.reads,
+    snapshot: await local.reads.snapshot(local.dirs, true), commitCache: new Map(), filesCache: new Map() };
+  const registry = { active: repo, showTags: true, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
+  const opened = [];
+  const controller = new GraphController({}, registry, { open: (_repo, change) => opened.push(change) }, {});
+  t.after(() => controller.dispose());
+  controller.ready = true;
+  controller.view = { visible: true, webview: { postMessage: () => true } };
+  controller.resume();
+  const send = (type, data) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...data });
+  const virtual = `worktree:${oid}`;
+  await waitFor(() => controller.selectionPacket?.files?.length === 3, 'local file diff');
+  assert.deepEqual(controller.rows.map(row => row.oid), [virtual, oid]);
+  assert.equal(controller.rows[0].subject, message('history.workingTreeCommit'));
+  assert.deepEqual(controller.rows[0].graph.edges.map(edge => edge.oid), [oid]);
+  assert.equal(controller.rows[1].graph.incoming, true);
+  assert.equal(controller.selectionPacket.detail, undefined);
+  assert.deepEqual(controller.selectionPacket.files.map(file => [file.path, file.status]).sort(),
+    [['new.txt', 'A'], ['staged.txt', 'M'], ['tracked.txt', 'M']]);
+  const file = controller.selectionPacket.files.find(file => file.path === 'tracked.txt');
+  assert.equal(file.apply, false);
+  await send('openDiff', { token: file.id });
+  assert.equal(opened[0].workingTree, true);
+  assert.equal(opened[0].baseOid, oid);
+  assert.equal(await local.reads.workingBlob(opened[0]), 'saved but unstaged');
+  await send('loadMore');
+  assert.deepEqual(controller.rows.map(row => row.oid), [virtual, oid, base]);
+  assert.equal(controller.hasMore, false);
+
+  for (const range of ['refs/heads/main', 'refs/heads/topic', 'refs/remotes/origin/main', 'refs/tags/tip', 'all', 'HEAD']) {
+    controller.setRange(repo, range);
+    await waitFor(() => controller.pageLoaded, range);
+    assert.equal(Boolean(controller.rows[0]?.worktree), range === 'refs/heads/main' || range === 'HEAD');
+  }
+  await send('setFilter', { text: 'newest' });
+  await waitFor(() => controller.pageLoaded, 'filter omits the virtual row');
+  assert.deepEqual(controller.rows.map(row => row.oid), [oid]);
+  await send('setFilter', { text: 'Uncommitted' });
+  await waitFor(() => controller.pageLoaded, 'filter matches the virtual row');
+  assert.deepEqual(controller.rows.map(row => row.oid), [virtual]);
+  assert.deepEqual(controller.rows[0].graph.edges.map(edge => edge.oid), [oid], 'missing HEAD is a boundary, not a synthetic link');
+  await local.git('checkout', '--detach', oid);
+  repo.snapshot = await local.reads.snapshot(local.dirs, true);
+  controller.repoChanged();
+  await send('setFilter', { text: '' });
+  await waitFor(() => controller.pageLoaded, 'detached HEAD history');
+  assert.equal(controller.rows[0].oid, oid);
+});
+
+test('current branch history updates local changes without resetting the loaded commit pages or stealing selection', async t => {
+  const f = await fixture(t);
+  const local = await f.repo('live-worktree');
+  const oid = await local.commit('initial', { 'tracked.txt': 'clean' });
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode: {} });
+  const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local', reads: local.reads,
+    snapshot: await local.reads.snapshot(local.dirs, false), commitCache: new Map(), filesCache: new Map() };
+  const notify = async () => {
+    repo.snapshot = await local.reads.snapshot(local.dirs, false);
+    controller.repoChanged();
+  };
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }), refresh: notify };
+  const controller = new GraphController({}, registry, {}, {});
+  t.after(() => controller.dispose());
+  controller.ready = true;
+  controller.view = { visible: true, webview: { postMessage: () => true } };
+  controller.resume();
+  await waitFor(() => controller.selectionPacket?.detail?.oid === oid, 'clean history');
+  assert.deepEqual(controller.rows.map(row => row.oid), [oid]);
+  const { generation } = controller;
+  const realRow = controller.rows[0];
+  const send = (type, data) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...data });
+  await local.write('tracked.txt', 'local');
+  await notify();
+  await waitFor(() => controller.rows[0]?.worktree, 'insert the virtual row');
+  const virtual = controller.rows[0].oid;
+  assert.equal(controller.rows[1], realRow);
+  assert.equal(controller.selection.focus, oid);
+  await send('select', { oid: virtual, mode: 'replace' });
+  await local.write('extra.txt', 'new untracked file');
+  await notify();
+  await waitFor(() => controller.selectionPacket?.files?.length === 2, 'update the selected virtual diff');
+  await local.write('tracked.txt', 'clean');
+  await local.git('clean', '-f', '--', 'extra.txt');
+  await notify();
+  await waitFor(() => controller.selectionPacket?.detail?.oid === oid, 'remove the virtual row and restore HEAD selection');
+  assert.deepEqual(controller.rows, [realRow]);
+  assert.equal(controller.known.has(virtual), false);
+  assert.equal(controller.generation, generation);
 });
 
 test('history opens the working tree Diff using a host-issued file token and saved bytes', async t => {
