@@ -50,7 +50,7 @@ class GraphController {
     this.ui = ui;
     this.range = 'HEAD';
     this.filter = '';
-    this.compareSide = 'both';
+    this.collapsedGroups = new Set();
     const savedColumns = context.workspaceState?.get(COMMIT_COLUMNS);
     const visibleColumns = Array.isArray(savedColumns) ? savedColumns : DEFAULT_COLUMNS;
     this.commitColumns = Object.keys(COLUMN_LABELS).filter(key => visibleColumns.includes(key));
@@ -166,7 +166,7 @@ class GraphController {
       this.repo = next;
       this.unavailable = !next?.snapshot || Boolean(next.error);
       this.comparison = undefined;
-      this.compareSide = 'both';
+      this.collapsedGroups.clear();
       this.range = 'HEAD';
       this.filter = '';
       this.target = next?.snapshot ? historyTarget(next.snapshot, this.range, this.registry.showTags) : undefined;
@@ -197,7 +197,7 @@ class GraphController {
       this.target = target;
       this.range = target.range;
       this.comparison = undefined;
-      this.compareSide = 'both';
+      this.collapsedGroups.clear();
       this.reset();
     }
   }
@@ -209,10 +209,16 @@ class GraphController {
     this.reset(false, Boolean(this.comparison));
   }
 
-  toggleCompareSide(side) {
+  toggleComparisonGroup(side) {
     if (!this.comparison || (side !== 'left' && side !== 'right') || this.comparePacket?.counts?.[side] === 0) return;
-    this.compareSide = this.compareSide === side ? 'both' : side;
-    this.reset(Boolean(this.rows.length || this.restore), true);
+    if (this.collapsedGroups.delete(side)) {
+      this.send('groupVisibility', [...this.collapsedGroups]);
+      return;
+    }
+    this.collapsedGroups.add(side);
+    this.send('groupVisibility', [...this.collapsedGroups]);
+    // Hidden commits must not be included in selection-based operations on visible rows.
+    if (this.selection.retain(oid => this.known.get(oid)?.side !== side)) return this.loadSelection();
   }
 
   async chooseColumns() {
@@ -227,7 +233,7 @@ class GraphController {
   compare(repo, left, right) {
     if (this.repo !== repo) throw new BranchError(t('repo.switched'));
     this.comparison = { left, right };
-    this.compareSide = 'both';
+    this.collapsedGroups.clear();
     this.reset();
   }
 
@@ -259,7 +265,7 @@ class GraphController {
   exitComparison() {
     if (!this.comparison) return;
     this.comparison = undefined;
-    this.compareSide = 'both';
+    this.collapsedGroups.clear();
     this.reset();
   }
 
@@ -284,6 +290,7 @@ class GraphController {
       message: !repo ? this.registry.noRepositoryMessage : repo.error ? t('repo.readError', { detail: repo.error }) : !snapshot ? t('repo.reading') : undefined,
       compare: comparison ? {
         left: this.comparisonLabel(comparison.left), right: this.comparisonLabel(comparison.right),
+        collapsed: [...this.collapsedGroups],
         workingTree: Boolean(comparison.left.worktree || comparison.right.worktree),
         stale: Boolean(snapshot && [comparison.left, comparison.right].some(endpoint => endpoint.worktree
           ? snapshot.head.oid !== endpoint.oid : endpoint.ref && snapshot.byRef.get(endpoint.ref)?.oid !== endpoint.oid))
@@ -299,7 +306,7 @@ class GraphController {
   pageState() {
     return { hasMore: this.hasMore, loading: this.requests.has('page'), error: this.pageError,
       columns: Math.max(this.layout.columns, this.sideLayouts.left.columns, this.sideLayouts.right.columns),
-      filter: this.filter, compareSide: this.compareSide };
+      filter: this.filter };
   }
 
   sendReset() {
@@ -337,7 +344,7 @@ class GraphController {
 
   displayRows() {
     if (!this.comparison) return this.rows;
-    return [...this.rows.filter(row => row.side === 'left'), ...this.rows.filter(row => row.side === 'right')];
+    return ['left', 'right'].flatMap(side => this.collapsedGroups.has(side) ? [] : this.rows.filter(row => row.side === side));
   }
 
   async loadPage() {
@@ -350,12 +357,11 @@ class GraphController {
     try {
       const tips = comparison ? undefined : target?.tips;
       const { commits, hasMore, scanned } = await repo.reads.historyPage({ tips, compare: comparison,
-        skip: this.rows.filter(row => !row.worktree).length, scan: this.scanned, limit: 120, filter: this.filter,
-        compareSide: this.compareSide, signal: request.signal });
+        skip: this.rows.filter(row => !row.worktree).length, scan: this.scanned, limit: 120, filter: this.filter, signal: request.signal });
       if (!this.active('page', request)) return;
       const rows = commits.map(commit => ({ ...commit, shallowBoundary: repo.snapshot.shallowRoots?.has(commit.oid), graph: this.layoutFor(commit).append(commit) }));
       const worktreeSide = comparison?.left.worktree ? 'left' : comparison?.right.worktree ? 'right' : undefined;
-      if (first && worktreeSide && ['both', worktreeSide].includes(this.compareSide)) {
+      if (first && worktreeSide) {
         // A failed working-tree read is reported by loadComparison; do not hide valid Git history.
         const changes = await this.worktreeChanges(repo, comparison).catch(() => []);
         if (!this.active('page', request)) return;
@@ -549,10 +555,6 @@ class GraphController {
       common: ancestor.status === 'fulfilled' ? ancestor.value : undefined
     });
     this.requests.delete('comparison');
-    if (this.compareSide !== 'both' && counted?.[this.compareSide] === 0) {
-      this.compareSide = 'both';
-      this.reset(true, true);
-    }
   }
 
   async openDiff(token) {
@@ -703,7 +705,7 @@ class GraphController {
       case 'setFilter':
         if (typeof message.text === 'string') return this.setFilter(message.text);
         return;
-      case 'toggleCompareSide': return this.toggleCompareSide(message.side);
+      case 'toggleComparisonGroup': return this.toggleComparisonGroup(message.side);
       case 'loadMore': return this.loadPage();
       case 'selectAllCommits':
         if (this.selection.selectAll(this.displayRows(), message.focusedOid)) return this.loadSelection();
@@ -716,7 +718,8 @@ class GraphController {
         return;
       case 'select': {
         const { oid, mode } = message;
-        if (!this.known.has(oid) || !['replace', 'toggle', 'range', 'extend'].includes(mode)) return;
+        const row = this.known.get(oid);
+        if (!row || (this.comparison && this.collapsedGroups.has(row.side)) || !['replace', 'toggle', 'range', 'extend'].includes(mode)) return;
         if (!this.selection.select(oid, mode, this.displayRows())) {
           void vscode.window.showWarningMessage(t('history.selectionLimit', { count: MAX_SELECTION }));
           return;
@@ -748,7 +751,7 @@ class GraphController {
       case 'swap':
         if (!this.comparison) return;
         this.comparison = { left: this.comparison.right, right: this.comparison.left };
-        if (this.compareSide !== 'both') this.compareSide = this.compareSide === 'left' ? 'right' : 'left';
+        this.collapsedGroups = new Set([...this.collapsedGroups].map(side => side === 'left' ? 'right' : 'left'));
         this.reset(true);
         return;
       case 'exitComparison': return this.exitComparison();
@@ -795,10 +798,6 @@ class GraphController {
   <section class="log-pane" aria-label="${htmlText('history.graph')}">
     <div class="pane-header log-header">
       <span id="log-title" title="${htmlText('history.selectionHint')}">${htmlText('history.graph')}</span>
-      <div id="compare-counts" class="compare-counts" role="group" aria-label="${htmlText('history.distinct')}" hidden>
-        <button id="compare-left" class="compare-filter left" type="button" aria-pressed="false"><span id="compare-left-label">${htmlText('history.baseOnly')}</span></button>
-        <button id="compare-right" class="compare-filter right" type="button" aria-pressed="false"><span id="compare-right-label">${htmlText('history.targetOnly')}</span></button>
-      </div>
       <button id="commit-columns" class="control icon column-picker" type="button" aria-label="${htmlText('history.chooseColumns')}" title="${htmlText('history.chooseColumns')}"><span class="codicon codicon-ellipsis" aria-hidden="true"></span><span class="columns-label">${htmlText('history.columns')}</span></button>
     </div>
     <div id="commits-scroll" class="scroll log-scroll" tabindex="-1">
@@ -810,15 +809,14 @@ class GraphController {
   <section class="right-pane" aria-label="${htmlText('history.filesAndDetails')}">
     <div id="file-pane" class="file-pane">
       <div class="pane-header file-header">
-        <span id="file-title">${htmlText('history.commitFiles')}</span>
-        <div id="file-tabs" class="file-tabs" role="tablist" aria-label="${htmlText('history.changedFiles')}" hidden>
-          <button id="commit-tab" class="file-tab" type="button" role="tab" aria-controls="files" aria-selected="false" tabindex="-1">${htmlText('history.commitFiles')}</button>
-          <button id="snapshot-tab" class="file-tab" type="button" role="tab" aria-controls="files" aria-selected="true">${htmlText('history.fileDiff')}</button>
+        <div id="file-tabs" class="file-tabs" role="tablist" aria-label="${htmlText('history.changedFiles')}">
+          <button id="commit-tab" class="file-tab" type="button" role="tab" aria-controls="files" aria-selected="true">${htmlText('history.commitFiles')}</button>
+          <button id="snapshot-tab" class="file-tab" type="button" role="tab" aria-controls="files" aria-selected="false" tabindex="-1" hidden>${htmlText('history.fileDiff')}</button>
         </div>
         <span id="file-count" class="pill"></span>
         <button id="file-layout" class="control icon file-layout" type="button" aria-label="${htmlText('history.viewTree')}" title="${htmlText('history.viewTree')}"><span class="codicon codicon-list-tree" aria-hidden="true"></span><span class="icon-label layout-label">${htmlText('history.viewTree')}</span></button>
       </div>
-      <div id="files" class="scroll files" tabindex="-1" data-patch-limit="${MAX_PATCH_FILES}" aria-label="${htmlText('history.changedFiles')}"></div>
+      <div id="files" class="scroll files" role="tabpanel" tabindex="-1" data-patch-limit="${MAX_PATCH_FILES}" aria-labelledby="commit-tab"></div>
     </div>
     <details id="details" class="details" open>
       <summary>${htmlText('history.commitDetails')}</summary>

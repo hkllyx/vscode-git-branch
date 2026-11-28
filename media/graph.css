@@ -6,7 +6,6 @@
   --mono: var(--vscode-editor-font-family, monospace);
   --blue: var(--vscode-charts-blue, #6da7e8);
   --purple: var(--vscode-charts-purple, #b392f0);
-  --warning: var(--vscode-editorWarning-foreground, #cca700);
 }
 
 * { box-sizing: border-box; }
@@ -33,6 +32,8 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .codicon { display: inline-block; width: 14px; text-align: center; line-height: 1; }
 .codicon-tag::before { content: '\1f3f7\fe0e'; }
 .codicon-warning::before { content: '!'; }
+.codicon-chevron-down::before { content: '▾'; }
+.codicon-chevron-right::before { content: '▸'; }
 .codicon-refresh { display: none; width: 16px; font-size: 16px; }
 .codicon-close { display: none; width: 16px; font-size: 16px; }
 .codicon-arrow-swap { display: none; width: 16px; font-size: 16px; }
@@ -42,6 +43,8 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .has-codicons .codicon { font: normal normal 14px/1 'Git Branch Codicon'; }
 .has-codicons .codicon-tag::before { content: '\ea66'; }
 .has-codicons .codicon-warning::before { content: '\ea6c'; }
+.has-codicons .codicon-chevron-down::before { content: '\eab4'; }
+.has-codicons .codicon-chevron-right::before { content: '\eab6'; }
 .has-codicons .codicon-refresh { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-refresh::before { content: '\eb37'; }
 .has-codicons .codicon-close { display: inline-block; font-size: 16px; }
@@ -96,27 +99,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   border-color: var(--vscode-input-border, var(--border));
 }
 .filter-text::placeholder { color: var(--vscode-input-placeholderForeground, var(--muted)); }
-.direction, .compare-counts { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.compare-counts { flex-wrap: wrap; }
-.compare-filter {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 1px 7px;
-  border: 1px solid var(--side-accent, var(--border));
-  border-radius: 4px;
-  font-size: .85em;
-  white-space: nowrap;
-  color: var(--muted);
-}
-.compare-filter.left { --side-accent: var(--purple); }
-.compare-filter.right { --side-accent: var(--blue); }
-.compare-filter:enabled[aria-pressed='false']:hover { background: transparent; color: var(--vscode-foreground); }
-.compare-filter[aria-pressed='true'], .compare-filter:enabled[aria-pressed='true']:hover {
-  background: color-mix(in srgb, var(--side-accent) 22%, var(--panel));
-  color: var(--vscode-foreground);
-}
-.compare-filter:focus-visible { outline-offset: 1px; }
+.direction { display: flex; align-items: center; gap: 4px; min-width: 0; }
 .direction .side { max-width: min(25vw, 225px); }
 .notices {
   max-height: 4.6em;
@@ -216,26 +199,29 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   font-size: .85em;
   font-weight: normal;
 }
-.side.left { border-color: var(--purple); }
-.side.right { border-color: var(--blue); }
+.side.left, .commit-section.left { --side-accent: var(--purple); }
+.side.right, .commit-section.right { --side-accent: var(--blue); }
+.direction .side { border-color: var(--side-accent); }
 .pill { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
 .pill:empty { display: none; }
-/* Side headings use a warning accent, not the commit selection colors. */
 .commit-section {
+  width: 100%;
   height: var(--row-height);
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 0 10px 0 8px;
-  font-size: .85em;
+  font-size: 1.05em;
   font-weight: 600;
-  letter-spacing: .02em;
-  color: var(--vscode-foreground);
-  background: color-mix(in srgb, var(--warning) 13%, var(--panel));
-  box-shadow: inset 3px 0 var(--warning);
+  text-align: start;
+  color: var(--side-accent);
+  background: color-mix(in srgb, var(--side-accent) 9%, var(--panel));
+  box-shadow: inset 3px 0 var(--side-accent);
 }
-.section-warning { flex: 0 0 auto; color: var(--warning); }
-.commit-section + .commit-row { border-top: 1px solid var(--border); }
+.commit-section:enabled:hover { background: color-mix(in srgb, var(--side-accent) 17%, var(--panel)); }
+.section-chevron { flex: 0 0 auto; }
+.section-label { display: flex; gap: .3em; min-width: 0; }
+.section-label > :last-child { flex: 0 0 auto; }
 .commit-row.worktree-row .commit-message .subject { font-style: italic; }
 
 .log-header, .file-header { flex-wrap: wrap; }

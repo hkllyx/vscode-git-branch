@@ -39,7 +39,7 @@ for (const { language, id, open, all, invalid, hidden, firstCommit } of cases) {
     const emptyRepo = new GitActions();
     emptyRepo.reads.head = async () => ({});
     await assert.rejects(emptyRepo.named('HEAD'), { name: 'BranchError', message: firstCommit });
-    assert.equal(browserT('history.baseCount', { count: 0 }), localizer.t('history.baseCount', { count: 0 }));
+    assert.equal(browserT('history.baseLabel', { name: 'main' }), localizer.t('history.baseLabel', { name: 'main' }));
     assert.ok('repo.pick' in packet);
     assert.ok(!('git.pushUnconfirmed' in packet));
     // The branch name is literal text, not a second set of parameters to interpolate.

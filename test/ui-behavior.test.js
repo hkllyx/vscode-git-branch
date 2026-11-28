@@ -562,7 +562,8 @@ test('history opens the working tree Diff using a host-issued file token and sav
   await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.files, 'load worktree comparison and synthetic selection');
   const scope = { repoId: repo.id, generation: controller.generation };
   const send = (type, data) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...data });
-  assert.deepEqual(controller.meta().compare, { left: { label: 'base', oid: base }, right: { label: 'Working Tree', oid: current, worktree: true }, workingTree: true, stale: false });
+  assert.deepEqual(controller.meta().compare, { left: { label: 'base', oid: base }, right: { label: 'Working Tree', oid: current, worktree: true },
+    collapsed: [], workingTree: true, stale: false });
   assert.deepEqual(controller.comparePacket.counts, { left: 0, right: 2 });
   const synthetic = controller.rows.find(row => row.worktree);
   assert.equal(synthetic.side, 'right');
@@ -625,9 +626,9 @@ test('history opens the working tree Diff using a host-issued file token and sav
   assert.equal(await local.read('file.txt'), 'saved after commit');
 });
 
-test('toggling comparison sides reloads commits without replacing the branch file diff or its counts', async t => {
+test('comparison groups fold independently without reloading history or changing File Diff', async t => {
   const f = await fixture(t);
-  const local = await f.repo('comparison-toggle');
+  const local = await f.repo('comparison-fold');
   await local.commit('shared', { 'file.txt': 'shared' });
   await local.git('branch', 'topic');
   const left = await local.commit('base only', { 'file.txt': 'base' });
@@ -643,13 +644,12 @@ test('toggling comparison sides reloads commits without replacing the branch fil
   controller.ready = true;
   const branches = await Promise.all(['main', 'topic'].map(name => local.actions.named(`refs/heads/${name}`)));
   const send = (type, args = {}) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...args });
-  const waitRows = async (oids, side) => {
-    await waitFor(() => !controller.pageState().loading && controller.rows.length === oids.length, `load ${side} commits`);
+  const waitRows = async oids => {
+    await waitFor(() => !controller.pageState().loading && controller.rows.length === oids.length, 'load comparison commits');
     assert.deepEqual(new Set(controller.rows.map(row => row.oid)), new Set(oids));
-    assert.equal(controller.pageState().compareSide, side);
   };
   controller.compare(repo, ...branches);
-  await waitRows([left, right], 'both');
+  await waitRows([left, right]);
   await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.detail, 'load comparison and commit selection');
   assert.deepEqual(controller.displayRows().map(row => row.oid), [left, right]);
   assert.equal(controller.selection.focus, left);
@@ -660,44 +660,50 @@ test('toggling comparison sides reloads commits without replacing the branch fil
   const [file] = packet.files;
   await send('selectFiles', { source: 'snapshot', ids: [file.id] });
 
-  const oldGeneration = controller.generation;
-  await send('toggleCompareSide', { side: 'right' });
-  await waitRows([right], 'right');
-  await send('toggleCompareSide', { side: 'left', generation: oldGeneration });
-  assert.equal(controller.compareSide, 'right');
-  assert.equal(controller.selection.focus, right);
-  await send('setFilter', { text: 'base' });
-  await waitRows([], 'right');
-  assert.equal(controller.selection.focus, undefined);
-  await send('toggleCompareSide', { side: 'left' });
-  await waitRows([left], 'left');
-  assert.equal(controller.selection.focus, left);
-  await send('toggleCompareSide', { side: 'left' });
-  await waitRows([left], 'both');
-  await send('setFilter', { text: '' });
-  await waitRows([left, right], 'both');
+  const generation = controller.generation;
+  const rows = controller.rows;
+  await send('toggleComparisonGroup', { side: 'left' });
+  assert.deepEqual(controller.meta().compare.collapsed, ['left']);
+  assert.deepEqual(controller.displayRows().map(row => row.oid), [right]);
+  assert.deepEqual([...controller.selection.selected], [right]);
+  await send('toggleComparisonGroup', { side: 'right', generation: generation - 1 });
+  await send('select', { oid: left, mode: 'toggle' });
+  await send('selectAllCommits');
+  assert.deepEqual([...controller.selection.selected], [right]);
+  await send('toggleComparisonGroup', { side: 'right' });
+  assert.deepEqual(controller.displayRows(), []);
+  assert.equal(controller.selection.selected.size, 0);
+  await send('toggleComparisonGroup', { side: 'right' });
+  assert.deepEqual(controller.displayRows().map(row => row.oid), [right]);
+  assert.equal(controller.generation, generation);
+  assert.equal(controller.rows, rows);
   assert.equal(controller.comparePacket, packet);
   assert.ok(controller.snapshotFiles.has(file.id));
   assert.deepEqual([...controller.fileSelection.snapshot], [file.id]);
 
-  await send('toggleCompareSide', { side: 'left' });
-  await waitRows([left], 'left');
+  await send('setFilter', { text: 'base' });
+  await waitRows([left]);
+  assert.deepEqual(controller.displayRows(), []);
+  await send('setFilter', { text: '' });
+  await waitRows([left, right]);
+  assert.deepEqual(controller.displayRows().map(row => row.oid), [right]);
+  assert.equal(controller.comparePacket, packet);
+
   await send('swap');
-  await waitRows([left], 'right');
+  await waitRows([left, right]);
+  assert.deepEqual(controller.meta().compare.collapsed, ['right']);
+  assert.deepEqual(controller.displayRows().map(row => row.oid), [right]);
   await send('refresh');
-  await waitRows([left], 'right');
+  await waitRows([left, right]);
+  assert.deepEqual(controller.meta().compare.collapsed, ['right']);
   await local.git('branch', '-f', 'main', 'topic');
   await send('refresh');
   await waitFor(() => controller.comparePacket?.same, 'show same-tip comparison after refresh');
-  await waitRows([], 'both');
+  await waitRows([]);
   assert.deepEqual(controller.comparePacket.counts, { left: 0, right: 0 });
   assert.deepEqual(controller.comparePacket.files, []);
-  await send('toggleCompareSide', { side: 'right' });
-  assert.equal(controller.compareSide, 'both');
   await send('exitComparison');
-  assert.equal(controller.compareSide, 'both');
-  await send('toggleCompareSide', { side: 'left' });
-  assert.equal(controller.compareSide, 'both');
+  assert.equal(controller.meta().compare, undefined);
 });
 
 test('single merge issues distinct parent Diff tokens; multi-select omits parent groups', async t => {

@@ -167,7 +167,7 @@
       gbCanRewrite: rewrite, gbCanUndo: rewrite && current && row.parents.length === 1, gbCanDrop: rewrite && row.parents.length === 1 };
   }
 
-  function commitRow(row, index, selected, laneLimit) {
+  function commitRow(row, index, size, selected, laneLimit) {
     const subject = row.subject || t('history.noSubject');
     const focused = row.oid === state.selection.focus;
     const isSelected = selected.has(row.oid);
@@ -184,7 +184,7 @@
     summary.setAttribute('role', 'option');
     summary.setAttribute('aria-selected', String(isSelected));
     summary.setAttribute('aria-posinset', index + 1);
-    summary.setAttribute('aria-setsize', state.page.hasMore ? -1 : state.rows.length);
+    summary.setAttribute('aria-setsize', size);
     const badges = state.badges.get(row.oid) || [];
     const author = row.worktree ? '' : row.author || '—';
     const hash = row.worktree ? '' : short(row.oid);
@@ -209,29 +209,42 @@
     return line;
   }
 
-  /** Comparison rows are grouped by side; the header replaces a per-row badge. */
+  /** Comparison rows are grouped by side; collapsing only removes entries from the presentation. */
   function buildEntries() {
     if (!state.meta.compare) {
-      state.entries = state.rows.map((row, index) => ({ row, index }));
+      const size = state.page.hasMore ? -1 : state.rows.length;
+      state.entries = state.rows.map((row, index) => ({ row, index, size }));
       return;
     }
     const groups = { left: [], right: [] };
     for (const row of state.rows) groups[row.side]?.push(row);
     const entries = [];
-    let index = 0;
     for (const side of ['left', 'right']) {
-      if (!groups[side].length) continue;
+      const rows = groups[side];
+      // An unfiltered side may have commits on later pages; show its heading as soon as the count is known.
+      if (!rows.length && !(!state.page.filter && state.page.hasMore && state.comparison?.counts?.[side] > 0)) continue;
       entries.push({ side });
-      for (const row of groups[side]) entries.push({ row, index: index++ });
+      if (state.meta.compare.collapsed.includes(side)) continue;
+      const size = state.page.hasMore ? -1 : rows.length;
+      for (const [index, row] of rows.entries()) entries.push({ row, side, index, size });
     }
     state.entries = entries;
   }
 
+  function sectionLabel(side) {
+    return `${state.meta.compare[side].label} ${t('history.branchOnlySuffix')}`;
+  }
+
   function sectionRow(side) {
-    const line = el('div', 'commit-section');
-    const label = state.meta.compare[side].label;
-    line.setAttribute('role', 'presentation');
-    line.append(codicon('warning', 'section-warning'), el('span', 'ellipsis', label, label));
+    const label = sectionLabel(side);
+    const expanded = !state.meta.compare.collapsed.includes(side);
+    const line = button(`commit-section ${side}`, '', () => send('toggleComparisonGroup', { side }), label);
+    line.dataset.section = side;
+    line.setAttribute('aria-expanded', String(expanded));
+    line.setAttribute('aria-label', label);
+    const branch = el('span', 'section-label');
+    branch.append(el('span', 'ellipsis', state.meta.compare[side].label), el('span', '', ` ${t('history.branchOnlySuffix')}`));
+    line.append(codicon(expanded ? 'chevron-down' : 'chevron-right', 'section-chevron'), branch);
     return line;
   }
 
@@ -248,16 +261,37 @@
     painted = key;
     const laneLimit = Math.max(1, Math.min(DRAW_LANES, Math.floor((width * .25 - 5) / LANE)));
     commits.dataset.columns = state.commitColumns.join(' ');
-    const focused = document.activeElement?.closest('.commit-row');
+    const focused = document.activeElement?.closest('.commit-row, .commit-section');
     const oid = focused?.dataset.oid;
+    const section = focused?.dataset.section;
     const fragment = document.createDocumentFragment();
-    let restore;
+    const comparing = Boolean(state.meta.compare);
+    commits.setAttribute('role', comparing ? 'group' : 'listbox');
+    if (comparing) commits.removeAttribute('aria-multiselectable');
+    else commits.setAttribute('aria-multiselectable', 'true');
+    let restore, group, side;
     for (let i = start; i < end; i++) {
       const entry = state.entries[i];
-      if (!entry.row) { fragment.append(sectionRow(entry.side)); continue; }
-      const line = commitRow(entry.row, entry.index, state.selectedCommits, laneLimit);
+      if (!entry.row) {
+        const heading = sectionRow(entry.side);
+        if (entry.side === section) restore = heading;
+        fragment.append(heading);
+        continue;
+      }
+      const line = commitRow(entry.row, entry.index, entry.size, state.selectedCommits, laneLimit);
       if (entry.row.oid === oid) restore = line.querySelector('.commit-subject');
-      fragment.append(line);
+      if (!entry.side) fragment.append(line);
+      else {
+        if (entry.side !== side) {
+          side = entry.side;
+          group = el('div');
+          group.setAttribute('role', 'listbox');
+          group.setAttribute('aria-label', sectionLabel(side));
+          group.setAttribute('aria-multiselectable', 'true');
+          fragment.append(group);
+        }
+        group.append(line);
+      }
     }
     $('top-spacer').style.height = `${start * ROW}px`;
     $('bottom-spacer').style.height = `${(count - end) * ROW}px`;
@@ -277,13 +311,13 @@
     frame = requestAnimationFrame(() => {
       frame = 0;
       renderRows();
-      if (scroll.clientHeight && state.rows.length && !state.page.error &&
+      // Folding short groups should not eagerly scan the remaining history just to fill the viewport.
+      const canScrollForMore = !state.meta.compare?.collapsed.length || state.entries.length * ROW > scroll.clientHeight;
+      if (scroll.clientHeight && state.rows.length && canScrollForMore && !state.page.error &&
           scroll.scrollTop + scroll.clientHeight >= (state.entries.length - 8) * ROW) requestPage();
     });
   }
 
-  const compareControls = [['left', 'history.baseOnly', 'history.baseCount'], ['right', 'history.targetOnly', 'history.targetCount']]
-    .map(([side, label, countLabel]) => ({ control: $(`compare-${side}`), text: $(`compare-${side}-label`), side, label, countLabel }));
   const filterInput = $('filter-text');
   let filterTimer, composingFilter = false;
   function sendFilter(delay = 0) {
@@ -316,16 +350,6 @@
     $('compare-bar').hidden = !mode;
     $('log-title').textContent = t(mode ? 'history.distinct' : 'history.graph');
     $('swap').disabled = !ready;
-    $('file-title').hidden = Boolean(mode);
-    $('file-tabs').hidden = !mode;
-    $('compare-counts').hidden = !mode || !comparison?.counts;
-    for (const { control, text, side, label, countLabel } of compareControls) {
-      const count = comparison?.counts?.[side];
-      control.disabled = !ready;
-      control.hidden = count === 0;
-      text.textContent = count === undefined ? t(label) : t(countLabel, { count });
-      press(control, state.page.compareSide === side);
-    }
     if (mode) {
       const label = endpoint => endpoint.worktree ? endpoint.label : `${endpoint.label} (${endpoint.oid})`;
       $('direction').title = `${label(mode.left)} → ${label(mode.right)}`;
@@ -349,7 +373,7 @@
     else if (page.hasMore) status.append(button('link', t('history.loadMoreCommits'), requestPage));
     else if (!rows.length) {
       if (meta.compare && comparison?.same) status.textContent = t('history.sameTip');
-      else if (page.filter || (meta.compare && page.compareSide !== 'both')) status.textContent = t('history.filteredEmpty');
+      else if (page.filter) status.textContent = t('history.filteredEmpty');
       else status.textContent = t(meta.compare ? 'history.noUniqueCommits' : 'history.noCommitsInRange');
     }
     else status.textContent = countText('history.commitCount', rows.length);
@@ -485,6 +509,19 @@
     root.append(entry);
   }
 
+  // Both history modes share one tab strip and panel; only File Diff is comparison-specific.
+  function renderFileTabs(comparing, snapshot) {
+    const activeTab = fileTabs[Number(snapshot)];
+    const restoreFocus = !comparing && document.activeElement === fileTabs[1];
+    fileTabs[1].hidden = !comparing;
+    for (const tab of fileTabs) {
+      tab.setAttribute('aria-selected', String(tab === activeTab));
+      tab.tabIndex = tab === activeTab ? 0 : -1;
+    }
+    files.setAttribute('aria-labelledby', activeTab.id);
+    if (restoreFocus) activeTab.focus();
+  }
+
   function renderFiles() {
     const { selection, comparison, meta } = state;
     const snapshot = Boolean(meta.compare && state.snapshot);
@@ -506,18 +543,7 @@
     $('file-layout').querySelector('.layout-label').textContent = layoutLabel;
     $('file-layout').querySelector('.codicon').className = `codicon codicon-${state.filesLayout === 'tree' ? 'list-flat' : 'list-tree'}`;
     $('file-layout').disabled = Boolean(meta.message);
-    const visibleTab = fileTabs[Number(snapshot)];
-    for (const tab of fileTabs) {
-      tab.setAttribute('aria-selected', String(tab === visibleTab));
-      tab.tabIndex = tab === visibleTab ? 0 : -1;
-    }
-    if (meta.compare) {
-      files.setAttribute('role', 'tabpanel');
-      files.setAttribute('aria-labelledby', visibleTab.id);
-    } else {
-      files.removeAttribute('role');
-      files.removeAttribute('aria-labelledby');
-    }
+    renderFileTabs(Boolean(meta.compare), snapshot);
     $('file-count').textContent = meta.message || packet?.selectionOverLimit ? '' : multi
       ? t('history.combinedSummary', { selected: selection.selected.length, count: list.length })
       : (packet?.files ? countText('history.fileCount', list.length) : '');
@@ -663,7 +689,6 @@
     swap: 'swap', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
     $(id).addEventListener('click', () => send(intent));
   }
-  for (const { control, side } of compareControls) control.addEventListener('click', () => send('toggleCompareSide', { side }));
   filterInput.addEventListener('input', event => { if (!event.isComposing) sendFilter(220); });
   filterInput.addEventListener('compositionstart', () => {
     composingFilter = true;
@@ -696,7 +721,7 @@
   for (const [index, tab] of fileTabs.entries()) {
     tab.addEventListener('click', () => showFileTab(index === 1));
     tab.addEventListener('keydown', event => {
-      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (fileTabs[1].hidden || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
       let next;
       if (event.key === 'Home') next = 0;
       else if (event.key === 'End') next = fileTabs.length - 1;
@@ -780,11 +805,25 @@
           state.fileMenus.clear();
           break;
         }
-        case 'page': state.page = payload; state.pageIntent = false; break;
+        case 'page': {
+          const sizeChanged = state.page.hasMore !== payload.hasMore;
+          state.page = payload;
+          state.pageIntent = false;
+          if (sizeChanged) buildEntries();
+          break;
+        }
+        case 'groupVisibility':
+          if (!state.meta.compare) return;
+          state.meta.compare.collapsed = payload;
+          buildEntries();
+          renderRows(true);
+          onViewport();
+          return;
         case 'commitColumns': state.commitColumns = payload; renderRows(true); return;
         case 'comparison':
           for (const file of state.comparison?.files ?? []) state.fileMenus.delete(file.id);
           state.comparison = payload;
+          buildEntries();
           clearFileSelection('snapshot');
           if (state.snapshot) state.limit = FILE_BATCH;
           break;

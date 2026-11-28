@@ -25,6 +25,16 @@ class HistorySelection {
     this.focus = this.anchor = undefined;
   }
 
+  retain(predicate) {
+    let changed = false;
+    for (const oid of this.selected) {
+      if (!predicate(oid)) { this.selected.delete(oid); changed = true; }
+    }
+    if (!this.selected.has(this.focus)) this.focus = this.selected.values().next().value;
+    if (!predicate(this.anchor)) this.anchor = this.focus;
+    return changed;
+  }
+
   selectAll(rows, focusedOid) {
     if (this.selected.size === rows.length && rows.every(row => this.selected.has(row.oid))) return false;
     this.selected = new Set(rows.map(row => row.oid));
