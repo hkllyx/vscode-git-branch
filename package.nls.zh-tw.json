@@ -26,7 +26,6 @@
   "command.renameBranch": "重新命名…",
   "command.deleteBranch": "刪除…",
   "command.compare": "分支比較…",
-
   "repo.pick": "選擇儲存庫",
   "repo.pickGit": "選擇 Git 儲存庫",
   "repo.choose": "請選擇要瀏覽的 Git 儲存庫。",
@@ -55,7 +54,6 @@
   "repo.unsavedEditors": "目前的儲存庫有尚未儲存的編輯內容。請先儲存或捨棄這些變更。",
   "repo.confirmLabel": "儲存庫：{name}（{path}）",
   "repo.openTerminal": "開啟儲存庫終端機",
-
   "branch.headCurrent": "HEAD（目前分支）",
   "branch.headDetached": "HEAD（分離）",
   "branch.headNamed": "HEAD（{name}）",
@@ -73,7 +71,6 @@
   "branch.noAvailable": "儲存庫沒有可選擇的分支。",
   "branch.unavailableRef": "此參照已無法使用。請重新整理後再選擇一次。",
   "branch.nameEmpty": "請輸入分支名稱。",
-
   "action.createName": "建立分支 · 來源：{name}（{oid}）",
   "action.createConfirm": "要建立分支嗎？",
   "action.createStartLabel": "起點：{name}（{oid}）",
@@ -147,7 +144,6 @@
   "action.comparePickWith": "與 {name} 比較 · 選擇目標分支",
   "action.compareSameBranch": "請選擇另一個分支進行比較。",
   "action.compareDetached": "HEAD 已分離，沒有目前的本機分支。請使用「與其他分支比較…」或「分支比較…」選擇分支。",
-
   "git.changed": "{what}已變更，請重新確認後再操作。",
   "git.changedBranchTip": "分支指向的提交",
   "git.changedWork": "HEAD 或工作區狀態",
@@ -259,7 +255,6 @@
   "git.blobNotText": "此檔案是二進位檔或不是 UTF-8 文字，只顯示變更資訊。",
   "git.redactedUrl": "[遠端網址]",
   "git.unknownError": "未知錯誤",
-
   "history.toolbar": "Git 歷程記錄工具列",
   "history.navigation": "歷程記錄窗格",
   "history.pickRange": "選擇歷程記錄範圍",
@@ -267,7 +262,6 @@
   "history.allBranchesDescription": "本機分支、遠端追蹤分支和 HEAD",
   "history.selectionHint": "Ctrl/Cmd 按一下以增減選取，Shift 按一下以選取範圍，Ctrl/Cmd+A 全選已載入的提交，Esc 取消選取。",
   "history.swap": "交換",
-  "history.recompare": "重新比較",
   "history.exitCompare": "結束比較",
   "history.graph": "提交圖",
   "history.files": "檔案",
@@ -277,7 +271,6 @@
   "history.commitList": "提交清單",
   "history.filesAndDetails": "檔案和提交詳細資料",
   "history.commitFiles": "提交檔案",
-  "history.snapshotFiles": "分支檔案差異",
   "history.changedFiles": "變更的檔案",
   "history.commitDetails": "提交詳細資料",
   "history.emptyTree": "空樹狀結構",
@@ -304,7 +297,6 @@
   "history.sameTip": "兩端指向同一個提交。",
   "history.noUniqueCommits": "兩端都沒有各自獨有的提交。",
   "history.noCommitsInRange": "此範圍目前沒有提交。",
-  "history.sharedExcluded": "清單不顯示共有的歷程記錄。",
   "history.commitCountOne": "已顯示 1 個提交。",
   "history.commitCountOther": "已顯示全部 {count} 個提交。",
   "history.statusAdded": "新增",
@@ -336,7 +328,6 @@
   "history.chooseCommit": "請選擇一個提交。",
   "history.snapshotNote": "比較兩個固定的提交快照，不包含工作區變更。",
   "history.workingTree": "工作樹",
-  "history.workingTreeFiles": "工作樹檔案差異",
   "history.worktreeNote": "比較所選分支與工作樹中已儲存的檔案，不包含未追蹤檔案。變更後請重新整理。",
   "history.loadingDetails": "正在讀取提交詳細資料…",
   "history.commit": "提交",
@@ -448,5 +439,13 @@
   "history.editWarning": "這會改寫本機歷史，不會納入已暫存的變更。",
   "history.editMessage": "提交訊息",
   "history.cancel": "取消",
-  "history.rewriteCommit": "改寫提交"
+  "history.rewriteCommit": "改寫提交",
+  "command.selectFile": "選取",
+  "history.fileDiff": "檔案差異",
+  "history.refresh": "重新整理",
+  "history.switchFileTab": "切換到提交檔案",
+  "history.showCommitFiles": "切換到提交檔案",
+  "history.showFileDiff": "切換到檔案差異",
+  "history.workingTreeCommit": "工作樹變動",
+  "history.worktreeNotACommit": "工作樹變動不是提交。"
 }

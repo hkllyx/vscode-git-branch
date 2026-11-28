@@ -58,6 +58,7 @@
       { "command": "git-branch.drop", "title": "%command.drop%", "category": "Git Branch", "enablement": "gbCanDrop" },
       { "command": "git-branch.newBranch", "title": "%command.newBranch%", "category": "Git Branch", "enablement": "gbCommitSingle" },
       { "command": "git-branch.newTag", "title": "%command.newTag%", "category": "Git Branch", "enablement": "gbCommitSingle" },
+      { "command": "git-branch.selectFile", "title": "%command.selectFile%", "category": "Git Branch" },
       { "command": "git-branch.editSource", "title": "%command.editSource%", "category": "Git Branch", "enablement": "gbCanEditSource" },
       { "command": "git-branch.openRepositoryVersion", "title": "%command.openRepositoryVersion%", "category": "Git Branch", "enablement": "gbCanOpenVersion" },
       { "command": "git-branch.applyFiles", "title": "%command.applyFiles%", "category": "Git Branch", "enablement": "gbCanApplyFiles" }
@@ -111,6 +112,7 @@
         { "command": "git-branch.drop", "when": "(webview == git-branch.log || webviewId == git-branch.log) && gbArea == commit", "group": "3_history@6" },
         { "command": "git-branch.newBranch", "when": "(webview == git-branch.log || webviewId == git-branch.log) && gbArea == commit", "group": "4_refs@1" },
         { "command": "git-branch.newTag", "when": "(webview == git-branch.log || webviewId == git-branch.log) && gbArea == commit", "group": "4_refs@2" },
+        { "command": "git-branch.selectFile", "when": "(webview == git-branch.log || webviewId == git-branch.log) && gbArea == file", "group": "1_files@0" },
         { "command": "git-branch.editSource", "when": "(webview == git-branch.log || webviewId == git-branch.log) && gbArea == file", "group": "1_files@1" },
         { "command": "git-branch.openRepositoryVersion", "when": "(webview == git-branch.log || webviewId == git-branch.log) && gbArea == file", "group": "1_files@2" },
         { "command": "git-branch.applyFiles", "when": "(webview == git-branch.log || webviewId == git-branch.log) && gbArea == file", "group": "1_files@3" }
@@ -128,6 +130,7 @@
         { "command": "git-branch.drop", "when": "false" },
         { "command": "git-branch.newBranch", "when": "false" },
         { "command": "git-branch.newTag", "when": "false" },
+        { "command": "git-branch.selectFile", "when": "false" },
         { "command": "git-branch.editSource", "when": "false" },
         { "command": "git-branch.openRepositoryVersion", "when": "false" },
         { "command": "git-branch.applyFiles", "when": "false" },

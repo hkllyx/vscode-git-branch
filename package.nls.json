@@ -26,7 +26,6 @@
   "command.renameBranch": "Rename…",
   "command.deleteBranch": "Delete…",
   "command.compare": "Compare Branches…",
-
   "repo.pick": "Select Repository",
   "repo.pickGit": "Select Git Repository",
   "repo.choose": "Select a Git repository to browse.",
@@ -55,7 +54,6 @@
   "repo.unsavedEditors": "This repository has unsaved editors. Save or discard those changes before continuing.",
   "repo.confirmLabel": "Repository: {name} ({path})",
   "repo.openTerminal": "Open Repository Terminal",
-
   "branch.headCurrent": "HEAD (Current Branch)",
   "branch.headDetached": "HEAD (Detached)",
   "branch.headNamed": "HEAD ({name})",
@@ -73,7 +71,6 @@
   "branch.noAvailable": "There are no branches to select in this repository.",
   "branch.unavailableRef": "This ref is no longer available. Refresh and select it again.",
   "branch.nameEmpty": "Enter a branch name.",
-
   "action.createName": "Create Branch from {name} ({oid})",
   "action.createConfirm": "Create the branch?",
   "action.createStartLabel": "Starting point: {name} ({oid})",
@@ -147,7 +144,6 @@
   "action.comparePickWith": "Compare {name} · Select Target Branch",
   "action.compareSameBranch": "Choose a different branch to compare.",
   "action.compareDetached": "HEAD is detached. Use Compare with… or Compare Branches to choose the base branch.",
-
   "git.changed": "{what} changed. Review and confirm again.",
   "git.changedBranchTip": "The branch tip",
   "git.changedWork": "HEAD or the working tree state",
@@ -259,7 +255,6 @@
   "git.blobNotText": "This file is binary or not UTF-8. Only change metadata is shown.",
   "git.redactedUrl": "[remote URL]",
   "git.unknownError": "Unknown error",
-
   "history.toolbar": "Git History Toolbar",
   "history.navigation": "History Panes",
   "history.pickRange": "Select History Range",
@@ -267,7 +262,6 @@
   "history.allBranchesDescription": "Local branches, remote-tracking branches, and HEAD",
   "history.selectionHint": "Ctrl/Cmd-click to toggle, Shift-click to select a range, Ctrl/Cmd+A to select loaded commits, Esc to clear.",
   "history.swap": "Swap",
-  "history.recompare": "Compare Again",
   "history.exitCompare": "Exit Comparison",
   "history.graph": "Commit Graph",
   "history.files": "Files",
@@ -277,7 +271,6 @@
   "history.commitList": "Commit List",
   "history.filesAndDetails": "Files and Commit Details",
   "history.commitFiles": "Commit Files",
-  "history.snapshotFiles": "Branch File Diff",
   "history.changedFiles": "Changed Files",
   "history.commitDetails": "Commit Details",
   "history.emptyTree": "empty tree",
@@ -304,7 +297,6 @@
   "history.sameTip": "Both sides point to the same commit.",
   "history.noUniqueCommits": "There are no unique commits on either side.",
   "history.noCommitsInRange": "There are no commits in this range.",
-  "history.sharedExcluded": "Shared history is not shown in this list.",
   "history.commitCountOne": "Showing 1 commit.",
   "history.commitCountOther": "Showing all {count} commits.",
   "history.statusAdded": "Added",
@@ -336,7 +328,6 @@
   "history.chooseCommit": "Select a commit.",
   "history.snapshotNote": "Comparing two pinned commit snapshots. Working tree changes are not included.",
   "history.workingTree": "Working Tree",
-  "history.workingTreeFiles": "Working Tree Differences",
   "history.worktreeNote": "Compares the selected branch with saved working tree files. Untracked files are excluded. Refresh after editing.",
   "history.loadingDetails": "Reading commit details…",
   "history.commit": "Commit",
@@ -448,5 +439,13 @@
   "history.editWarning": "This rewrites local history. Staged changes will not be included.",
   "history.editMessage": "Commit message",
   "history.cancel": "Cancel",
-  "history.rewriteCommit": "Rewrite Commit"
+  "history.rewriteCommit": "Rewrite Commit",
+  "command.selectFile": "Select",
+  "history.fileDiff": "File Diff",
+  "history.refresh": "Refresh",
+  "history.switchFileTab": "Switch to Commit Files",
+  "history.showCommitFiles": "Switch to Commit Files",
+  "history.showFileDiff": "Switch to File Diff",
+  "history.workingTreeCommit": "Working Tree Changes",
+  "history.worktreeNotACommit": "Working Tree changes are not a commit."
 }

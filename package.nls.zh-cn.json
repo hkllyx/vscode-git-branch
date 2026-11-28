@@ -26,7 +26,6 @@
   "command.renameBranch": "重命名…",
   "command.deleteBranch": "删除…",
   "command.compare": "分支对比…",
-
   "repo.pick": "选择仓库",
   "repo.pickGit": "选择 Git 仓库",
   "repo.choose": "请选择要浏览的 Git 仓库。",
@@ -55,7 +54,6 @@
   "repo.unsavedEditors": "当前仓库有未保存的编辑器，请先处理后再操作。",
   "repo.confirmLabel": "仓库：{name}（{path}）",
   "repo.openTerminal": "打开仓库终端",
-
   "branch.headCurrent": "HEAD（当前分支）",
   "branch.headDetached": "HEAD（分离）",
   "branch.headNamed": "HEAD（{name}）",
@@ -73,7 +71,6 @@
   "branch.noAvailable": "仓库没有可选的分支。",
   "branch.unavailableRef": "引用已不可用，请刷新后重新选择。",
   "branch.nameEmpty": "请输入分支名。",
-
   "action.createName": "创建分支 · 来源：{name}（{oid}）",
   "action.createConfirm": "创建分支？",
   "action.createStartLabel": "起点：{name}（{oid}）",
@@ -147,7 +144,6 @@
   "action.comparePickWith": "与 {name} 对比 · 选择目标分支",
   "action.compareSameBranch": "请选择另一个分支进行对比。",
   "action.compareDetached": "分离 HEAD 没有当前本地分支。可用「与其他分支对比…」或「分支对比…」手选分支。",
-
   "git.changed": "{what}已变化，请重新确认后再操作。",
   "git.changedBranchTip": "分支指向",
   "git.changedWork": "HEAD 或工作区状态",
@@ -259,7 +255,6 @@
   "git.blobNotText": "这是二进制文件或非 UTF-8 文本，仅显示变动信息。",
   "git.redactedUrl": "[远程地址]",
   "git.unknownError": "未知错误",
-
   "history.toolbar": "Git 历史工具栏",
   "history.navigation": "历史面板内容",
   "history.pickRange": "选择历史范围",
@@ -267,7 +262,6 @@
   "history.allBranchesDescription": "本地和远程跟踪分支，以及 HEAD",
   "history.selectionHint": "Ctrl/Cmd 单击增减选中项，Shift 单击选择一段，Ctrl/Cmd+A 全选已加载的提交，Esc 取消选择。",
   "history.swap": "交换",
-  "history.recompare": "重新对比",
   "history.exitCompare": "退出对比",
   "history.graph": "提交图",
   "history.files": "文件",
@@ -277,7 +271,6 @@
   "history.commitList": "提交列表",
   "history.filesAndDetails": "文件和提交详情",
   "history.commitFiles": "提交文件",
-  "history.snapshotFiles": "分支文件差异",
   "history.changedFiles": "变动文件",
   "history.commitDetails": "提交详情",
   "history.emptyTree": "空树",
@@ -304,7 +297,6 @@
   "history.sameTip": "两端指向同一提交。",
   "history.noUniqueCommits": "没有各自独有的提交。",
   "history.noCommitsInRange": "此范围暂无提交。",
-  "history.sharedExcluded": "共同历史不在当前列表中。",
   "history.commitCountOne": "已显示 1 个提交。",
   "history.commitCountOther": "已显示全部 {count} 个提交。",
   "history.statusAdded": "新增",
@@ -336,7 +328,6 @@
   "history.chooseCommit": "请选择一个提交。",
   "history.snapshotNote": "对比两个已固定的提交快照，不含工作区改动。",
   "history.workingTree": "工作树",
-  "history.workingTreeFiles": "工作树文件差异",
   "history.worktreeNote": "对比所选分支与工作树中已保存的文件，不含未跟踪文件。修改后请刷新。",
   "history.loadingDetails": "正在读取提交详情…",
   "history.commit": "提交",
@@ -448,5 +439,13 @@
   "history.editWarning": "此操作会改写本地历史，不会带入暂存的改动。",
   "history.editMessage": "提交说明",
   "history.cancel": "取消",
-  "history.rewriteCommit": "改写提交"
+  "history.rewriteCommit": "改写提交",
+  "command.selectFile": "选择",
+  "history.fileDiff": "文件差异",
+  "history.refresh": "刷新",
+  "history.switchFileTab": "切换到提交文件",
+  "history.showCommitFiles": "切换到提交文件",
+  "history.showFileDiff": "切换到文件差异",
+  "history.workingTreeCommit": "工作树变动",
+  "history.worktreeNotACommit": "工作树变动不是提交。"
 }

@@ -201,7 +201,7 @@ class GraphController {
   }
 
   toggleCompareSide(side) {
-    if (!this.comparison || this.comparison.workingTree || (side !== 'left' && side !== 'right')) return;
+    if (!this.comparison || (side !== 'left' && side !== 'right')) return;
     this.compareSide = this.compareSide === side ? 'both' : side;
     this.reset(Boolean(this.rows.length || this.restore), true);
   }
@@ -224,7 +224,11 @@ class GraphController {
 
   compareWorktree(repo, left) {
     if (this.repo !== repo) throw new BranchError(t('repo.switched'));
-    this.comparison = { left, workingTree: true };
+    const head = repo.snapshot?.head;
+    if (!head?.oid) throw new BranchError(t('branch.firstCommit'));
+    // The working tree comparison is a branch comparison whose target tip is
+    // HEAD plus one synthetic commit holding every uncommitted change.
+    this.comparison = { left, right: { ref: head.ref, name: t('history.workingTree'), oid: head.oid }, workingTree: true };
     this.compareSide = 'both';
     this.reset();
   }
@@ -232,10 +236,12 @@ class GraphController {
   async recompare() {
     const { repo, comparison } = this;
     if (!repo || !comparison) return;
-    const [left, right] = await Promise.all([comparison.left.ref ? repo.actions.named(comparison.left.ref) : comparison.left,
-      comparison.right && repo.actions.named(comparison.right.ref)]);
+    const right = comparison.right?.ref ? repo.actions.named(comparison.right.ref)
+      : comparison.workingTree ? { ...comparison.right, oid: repo.snapshot.head.oid } : comparison.right;
+    const [left, resolved] = await Promise.all([comparison.left.ref ? repo.actions.named(comparison.left.ref) : comparison.left, right]);
     if (repo !== this.repo || comparison !== this.comparison) return;
-    this.comparison = comparison.workingTree ? { left, workingTree: true } : { left, right };
+    this.comparison = comparison.workingTree ? { left, right: { ...comparison.right, ...resolved, name: t('history.workingTree') }, workingTree: true }
+      : { left, right: resolved };
     this.reset();
   }
 
@@ -267,7 +273,7 @@ class GraphController {
       message: !repo ? this.registry.noRepositoryMessage : repo.error ? t('repo.readError', { detail: repo.error }) : !snapshot ? t('repo.reading') : undefined,
       compare: comparison ? {
         left: { label: comparison.left.name, oid: comparison.left.oid },
-        right: comparison.workingTree ? { label: t('history.workingTree') } : { label: comparison.right.name, oid: comparison.right.oid },
+        right: { label: comparison.workingTree ? t('history.workingTree') : comparison.right.name, oid: comparison.right.oid },
         workingTree: Boolean(comparison.workingTree),
         stale: Boolean(snapshot && [comparison.left, comparison.right].some(ref => ref?.ref && snapshot.byRef.get(ref.ref)?.oid !== ref.oid))
       } : undefined,
@@ -295,6 +301,12 @@ class GraphController {
     if (this.rows.length && (!this.selectionPacket || this.selectionPacket.loading)) void this.loadSelection();
   }
 
+  async worktreeChanges(repo, signal) {
+    // Deliberately uncached: the working tree can change without moving HEAD,
+    // so a refresh must re-read it instead of reusing a stale file list.
+    return repo.reads.worktreeFiles(repo.snapshot.head.oid, { signal });
+  }
+
   async loadPage() {
     if (!this.canRead || !this.hasMore || this.requests.has('page')) return;
     const request = this.start('page');
@@ -303,19 +315,28 @@ class GraphController {
     this.pageError = undefined;
     this.send('page', this.pageState());
     try {
-      const tips = comparison?.workingTree ? [comparison.left.oid] : target?.tips;
-      const { commits, hasMore, scanned } = await repo.reads.historyPage({ tips, compare: comparison?.workingTree ? undefined : comparison,
-        skip: this.rows.length, scan: this.scanned, limit: 120, filter: this.filter, compareSide: this.compareSide, signal: request.signal });
+      const tips = comparison ? undefined : target?.tips;
+      const { commits, hasMore, scanned } = await repo.reads.historyPage({ tips, compare: comparison,
+        skip: this.rows.filter(row => !row.worktree).length, scan: this.scanned, limit: 120, filter: this.filter,
+        compareSide: this.compareSide, signal: request.signal });
       if (!this.active('page', request)) return;
       const rows = commits.map(commit => ({ ...commit, shallowBoundary: repo.snapshot.shallowRoots?.has(commit.oid), graph: this.layout.append(commit) }));
+      if (first && comparison?.workingTree && this.compareSide !== 'left') {
+        const changes = await this.worktreeChanges(repo, request.signal);
+        if (!this.active('page', request)) return;
+        const subject = t('history.workingTreeCommit');
+        const text = this.filter.trim().toLowerCase();
+        if (changes.length && (!text || subject.toLowerCase().includes(text))) {
+          rows.unshift(this.worktreeRow(repo, subject));
+        }
+      }
       this.rows.push(...rows);
       for (const row of rows) this.known.set(row.oid, row);
       this.hasMore = hasMore;
       this.scanned = scanned ?? this.rows.length;
       if (!hasMore && this.layout.byOid.size) {
         // Parents excluded from the completed range don't reserve a lane indefinitely.
-        this.layout = new GraphLayout();
-        for (const row of this.rows) row.graph = this.layout.append(row, this.known);
+        this.relayout();
         this.sendReset();
       } else this.send('append', rows);
       if (first) {
@@ -331,6 +352,19 @@ class GraphController {
         this.send('page', this.pageState());
       }
     }
+  }
+
+  worktreeRow(repo, subject) {
+    const head = repo.snapshot.head;
+    // No parents and no graph geometry: the synthetic row is not part of the commit DAG.
+    return { oid: `worktree:${head.oid}`, worktree: true, parents: [], author: '', date: '', side: 'right',
+      subject, shallowBoundary: false, graph: null };
+  }
+
+  /** Rebuilds lane geometry after the final page; synthetic rows carry no lanes. */
+  relayout() {
+    this.layout = new GraphLayout();
+    for (const row of this.rows) if (!row.worktree) row.graph = this.layout.append(row, this.known);
   }
 
   async readCommit(repo, oid, signal) {
@@ -409,17 +443,24 @@ class GraphController {
         const row = this.known.get(oid);
         let commit, files, parentGroups, error;
         try {
-          commit = await this.readCommit(repo, oid, signal);
-          ({ files, parentGroups } = await this.readFiles(repo, oid, commit, signal, !multi));
+          if (row?.worktree) {
+            files = await this.worktreeChanges(repo, signal);
+            files = files.map(file => ({ ...file, baseOid: repo.snapshot.head.oid, afterOid: oid }));
+          } else {
+            commit = await this.readCommit(repo, oid, signal);
+            ({ files, parentGroups } = await this.readFiles(repo, oid, commit, signal, !multi));
+          }
         } catch (failure) { if (signal.aborted) throw failure; error = errorText(failure); }
         if (this.active('selection', request)) publish({ loading: true, total: selected.length, processed: ++processed });
         return { row, commit, files, parentGroups, error };
       });
       if (!this.active('selection', request)) return;
       const focus = items.find(item => item.row.oid === state.focus);
-      const detail = multi ? undefined : { oid: focus.row.oid,
-        ...(focus.commit || { message: focus.row.subject, author: focus.row.author, parents: focus.row.parents }),
-        date: focus.row.date, shallowBoundary: focus.row.shallowBoundary };
+      const detail = multi ? undefined : focus.row.worktree
+        ? { oid: focus.row.oid, message: t('history.workingTreeCommit'), author: '', parents: [repo.snapshot.head.oid], worktree: true }
+        : { oid: focus.row.oid,
+          ...(focus.commit || { message: focus.row.subject, author: focus.row.author, parents: focus.row.parents }),
+          date: focus.row.date, shallowBoundary: focus.row.shallowBoundary };
       const failures = items.filter(item => item.error).map(item => `${shortOid(item.row.oid)} · ${item.error}`);
       const merged = multi ? await combineChanges(items.filter(item => item.files),
         oid => repo.reads.firstParentHistory(oid, { signal }), signal) : focus.files || [];
@@ -452,29 +493,25 @@ class GraphController {
     publish({ loading: true });
     const { left, right } = comparison;
     const opts = { signal: request.signal };
-    if (comparison.workingTree) {
-      try {
-        const changes = await repo.reads.worktreeFiles(left.oid, opts);
-        if (this.active('comparison', request)) {
-          const caption = `${shortOid(left.oid)} → ${t('history.workingTree')}`;
-          publish({ files: changes.map(file => this.toClient(file, this.snapshotFiles, caption)) });
-        }
-      } catch (error) { if (this.active('comparison', request)) publish({ error: errorText(error) }); }
-      finally { if (this.active('comparison', request)) this.requests.delete('comparison'); }
-      return;
-    }
-    const [diff, counts, ancestor] = await Promise.allSettled([
-      repo.reads.branchFiles(left.oid, right.oid, opts), repo.reads.divergence(left.oid, right.oid, opts),
-      repo.reads.commonAncestor(left.oid, right.oid, opts)
+    const [diff, counts, ancestor, changes] = await Promise.allSettled([
+      // The File Diff pane always compares the base snapshot with the visible target:
+      // the right tip, or the saved working tree for the synthetic Working Tree branch.
+      comparison.workingTree ? repo.reads.worktreeFiles(left.oid, opts) : repo.reads.branchFiles(left.oid, right.oid, opts),
+      repo.reads.divergence(left.oid, right.oid, opts), repo.reads.commonAncestor(left.oid, right.oid, opts),
+      comparison.workingTree ? this.worktreeChanges(repo, request.signal) : Promise.resolve([])
     ]);
     if (!this.active('comparison', request)) return;
-    const caption = `${shortOid(left.oid)} → ${shortOid(right.oid)}`;
+    const caption = comparison.workingTree ? `${shortOid(left.oid)} → ${t('history.workingTree')}`
+      : `${shortOid(left.oid)} → ${shortOid(right.oid)}`;
+    const worktreeCommit = comparison.workingTree && changes.status === 'fulfilled' && changes.value.length > 0;
+    const counted = counts.status === 'fulfilled' ? counts.value : undefined;
+    if (counted && worktreeCommit) counted.right += 1;
     publish({
       files: diff.status === 'fulfilled' ? diff.value.map(file => this.toClient(file, this.snapshotFiles, caption)) : undefined,
       error: diff.status === 'rejected' ? errorText(diff.reason) : undefined,
       graphError: counts.status === 'rejected' ? errorText(counts.reason) : ancestor.status === 'rejected' ? errorText(ancestor.reason) : undefined,
-      counts: counts.status === 'fulfilled' ? counts.value : undefined,
-      same: left.oid === right.oid,
+      counts: counted,
+      same: !worktreeCommit && left.oid === right.oid,
       common: ancestor.status === 'fulfilled' ? ancestor.value : undefined
     });
     this.requests.delete('comparison');
@@ -519,6 +556,7 @@ class GraphController {
     const { repo, head, check } = this.actionContext(context, 'commit');
     const rows = this.commitRows(context.gbOid);
     if (!rows.length || (rows.length > 1 && !['copyRevision', 'cherryPick', 'revert'].includes(kind))) throw new BranchError(t('history.staleAction'));
+    if (rows.some(row => row.worktree) && (rows.length > 1 || kind !== 'copyRevision')) throw new BranchError(t('history.worktreeNotACommit'));
     if (rows.length > MAX_SELECTION && kind !== 'copyRevision') throw new BranchError(t('history.selectionLimit', { count: MAX_SELECTION }));
     return this.ui.historyCommit(kind, repo, head, rows, check);
   }
@@ -535,6 +573,10 @@ class GraphController {
     const change = tokens?.get(token);
     if (!change || change.ambiguous) throw new BranchError(t('history.staleAction'));
     const apply = kind === 'applyFiles';
+    if (kind === 'selectFile') {
+      this.fileSelection[source] = new Set([token]);
+      return this.send('fileSelection', { source, ids: [token] });
+    }
     const selection = () => this.fileSelection[source].has(token) ? [...this.fileSelection[source]] : [token];
     const selected = this.fileSelection[source];
     if (apply && selected.has(token) && selected.size > MAX_PATCH_FILES) {
@@ -560,7 +602,7 @@ class GraphController {
   async probeCommitMenu(oid) {
     const rows = this.commitRows(oid), { repo, selectionRevision: revision } = this;
     const head = repo?.snapshot?.head;
-    if (!this.canRead || !rows.length || rows.length > MAX_SELECTION || !repo.actions?.history) return;
+    if (!this.canRead || !rows.length || rows.length > MAX_SELECTION || rows.some(row => row.worktree) || !repo.actions?.history) return;
     const request = this.start('commitMenu');
     try {
       const actions = await repo.actions.history.eligibility(rows, head, request.signal);
@@ -612,6 +654,8 @@ class GraphController {
       case 'chooseColumns': return this.chooseColumns();
       case 'refresh': {
         await this.registry.refresh();
+        // In a comparison, Refresh also re-pins the endpoints, replacing "Compare Again".
+        if (this.comparison) return this.recompare();
         if (message.generation === this.generation) this.reset(true);
         return;
       }
@@ -696,9 +740,9 @@ class GraphController {
   <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span><span class="refresh-label">${htmlText('command.refresh')}</span></button>
   <div id="compare-bar" class="compare-bar" hidden>
     <span id="direction" class="direction"></span>
-    <button id="swap" class="control" type="button">${htmlText('history.swap')}</button>
-    <button id="recompare" class="control" type="button">${htmlText('history.recompare')}</button>
-    <button id="exit-compare" class="control" type="button">${htmlText('history.exitCompare')}</button>
+    <button id="compare-refresh" class="control icon" type="button" aria-label="${htmlText('history.refresh')}" title="${htmlText('history.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span><span class="icon-label refresh-label">${htmlText('history.refresh')}</span></button>
+    <button id="swap" class="control icon" type="button" aria-label="${htmlText('history.swap')}" title="${htmlText('history.swap')}"><span class="codicon codicon-arrow-swap" aria-hidden="true"></span><span class="icon-label swap-label">${htmlText('history.swap')}</span></button>
+    <button id="exit-compare" class="control icon" type="button" aria-label="${htmlText('history.exitCompare')}" title="${htmlText('history.exitCompare')}"><span class="codicon codicon-close" aria-hidden="true"></span><span class="icon-label exit-label">${htmlText('history.exitCompare')}</span></button>
   </div>
 </header>
 <div id="notices" class="notices" role="status" hidden></div>
@@ -712,10 +756,10 @@ class GraphController {
     <div class="pane-header log-header">
       <span id="log-title" title="${htmlText('history.selectionHint')}">${htmlText('history.graph')}</span>
       <div id="compare-counts" class="compare-counts" role="group" aria-label="${htmlText('history.distinct')}" hidden>
-        <button id="compare-left" class="compare-filter left" type="button" aria-pressed="false"><span class="codicon codicon-check" aria-hidden="true"></span><span id="compare-left-label">${htmlText('history.baseOnly')}</span></button>
-        <button id="compare-right" class="compare-filter right" type="button" aria-pressed="false"><span class="codicon codicon-check" aria-hidden="true"></span><span id="compare-right-label">${htmlText('history.targetOnly')}</span></button>
+        <button id="compare-left" class="compare-filter left" type="button" aria-pressed="false"><span id="compare-left-label">${htmlText('history.baseOnly')}</span></button>
+        <button id="compare-right" class="compare-filter right" type="button" aria-pressed="false"><span id="compare-right-label">${htmlText('history.targetOnly')}</span></button>
       </div>
-      <button id="commit-columns" class="control column-picker" type="button" title="${htmlText('history.chooseColumns')}">${htmlText('history.columns')}</button>
+      <button id="commit-columns" class="control icon column-picker" type="button" aria-label="${htmlText('history.chooseColumns')}" title="${htmlText('history.chooseColumns')}"><span class="codicon codicon-settings-gear" aria-hidden="true"></span><span class="columns-label">${htmlText('history.columns')}</span></button>
     </div>
     <div id="commits-scroll" class="scroll log-scroll" tabindex="-1">
       <div id="top-spacer"></div><div id="commits" role="listbox" aria-label="${htmlText('history.commitList')}" aria-multiselectable="true"></div><div id="bottom-spacer"></div>
@@ -728,10 +772,11 @@ class GraphController {
       <div class="pane-header file-header">
         <div id="file-tabs" class="file-tabs" hidden>
           <button id="commit-tab" type="button" aria-pressed="false">${htmlText('history.commitFiles')}</button>
-          <button id="snapshot-tab" type="button" aria-pressed="true">${htmlText('history.snapshotFiles')}</button>
+          <button id="snapshot-tab" type="button" aria-pressed="true">${htmlText('history.fileDiff')}</button>
         </div>
         <span id="file-title">${htmlText('history.commitFiles')}</span><span id="file-count" class="pill"></span>
-        <button id="file-layout" class="control file-layout" type="button">${htmlText('history.viewTree')}</button>
+        <button id="file-tab-toggle" class="control icon file-tab-toggle" type="button" hidden aria-label="${htmlText('history.switchFileTab')}" title="${htmlText('history.switchFileTab')}"><span class="codicon codicon-list-selection" aria-hidden="true"></span><span class="icon-label toggle-label">${htmlText('history.switchFileTab')}</span></button>
+        <button id="file-layout" class="control icon file-layout" type="button" aria-label="${htmlText('history.viewTree')}" title="${htmlText('history.viewTree')}"><span class="codicon codicon-list-tree" aria-hidden="true"></span><span class="icon-label layout-label">${htmlText('history.viewTree')}</span></button>
       </div>
       <div id="files" class="scroll files" tabindex="-1" data-patch-limit="${MAX_PATCH_FILES}" aria-label="${htmlText('history.changedFiles')}"></div>
     </div>

@@ -59,14 +59,9 @@ for (const [, file] of css.matchAll(/url\(['"]?([^'"\s)]+)['"]?\)/g)) {
 }
 const previewPath = 'docs/design/workbench-preview.png';
 const markdownImages = name => Array.from(read(name).matchAll(/!\[[^\]]*\]\(([^)]+)\)/g), match => match[1]);
-assert.deepEqual(markdownImages('README.md'), [`https://raw.githubusercontent.com/hkllyx/vscode-git-branch/main/${previewPath}`],
-  'The Marketplace README must use the GitHub raw URL for the workbench preview');
-assert.deepEqual(markdownImages('docs/DESIGN.md'), ['./design/workbench-preview.png'],
-  'The design document must reference the same workbench preview');
-assert.deepEqual(fs.readdirSync(path.join(root, 'docs/design')), ['workbench-preview.png'],
-  'Keep only the workbench preview in the design assets directory');
-const previewBytes = fs.readFileSync(path.join(root, previewPath));
-assert.ok(previewBytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex')), `Not a PNG: ${previewPath}`);
+assert.deepEqual(markdownImages('README.md'), [], 'The Marketplace README must not contain images');
+assert.deepEqual(markdownImages('docs/DESIGN.md'), [], 'The design document must not contain images');
+assert.ok(!fs.existsSync(path.join(root, previewPath)), 'Remove the obsolete workbench preview image');
 
 function jsFiles(dir) {
   return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -88,4 +83,4 @@ for (const file of runtimeModules) {
 const modules = [path.join(root, 'package-vsix.js'), ...runtimeModules,
   ...['scripts', 'test', 'test-support'].flatMap(dir => jsFiles(path.join(root, dir)))];
 for (const file of modules) execFileSync(process.execPath, ['--check', file], { stdio: 'inherit' });
-console.log(`Checked ${modules.length} JS files, ${keys.length} messages in three locales, VS Code commands/views, Webview resources and README images.`);
+console.log(`Checked ${modules.length} JS files, ${keys.length} messages in three locales, VS Code commands/views, Webview resources, and no Markdown images.`);

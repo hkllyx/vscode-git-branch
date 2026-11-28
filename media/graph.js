@@ -36,7 +36,7 @@
     R: t('history.statusRenamed'), T: t('history.statusTypeChange'), U: t('history.statusConflict'),
     X: t('history.statusUnknown'), B: t('history.statusRewritten')
   };
-  const state = { generation: 0, rows: [], rowsByOid: new Map(), known: new Set(), meta: {}, badges: new Map(), page: {}, selection: {},
+  const state = { generation: 0, rows: [], entries: [], rowsByOid: new Map(), known: new Set(), meta: {}, badges: new Map(), page: {}, selection: {},
     selectedCommits: new Set(), filesById: new Map(),
     directories: new Map(), parentViews: new Map(), commitMenus: new Map(), fileMenus: new Map(), filesLayout: 'list', commitColumns: [],
     selectedFiles: { commit: new Set(), snapshot: new Set() }, anchors: {}, snapshot: false, limit: FILE_BATCH, pageIntent: false };
@@ -81,6 +81,10 @@
   }
 
   function graph(row, laneLimit) {
+    if (!row.graph) {
+      // Synthetic rows (Working Tree changes) are not part of the commit DAG.
+      return svgNode('svg', { class: 'graph', width: LANE + 5, height: ROW, 'aria-hidden': 'true' });
+    }
     const { column, color, incoming, through, edges } = row.graph;
     const columns = Math.max(1, Math.min(laneLimit, state.page.columns || 1));
     const width = columns * LANE + 5, mid = ROW / 2;
@@ -138,6 +142,8 @@
   }
 
   function commitActionContext(row) {
+    // The synthetic Working Tree row is not a Git object, so history rewrite commands do not apply.
+    if (row.worktree) return { ...baseContext('none') };
     const active = state.selectedCommits.has(row.oid);
     const selected = active ? state.selection.selected : [row.oid];
     const single = selected.length === 1;
@@ -163,13 +169,14 @@
     const subject = row.subject || t('history.noSubject');
     const focused = row.oid === state.selection.focus;
     const isSelected = selected.has(row.oid);
-    const time = commitTime(row.date);
-    const line = el('div', `commit-row${focused ? ' focused' : ''}${isSelected ? ' selected' : ''}`);
+    const time = row.worktree ? { label: '', precise: '' } : commitTime(row.date);
+    const line = el('div', `commit-row${focused ? ' focused' : ''}${isSelected ? ' selected' : ''}${row.worktree ? ' worktree-row' : ''}`);
     line.dataset.oid = row.oid;
     line.setAttribute('role', 'presentation');
     const summary = button('commit-subject', '', event => {
       const additive = event.ctrlKey || event.metaKey;
       const mode = event.shiftKey ? (additive ? 'extend' : 'range') : additive ? 'toggle' : 'replace';
+      if (state.meta.compare) { state.snapshot = false; renderFiles(); }
       send('select', { oid: row.oid, mode });
     });
     summary.setAttribute('role', 'option');
@@ -177,10 +184,10 @@
     summary.setAttribute('aria-posinset', index + 1);
     summary.setAttribute('aria-setsize', state.page.hasMore ? -1 : state.rows.length);
     const badges = state.badges.get(row.oid) || [];
-    const side = row.side && t(row.side === 'left' ? 'history.baseOnly' : 'history.targetOnly');
-    const author = row.author || '—';
-    const hash = short(row.oid);
-    summary.title = `${subject}\n${author}  ·  ${hash}  ·  ${time.precise}`;
+    const author = row.worktree ? '' : row.author || '—';
+    const hash = row.worktree ? '' : short(row.oid);
+    summary.title = row.worktree ? `${subject}\n${t('history.worktreeNotACommit')}`
+      : `${subject}\n${author}  ·  ${hash}  ·  ${time.precise}`;
     const message = el('span', 'commit-message');
     message.append(el('span', 'subject ellipsis', subject));
     if (badges.length) {
@@ -188,12 +195,9 @@
       badge.title = badges.map(item => item.name).join('\n');
       message.append(badge);
     }
-    if (side) message.append(el('span', `side ${row.side}`, side));
     summary.append(graph(row, laneLimit), message);
     const values = { author, hash, date: time.label };
-    for (const key of state.commitColumns) {
-      summary.append(el('span', `${key} ellipsis${key === 'author' ? '' : ' mono'}`, values[key]));
-    }
+    for (const key of state.commitColumns) summary.append(el('span', `${key} ellipsis${key === 'author' ? '' : ' mono'}`, values[key]));
     line.append(summary);
     rowContext(line, () => commitActionContext(row), () => {
       const active = state.selectedCommits.has(row.oid);
@@ -203,11 +207,33 @@
     return line;
   }
 
+  /** Comparison rows are grouped by side; the header replaces a per-row badge. */
+  function buildEntries() {
+    const compare = Boolean(state.meta.compare);
+    const entries = [];
+    let side;
+    for (const row of state.rows) {
+      if (compare && row.side && row.side !== side) {
+        entries.push({ kind: 'section', side: row.side });
+        side = row.side;
+      }
+      entries.push({ kind: 'commit', row });
+    }
+    state.entries = entries;
+  }
+
+  function sectionRow(side) {
+    const line = el('div', `commit-section ${side}`);
+    line.setAttribute('role', 'presentation');
+    line.append(el('span', 'commit-section-label', t(side === 'left' ? 'history.baseOnly' : 'history.targetOnly')));
+    return line;
+  }
+
   let painted = '';
   let frame = 0;
   function renderRows(force = false) {
     if (!scroll.clientHeight) { painted = ''; return; }
-    const count = state.meta.message ? 0 : state.rows.length;
+    const count = state.meta.message ? 0 : state.entries.length;
     const start = Math.min(count, Math.max(0, Math.floor(scroll.scrollTop / ROW) - 8));
     const end = Math.min(count, Math.ceil((scroll.scrollTop + scroll.clientHeight) / ROW) + 8);
     const width = scroll.clientWidth;
@@ -221,8 +247,10 @@
     const fragment = document.createDocumentFragment();
     let restore;
     for (let i = start; i < end; i++) {
-      const line = commitRow(state.rows[i], i, state.selectedCommits, laneLimit);
-      if (state.rows[i].oid === oid) restore = line.querySelector('.commit-subject');
+      const entry = state.entries[i];
+      if (entry.kind === 'section') { fragment.append(sectionRow(entry.side)); continue; }
+      const line = commitRow(entry.row, i, state.selectedCommits, laneLimit);
+      if (entry.row.oid === oid) restore = line.querySelector('.commit-subject');
       fragment.append(line);
     }
     $('top-spacer').style.height = `${start * ROW}px`;
@@ -244,7 +272,7 @@
       frame = 0;
       renderRows();
       if (scroll.clientHeight && state.rows.length && !state.page.error &&
-          scroll.scrollTop + scroll.clientHeight >= (state.rows.length - 8) * ROW) requestPage();
+          scroll.scrollTop + scroll.clientHeight >= (state.entries.length - 8) * ROW) requestPage();
     });
   }
 
@@ -276,21 +304,26 @@
     filterInput.disabled = !ready;
     $('commit-columns').disabled = !state.generation;
     $('refresh').disabled = !meta.repository;
+    // In a comparison the refresh control moves next to the direction text.
+    $('refresh').hidden = Boolean(mode);
     $('compare-bar').hidden = !mode;
-    $('log-title').textContent = t(mode && !mode.workingTree ? 'history.distinct' : 'history.graph');
-    $('swap').disabled = $('recompare').disabled = !ready;
+    $('log-title').textContent = t(mode ? 'history.distinct' : 'history.graph');
+    $('compare-refresh').disabled = $('swap').disabled = !ready;
     $('swap').hidden = Boolean(mode?.workingTree);
-    $('snapshot-tab').textContent = t(mode?.workingTree ? 'history.workingTreeFiles' : 'history.snapshotFiles');
+    $('snapshot-tab').textContent = t('history.fileDiff');
     $('file-tabs').hidden = !mode;
     $('file-title').hidden = Boolean(mode);
-    $('compare-counts').hidden = !mode || mode.workingTree;
+    $('file-tab-toggle').hidden = !mode;
+    $('compare-counts').hidden = !mode || !comparison?.counts;
     for (const { control, text, side, label, countLabel } of compareControls) {
+      const count = comparison?.counts?.[side];
       control.disabled = !ready;
-      text.textContent = comparison?.counts ? t(countLabel, { count: comparison.counts[side] }) : t(label);
+      control.hidden = count === 0;
+      text.textContent = count === undefined ? t(label) : t(countLabel, { count });
       press(control, state.page.compareSide === side);
     }
     if (mode) {
-      const target = mode.workingTree ? mode.right.label : `${mode.right.label} (${mode.right.oid})`;
+      const target = `${mode.right.label} (${mode.right.oid})`;
       $('direction').title = `${mode.left.label} (${mode.left.oid}) → ${target}`;
       $('direction').replaceChildren(el('span', 'side left ellipsis', t('history.baseLabel', { name: mode.left.label })), el('span', '', '→'),
         el('span', 'side right ellipsis', t('history.targetLabel', { name: mode.right.label })));
@@ -311,11 +344,11 @@
     else if (page.loading || !state.generation) status.textContent = t('history.loadingCommits');
     else if (page.hasMore) status.append(button('link', t('history.loadMoreCommits'), requestPage));
     else if (!rows.length) {
-      if (page.filter || (meta.compare && !meta.compare.workingTree && page.compareSide !== 'both')) status.textContent = t('history.filteredEmpty');
-      else status.textContent = meta.compare && !meta.compare.workingTree
+      if (page.filter || (meta.compare && page.compareSide !== 'both')) status.textContent = t('history.filteredEmpty');
+      else status.textContent = meta.compare
         ? t(comparison?.same ? 'history.sameTip' : 'history.noUniqueCommits') : t('history.noCommitsInRange');
     }
-    else if (meta.compare && comparison?.common) status.textContent = t('history.sharedExcluded');
+    else if (meta.compare && comparison?.same) status.textContent = t('history.sameTip');
     else status.textContent = countText('history.commitCount', rows.length);
   }
 
@@ -357,7 +390,6 @@
     }
     if (!event.shiftKey || !state.anchors[source]) state.anchors[source] = file.id;
     updateFileSelection(source, next);
-    if (!additive && !event.shiftKey && !file.ambiguous) send('openDiff', { token: file.id });
   }
 
   function fileRow(file, source, inTree = false) {
@@ -368,6 +400,8 @@
     const note = file.ambiguous ? t('history.cannotCombine') : file.includesGap ? t('history.includesUnselected') : '';
     const row = button('file-row', '', event => selectFile(event, file, source), [label, path, note].filter(Boolean).join(' · '));
     row.dataset.fileId = file.id;
+    // A single click only moves the selection; the Diff opens on double click.
+    row.addEventListener('dblclick', () => { if (!file.ambiguous) send('openDiff', { token: file.id }); });
     const selected = state.selectedFiles[source].has(file.id);
     row.classList.toggle('selected', selected);
     press(row, selected);
@@ -463,10 +497,21 @@
     const active = document.activeElement;
     const restoreFocus = active !== files && files.contains(active);
     const focusedFile = active?.dataset.fileId;
-    $('file-layout').textContent = t(state.filesLayout === 'tree' ? 'history.viewList' : 'history.viewTree');
+    const layoutLabel = t(state.filesLayout === 'tree' ? 'history.viewList' : 'history.viewTree');
+    $('file-layout').title = layoutLabel;
+    $('file-layout').setAttribute('aria-label', layoutLabel);
+    $('file-layout').querySelector('.layout-label').textContent = layoutLabel;
+    $('file-layout').querySelector('.codicon').className = `codicon codicon-${state.filesLayout === 'tree' ? 'list-flat' : 'list-tree'}`;
     $('file-layout').disabled = Boolean(meta.message);
     press($('commit-tab'), !snapshot);
     press($('snapshot-tab'), snapshot);
+    // Comparison keeps a single file tab; the toggle button beside it switches panes.
+    $('commit-tab').hidden = snapshot;
+    $('snapshot-tab').hidden = !snapshot;
+    const tabLabel = t(snapshot ? 'history.showCommitFiles' : 'history.showFileDiff');
+    $('file-tab-toggle').title = tabLabel;
+    $('file-tab-toggle').setAttribute('aria-label', tabLabel);
+    $('file-tab-toggle').querySelector('.toggle-label').textContent = tabLabel;
     $('file-count').textContent = meta.message || packet?.selectionOverLimit ? '' : multi
       ? t('history.combinedSummary', { selected: selection.selected.length, count: list.length })
       : (packet?.files ? countText('history.fileCount', list.length) : '');
@@ -510,12 +555,14 @@
     const box = $('detail-content');
     const { detail, loading, focus, selected } = state.selection;
     const multi = (selected?.length || 0) > 1;
-    $('details').hidden = multi;
+    // In a comparison the file area belongs to the comparison, so no commit detail block is shown.
+    const hidden = multi || Boolean(state.meta.compare);
+    $('details').hidden = hidden;
     const detailTab = tabs.find(tab => tab.dataset.pane === 'details');
-    detailTab.hidden = multi;
-    if (multi && panes.dataset.pane === 'details') setPane('files');
+    detailTab.hidden = hidden;
+    if (hidden && panes.dataset.pane === 'details') setPane('files');
     box.replaceChildren();
-    if (multi) return;
+    if (hidden) return;
     if (!detail || state.meta.message) {
       box.append(el('p', 'muted', t(focus && loading && !state.meta.message ? 'history.loadingDetails' : 'history.chooseCommit')));
       return;
@@ -588,6 +635,7 @@
     event.stopPropagation();
     if (event.repeat) return;
     if (inLog) {
+      if (all && state.meta.compare) { state.snapshot = false; renderFiles(); }
       if (all) send('selectAllCommits', { focusedOid: target.closest('.commit-row')?.dataset.oid });
       else send('clearCommits');
     } else {
@@ -605,7 +653,7 @@
   });
 
   for (const [id, intent] of Object.entries({ repo: 'chooseRepository', range: 'chooseRange', refresh: 'refresh',
-    swap: 'swap', recompare: 'recompare', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
+    swap: 'swap', 'compare-refresh': 'recompare', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
     $(id).addEventListener('click', () => send(intent));
   }
   for (const { control, side } of compareControls) control.addEventListener('click', () => send('toggleCompareSide', { side }));
@@ -626,7 +674,7 @@
     send('filesLayout', { layout: state.filesLayout });
     renderFiles();
   });
-  for (const [id, snapshot] of [['commit-tab', false], ['snapshot-tab', true]]) $(id).addEventListener('click', () => {
+  const showFileTab = snapshot => {
     if (state.snapshot === snapshot) return;
     state.snapshot = snapshot;
     state.limit = FILE_BATCH;
@@ -635,7 +683,10 @@
       send('selectFiles', { source, ids: [] });
     }
     renderFiles();
-  });
+  };
+  // Comparison shows one tab at a time; picking a commit switches to Commit Files automatically.
+  for (const [id, snapshot] of [['commit-tab', false], ['snapshot-tab', true]]) $(id).addEventListener('click', () => showFileTab(snapshot));
+  $('file-tab-toggle').addEventListener('click', () => showFileTab(!state.snapshot));
   tabs.forEach(control => control.addEventListener('click', () => setPane(control.dataset.pane)));
   scroll.addEventListener('scroll', onViewport, { passive: true });
   new ResizeObserver(onViewport).observe(scroll);
@@ -681,6 +732,7 @@
       state.badges = new Map(payload.meta.badges);
       state.rowsByOid = new Map(state.rows.map(row => [row.oid, row]));
       state.known = new Set(state.rowsByOid.keys());
+      buildEntries();
       state.selectedCommits = new Set(state.selection.selected);
       if (syncFilter) {
         clearTimeout(filterTimer);
@@ -696,6 +748,7 @@
       switch (type) {
         case 'append':
           for (const row of payload) { state.rows.push(row); state.known.add(row.oid); state.rowsByOid.set(row.oid, row); }
+          buildEntries();
           break;
         case 'meta': {
           const sameHead = state.meta.head?.ref === payload.head?.ref && state.meta.head?.oid === payload.head?.oid;
@@ -739,6 +792,18 @@
           }
           return;
         case 'fileMenu': state.fileMenus.set(payload.token, payload.editSource); return;
+        case 'fileSelection': {
+          const { source, ids } = payload;
+          if (!state.selectedFiles[source]) return;
+          state.selectedFiles[source] = new Set(ids);
+          delete state.anchors[source];
+          for (const row of files.querySelectorAll('.file-row')) {
+            const active = state.selectedFiles[source].has(row.dataset.fileId);
+            row.classList.toggle('selected', active);
+            press(row, active);
+          }
+          return;
+        }
         case 'editPrompt': renderEdit(payload); return;
         default: return;
       }

@@ -32,15 +32,34 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .codicon { display: inline-block; width: 14px; text-align: center; line-height: 1; }
 .codicon-tag::before { content: '\1f3f7\fe0e'; }
 .codicon-warning::before { content: '!'; }
-.codicon-check::before { content: '✓'; }
 .codicon-refresh { display: none; width: 16px; font-size: 16px; }
+.codicon-close { display: none; width: 16px; font-size: 16px; }
+.codicon-arrow-swap { display: none; width: 16px; font-size: 16px; }
+.codicon-settings-gear { display: none; width: 16px; font-size: 16px; }
+.codicon-list-tree { display: none; width: 16px; font-size: 16px; }
+.codicon-list-flat { display: none; width: 16px; font-size: 16px; }
+.codicon-list-selection { display: none; width: 16px; font-size: 16px; }
 .has-codicons .codicon { font: normal normal 14px/1 'Git Branch Codicon'; }
 .has-codicons .codicon-tag::before { content: '\ea66'; }
 .has-codicons .codicon-warning::before { content: '\ea6c'; }
-.has-codicons .codicon-check::before { content: '\eab2'; }
 .has-codicons .codicon-refresh { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-refresh::before { content: '\eb37'; }
-.has-codicons .refresh-label { display: none; }
+.has-codicons .codicon-close { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-close::before { content: '\ea76'; }
+.has-codicons .codicon-arrow-swap { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-arrow-swap::before { content: '\ebcb'; }
+.has-codicons .codicon-settings-gear { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-settings-gear::before { content: '\eb51'; }
+.has-codicons .codicon-list-tree { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-list-tree::before { content: '\eb86'; }
+.has-codicons .codicon-list-flat { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-list-flat::before { content: '\eb84'; }
+.has-codicons .codicon-list-selection { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-list-selection::before { content: '\eb85'; }
+.has-codicons .refresh-label, .has-codicons .columns-label { display: none; }
+/* Icon buttons keep a text label only when the host Codicon font is unavailable. */
+.icon-label { white-space: nowrap; }
+.has-codicons .icon-label { display: none; }
 
 .toolbar, .compact-nav {
   flex: 0 0 auto;
@@ -62,7 +81,7 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 }
 button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
 .control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
-.control.icon { display: grid; place-items: center; }
+.control.icon { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .has-codicons .control.icon { width: 26px; padding: 0; }
 .control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'] {
   color: var(--vscode-button-foreground, var(--vscode-foreground));
@@ -84,10 +103,9 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .compare-filter {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
   min-height: 22px;
-  padding: 1px 6px 1px 4px;
-  border: 1px solid var(--border);
+  padding: 1px 7px;
+  border: 1px solid transparent;
   border-radius: 4px;
   font-size: .85em;
   white-space: nowrap;
@@ -95,15 +113,9 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 }
 .compare-filter.left { --side-accent: var(--purple); }
 .compare-filter.right { --side-accent: var(--blue); }
-.compare-filter .codicon-check { visibility: hidden; }
 .compare-filter[aria-pressed='true'] {
-  background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-list-hoverBackground));
-  border-color: var(--vscode-contrastActiveBorder, var(--side-accent));
-  color: var(--vscode-foreground);
-}
-.compare-filter[aria-pressed='true'] .codicon-check {
-  visibility: visible;
-  color: var(--vscode-contrastActiveBorder, var(--side-accent));
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
+  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
 }
 .compare-filter:focus-visible { outline-offset: 1px; }
 .direction .side { max-width: min(25vw, 225px); }
@@ -142,6 +154,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   border-bottom: 1px solid var(--border);
 }
 .column-picker { margin-left: auto; min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
+.has-codicons .column-picker { width: 26px; padding: 0; }
 .scroll { overflow: auto; min-height: 0; scrollbar-gutter: stable; }
 .log-scroll { flex: 1 1 0; overflow-anchor: none; }
 .log-status { color: var(--muted); padding: 9px 10px; overflow-wrap: anywhere; }
@@ -204,17 +217,35 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   font-size: .85em;
   font-weight: normal;
 }
-.commit-message .side { flex-shrink: 0; }
 .side.left { border-color: var(--purple); }
 .side.right { border-color: var(--blue); }
 .pill { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
 .pill:empty { display: none; }
-@container (max-width: 350px) { .commit-message .side { display: none; } }
+/* A grouped comparison side header replaces the per-row Base/Target badge. */
+.commit-section {
+  height: var(--row-height);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  font-size: .85em;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--vscode-foreground);
+  background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-list-hoverBackground));
+  box-shadow: inset 3px 0 var(--side-accent);
+}
+.commit-section.left { --side-accent: var(--purple); }
+.commit-section.right { --side-accent: var(--blue); }
+.commit-section + .commit-row { border-top: 1px solid var(--border); }
+.commit-row.worktree-row .commit-message .subject { font-style: italic; }
 
 .log-header, .file-header { flex-wrap: wrap; }
 .file-tabs { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; }
 .file-tabs button, .compact-nav button { border-radius: 3px; padding: 2px 7px; }
 .file-layout { margin-left: auto; min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
+.file-tab-toggle { min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
+.has-codicons .file-layout, .has-codicons .file-tab-toggle { width: 24px; padding: 0; }
 .link { color: var(--vscode-textLink-foreground); padding: 2px 5px; border-radius: 3px; }
 .files { flex: 1 1 0; padding: 3px 4px 6px; }
 .empty, .snapshot-caption { padding: 7px 6px; white-space: pre-wrap; overflow-wrap: anywhere; }

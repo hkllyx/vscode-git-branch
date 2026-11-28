@@ -491,7 +491,7 @@ test('native history menus are scoped to both supported webview keys, with no co
   const keys = area => menu.filter(row => row.when === `${viewScope} && gbArea == ${area}`)
     .map(row => row.command.slice('git-branch.'.length));
   assert.deepEqual(keys('commit'), ['copyRevision', 'cherryPick', 'checkoutRevision', 'compareLocal', 'reset', 'revert', 'undo', 'editMessage', 'squash', 'drop', 'newBranch', 'newTag']);
-  assert.deepEqual(keys('file'), ['editSource', 'openRepositoryVersion', 'applyFiles']);
+  assert.deepEqual(keys('file'), ['selectFile', 'editSource', 'openRepositoryVersion', 'applyFiles']);
   assert.equal(menu.length, keys('commit').length + keys('file').length);
   for (const key of [...keys('commit'), ...keys('file')]) assert.ok(contributes.menus.commandPalette.some(row => row.command === `git-branch.${key}` && row.when === 'false'));
 });
@@ -557,7 +557,7 @@ test('history opens the working tree Diff using a host-issued file token and sav
   controller.compareWorktree(repo, await local.actions.named('refs/heads/base'));
   await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.detail, 'load worktree files and commit data');
   const scope = { repoId: repo.id, generation: controller.generation };
-  assert.deepEqual(controller.meta().compare, { left: { label: 'base', oid: base }, right: { label: 'Working Tree' }, workingTree: true, stale: false });
+  assert.deepEqual(controller.meta().compare, { left: { label: 'base', oid: base }, right: { label: 'Working Tree', oid: repo.snapshot.head.oid }, workingTree: true, stale: false });
   const [file] = controller.comparePacket.files;
   assert.equal(file.path, 'file.txt');
   await controller.onMessage({ ...scope, type: 'openDiff', token: '../file.txt' });
