@@ -205,10 +205,10 @@ test('comparison side limits run before pagination and compose with text filteri
   assert.equal(empty.hasMore, false);
 });
 
-test('working tree comparison shows net tracked differences and uses saved disk content, not just the index', async t => {
+test('working tree comparison shows saved tracked and non-ignored untracked changes, not just the index', async t => {
   const f = await fixture(t);
   const repo = await f.repo('worktree-diff');
-  const base = await repo.commit('root', { 'a.txt': 'base', 'deleted.txt': 'before deletion', 'net-zero.txt': 'base' });
+  const base = await repo.commit('root', { '.gitignore': '*.ignored\n', 'a.txt': 'base', 'deleted.txt': 'before deletion', 'net-zero.txt': 'base' });
   await repo.git('branch', 'base');
   const head = await repo.commit('current commit', { 'committed.txt': 'only on current' });
   await repo.write('a.txt', 'staged content');
@@ -219,12 +219,14 @@ test('working tree comparison shows net tracked differences and uses saved disk 
   await repo.write('net-zero.txt', 'base');
   await fs.unlink(path.join(repo.dir, 'deleted.txt'));
   await repo.write('local-only.txt', 'untracked');
+  await repo.write('local-cache.ignored', 'ignored');
   await repo.write('intent-to-add.txt', 'not staged yet');
   await repo.git('add', '-N', 'intent-to-add.txt');
   const before = await repo.git('status', '--porcelain=v2');
   const files = await repo.reads.worktreeFiles(base);
   assert.deepEqual(files.map(file => [file.path, file.status]), [['a.txt', 'M'], ['committed.txt', 'A'], ['deleted.txt', 'D'],
-    ['intent-to-add.txt', 'A'], ['staged-new.txt', 'A']]);
+    ['intent-to-add.txt', 'A'], ['staged-new.txt', 'A'], ['local-only.txt', 'A']]);
+  assert.equal(await repo.reads.workingBlob(files.find(file => file.path === 'local-only.txt')), 'untracked');
   const item = files.find(file => file.path === 'a.txt');
   assert.equal(item.workingTree, true);
   assert.equal(await repo.reads.blob(item.old), 'base');
@@ -249,7 +251,7 @@ test('working tree diff cannot open a path replaced by a junction or an out-of-t
   await fs.rmdir(path.join(repo.dir, 'dir'));
   await fs.symlink(outside, path.join(repo.dir, 'dir'), process.platform === 'win32' ? 'junction' : 'dir');
   await assert.rejects(repo.reads.workingBlob(file), /Only regular files/);
-  const unsafe = { ...file, pathKey: Buffer.from('../outside/file.txt').toString('base64') };
+  const unsafe = { ...file, new: { ...file.new, pathKey: Buffer.from('../outside/file.txt').toString('base64') } };
   await assert.rejects(repo.reads.workingBlob(unsafe), /cannot be read safely/);
 });
 

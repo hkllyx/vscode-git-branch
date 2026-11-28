@@ -146,6 +146,7 @@
     if (row.worktree) return { ...baseContext('none') };
     const active = state.selectedCommits.has(row.oid);
     const selected = active ? state.selection.selected : [row.oid];
+    if (selected.some(oid => state.rowsByOid.get(oid)?.worktree)) return baseContext('none');
     const single = selected.length === 1;
     const head = state.meta.head;
     const local = Boolean(head?.ref && head.oid);
@@ -176,7 +177,7 @@
     const summary = button('commit-subject', '', event => {
       const additive = event.ctrlKey || event.metaKey;
       const mode = event.shiftKey ? (additive ? 'extend' : 'range') : additive ? 'toggle' : 'replace';
-      if (state.meta.compare) { state.snapshot = false; renderFiles(); }
+      if (state.meta.compare) showFileTab(false);
       send('select', { oid: row.oid, mode });
     });
     summary.setAttribute('role', 'option');
@@ -201,7 +202,7 @@
     line.append(summary);
     rowContext(line, () => commitActionContext(row), () => {
       const active = state.selectedCommits.has(row.oid);
-      if (active && state.selection.selectionOverLimit) return;
+      if (row.worktree || (active && state.selection.selectionOverLimit)) return;
       if (!state.commitMenus.has(active ? 'selected' : row.oid)) probe('probeCommitMenu', { oid: row.oid });
     });
     return line;
@@ -209,15 +210,18 @@
 
   /** Comparison rows are grouped by side; the header replaces a per-row badge. */
   function buildEntries() {
-    const compare = Boolean(state.meta.compare);
+    if (!state.meta.compare) {
+      state.entries = state.rows.map((row, index) => ({ row, index }));
+      return;
+    }
+    const groups = { left: [], right: [] };
+    for (const row of state.rows) groups[row.side]?.push(row);
     const entries = [];
-    let side;
-    for (const row of state.rows) {
-      if (compare && row.side && row.side !== side) {
-        entries.push({ kind: 'section', side: row.side });
-        side = row.side;
-      }
-      entries.push({ kind: 'commit', row });
+    let index = 0;
+    for (const side of ['left', 'right']) {
+      if (!groups[side].length) continue;
+      entries.push({ side });
+      for (const row of groups[side]) entries.push({ row, index: index++ });
     }
     state.entries = entries;
   }
@@ -248,8 +252,8 @@
     let restore;
     for (let i = start; i < end; i++) {
       const entry = state.entries[i];
-      if (entry.kind === 'section') { fragment.append(sectionRow(entry.side)); continue; }
-      const line = commitRow(entry.row, i, state.selectedCommits, laneLimit);
+      if (!entry.row) { fragment.append(sectionRow(entry.side)); continue; }
+      const line = commitRow(entry.row, entry.index, state.selectedCommits, laneLimit);
       if (entry.row.oid === oid) restore = line.querySelector('.commit-subject');
       fragment.append(line);
     }
@@ -303,16 +307,13 @@
     $('range').hidden = Boolean(mode);
     filterInput.disabled = !ready;
     $('commit-columns').disabled = !state.generation;
-    $('refresh').disabled = !meta.repository;
-    // In a comparison the refresh control moves next to the direction text.
-    $('refresh').hidden = Boolean(mode);
+    const refresh = $('refresh');
+    refresh.disabled = !meta.repository;
+    const before = mode ? $('swap') : $('compare-bar');
+    if (refresh.nextElementSibling !== before) before.before(refresh);
     $('compare-bar').hidden = !mode;
     $('log-title').textContent = t(mode ? 'history.distinct' : 'history.graph');
-    $('compare-refresh').disabled = $('swap').disabled = !ready;
-    $('swap').hidden = Boolean(mode?.workingTree);
-    $('snapshot-tab').textContent = t('history.fileDiff');
-    $('file-tabs').hidden = !mode;
-    $('file-title').hidden = Boolean(mode);
+    $('swap').disabled = !ready;
     $('file-tab-toggle').hidden = !mode;
     $('compare-counts').hidden = !mode || !comparison?.counts;
     for (const { control, text, side, label, countLabel } of compareControls) {
@@ -323,8 +324,8 @@
       press(control, state.page.compareSide === side);
     }
     if (mode) {
-      const target = `${mode.right.label} (${mode.right.oid})`;
-      $('direction').title = `${mode.left.label} (${mode.left.oid}) → ${target}`;
+      const label = endpoint => endpoint.worktree ? endpoint.label : `${endpoint.label} (${endpoint.oid})`;
+      $('direction').title = `${label(mode.left)} → ${label(mode.right)}`;
       $('direction').replaceChildren(el('span', 'side left ellipsis', t('history.baseLabel', { name: mode.left.label })), el('span', '', '→'),
         el('span', 'side right ellipsis', t('history.targetLabel', { name: mode.right.label })));
     }
@@ -344,11 +345,10 @@
     else if (page.loading || !state.generation) status.textContent = t('history.loadingCommits');
     else if (page.hasMore) status.append(button('link', t('history.loadMoreCommits'), requestPage));
     else if (!rows.length) {
-      if (page.filter || (meta.compare && page.compareSide !== 'both')) status.textContent = t('history.filteredEmpty');
-      else status.textContent = meta.compare
-        ? t(comparison?.same ? 'history.sameTip' : 'history.noUniqueCommits') : t('history.noCommitsInRange');
+      if (meta.compare && comparison?.same) status.textContent = t('history.sameTip');
+      else if (page.filter || (meta.compare && page.compareSide !== 'both')) status.textContent = t('history.filteredEmpty');
+      else status.textContent = t(meta.compare ? 'history.noUniqueCommits' : 'history.noCommitsInRange');
     }
-    else if (meta.compare && comparison?.same) status.textContent = t('history.sameTip');
     else status.textContent = countText('history.commitCount', rows.length);
   }
 
@@ -503,11 +503,7 @@
     $('file-layout').querySelector('.layout-label').textContent = layoutLabel;
     $('file-layout').querySelector('.codicon').className = `codicon codicon-${state.filesLayout === 'tree' ? 'list-flat' : 'list-tree'}`;
     $('file-layout').disabled = Boolean(meta.message);
-    press($('commit-tab'), !snapshot);
-    press($('snapshot-tab'), snapshot);
-    // Comparison keeps a single file tab; the toggle button beside it switches panes.
-    $('commit-tab').hidden = snapshot;
-    $('snapshot-tab').hidden = !snapshot;
+    $('file-title').textContent = t(snapshot ? 'history.fileDiff' : 'history.commitFiles');
     const tabLabel = t(snapshot ? 'history.showCommitFiles' : 'history.showFileDiff');
     $('file-tab-toggle').title = tabLabel;
     $('file-tab-toggle').setAttribute('aria-label', tabLabel);
@@ -520,8 +516,10 @@
       ...(retry ? [button('link retry', t('history.retry'), () => send(retry))] : []));
     if (meta.message) status(t('history.waitForRepository'));
     else {
-      if (snapshot) root.append(el('div', 'snapshot-caption mono',
-        `${short(meta.compare.left.oid)} → ${workingTree ? meta.compare.right.label : short(meta.compare.right.oid)}`));
+      if (snapshot) {
+        const label = endpoint => endpoint.worktree ? endpoint.label : short(endpoint.oid);
+        root.append(el('div', 'snapshot-caption mono', `${label(meta.compare.left)} → ${label(meta.compare.right)}`));
+      }
       if (packet?.loading || (snapshot && !packet)) status(multi
         ? t('history.loadingSelection', { processed: packet.processed, total: packet.total }) : t('history.loadingFiles'));
       else if (snapshot && packet?.error) status(packet.error, 'retryComparison', 'error');
@@ -555,8 +553,7 @@
     const box = $('detail-content');
     const { detail, loading, focus, selected } = state.selection;
     const multi = (selected?.length || 0) > 1;
-    // In a comparison the file area belongs to the comparison, so no commit detail block is shown.
-    const hidden = multi || Boolean(state.meta.compare);
+    const hidden = multi || Boolean(state.meta.compare && (state.snapshot || !detail));
     $('details').hidden = hidden;
     const detailTab = tabs.find(tab => tab.dataset.pane === 'details');
     detailTab.hidden = hidden;
@@ -635,7 +632,7 @@
     event.stopPropagation();
     if (event.repeat) return;
     if (inLog) {
-      if (all && state.meta.compare) { state.snapshot = false; renderFiles(); }
+      if (all && state.meta.compare) showFileTab(false);
       if (all) send('selectAllCommits', { focusedOid: target.closest('.commit-row')?.dataset.oid });
       else send('clearCommits');
     } else {
@@ -653,7 +650,7 @@
   });
 
   for (const [id, intent] of Object.entries({ repo: 'chooseRepository', range: 'chooseRange', refresh: 'refresh',
-    swap: 'swap', 'compare-refresh': 'recompare', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
+    swap: 'swap', 'exit-compare': 'exitComparison', 'commit-columns': 'chooseColumns' })) {
     $(id).addEventListener('click', () => send(intent));
   }
   for (const { control, side } of compareControls) control.addEventListener('click', () => send('toggleCompareSide', { side }));
@@ -674,7 +671,7 @@
     send('filesLayout', { layout: state.filesLayout });
     renderFiles();
   });
-  const showFileTab = snapshot => {
+  function showFileTab(snapshot) {
     if (state.snapshot === snapshot) return;
     state.snapshot = snapshot;
     state.limit = FILE_BATCH;
@@ -683,9 +680,9 @@
       send('selectFiles', { source, ids: [] });
     }
     renderFiles();
-  };
-  // Comparison shows one tab at a time; picking a commit switches to Commit Files automatically.
-  for (const [id, snapshot] of [['commit-tab', false], ['snapshot-tab', true]]) $(id).addEventListener('click', () => showFileTab(snapshot));
+    renderDetail();
+  }
+
   $('file-tab-toggle').addEventListener('click', () => showFileTab(!state.snapshot));
   tabs.forEach(control => control.addEventListener('click', () => setPane(control.dataset.pane)));
   scroll.addEventListener('scroll', onViewport, { passive: true });
@@ -710,8 +707,7 @@
       if (generation !== state.generation || repoId !== state.repoId) {
         const nextMode = payload.meta.compare;
         const keepSnapshot = payload.keepSnapshot && state.repoId === repoId;
-        if (!keepSnapshot && (!state.meta.compare || !nextMode || state.repoId !== repoId || nextMode.workingTree !== state.meta.compare.workingTree
-          || nextMode.workingTree)) state.snapshot = Boolean(nextMode);
+        if (!keepSnapshot) state.snapshot = Boolean(nextMode);
         for (const key of state.directories.keys()) {
           if (!keepSnapshot || !key.startsWith('snapshot:')) state.directories.delete(key);
         }
@@ -726,7 +722,7 @@
         }
         scroll.scrollTop = 0;
         painted = '';
-        if (!keepSnapshot) setPane(nextMode?.workingTree ? 'files' : 'log');
+        if (!keepSnapshot) setPane('log');
       }
       Object.assign(state, payload, { generation, repoId, pageIntent: false, comparison: payload.comparison });
       state.badges = new Map(payload.meta.badges);
@@ -796,7 +792,8 @@
           const { source, ids } = payload;
           if (!state.selectedFiles[source]) return;
           state.selectedFiles[source] = new Set(ids);
-          delete state.anchors[source];
+          state.anchors[source] = ids[0];
+          if (files.dataset.tab !== source) return;
           for (const row of files.querySelectorAll('.file-row')) {
             const active = state.selectedFiles[source].has(row.dataset.fileId);
             row.classList.toggle('selected', active);

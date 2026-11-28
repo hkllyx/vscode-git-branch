@@ -537,8 +537,9 @@ test('history opens the working tree Diff using a host-issued file token and sav
   const local = await f.repo('local');
   const base = await local.commit('initial', { 'file.txt': 'on branch' });
   await local.git('branch', 'base');
-  await local.commit('current', { 'file.txt': 'in head' });
+  const current = await local.commit('current', { 'file.txt': 'in head' });
   await local.write('file.txt', 'on disk');
+  await local.write('untracked.txt', 'available only locally');
   const calls = [], editors = [];
   const vscode = { Uri: { from: ({ scheme, path }) => `${scheme}:${path}` },
     workspace: { isTrusted: true }, window: { showTextDocument: uri => editors.push(uri) },
@@ -548,16 +549,26 @@ test('history opens the working tree Diff using a host-issued file token and sav
   const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local',
     snapshot: await local.reads.snapshot(local.dirs, false), reads: local.reads, actions: local.actions,
     commitCache: new Map(), filesCache: new Map() };
-  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }), refresh: async () => {
+    repo.snapshot = await local.reads.snapshot(local.dirs, false);
+    controller.repoChanged();
+  } };
   const documents = new HistoryDocuments();
   const controller = new GraphController({}, registry, documents, {});
   t.after(() => { controller.dispose(); documents.dispose(); });
   controller.ready = true;
   controller.view = { visible: true, webview: { postMessage: () => true } };
   controller.compareWorktree(repo, await local.actions.named('refs/heads/base'));
-  await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.detail, 'load worktree files and commit data');
+  await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.files, 'load worktree comparison and synthetic selection');
   const scope = { repoId: repo.id, generation: controller.generation };
-  assert.deepEqual(controller.meta().compare, { left: { label: 'base', oid: base }, right: { label: 'Working Tree', oid: repo.snapshot.head.oid }, workingTree: true, stale: false });
+  const send = (type, data) => controller.onMessage({ type, generation: controller.generation, repoId: repo.id, ...data });
+  assert.deepEqual(controller.meta().compare, { left: { label: 'base', oid: base }, right: { label: 'Working Tree', oid: current, worktree: true }, workingTree: true, stale: false });
+  assert.deepEqual(controller.comparePacket.counts, { left: 0, right: 2 });
+  const synthetic = controller.rows.find(row => row.worktree);
+  assert.equal(synthetic.side, 'right');
+  assert.equal(controller.selection.focus, synthetic.oid);
+  assert.equal(controller.selectionPacket.detail, undefined);
+  assert.ok(controller.selectionPacket.files.every(file => !file.apply));
   const [file] = controller.comparePacket.files;
   assert.equal(file.path, 'file.txt');
   await controller.onMessage({ ...scope, type: 'openDiff', token: '../file.txt' });
@@ -578,12 +589,40 @@ test('history opens the working tree Diff using a host-issued file token and sav
     await assert.rejects(controller.fileCommand('openRepositoryVersion', { ...context, ...overrides }), stale);
   }
   assert.deepEqual(editors, []);
+  await controller.fileCommand('selectFile', context);
+  assert.deepEqual([...controller.fileSelection.snapshot], [file.id]);
+  assert.equal(calls.length, 1);
   await controller.fileCommand('openRepositoryVersion', context);
   assert.equal(documents.provideTextDocumentContent(editors[0]), 'on branch');
   await controller.onMessage({ ...scope, type: 'swap' });
-  assert.equal(controller.generation, scope.generation);
-  assert.equal(controller.comparison.left.oid, base);
-  assert.equal(await local.read('file.txt'), 'on disk');
+  await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.files, 'load reversed comparison');
+  assert.equal(controller.comparison.right.oid, base);
+  assert.equal(controller.comparison.left.worktree, true);
+  assert.deepEqual(controller.comparePacket.counts, { left: 2, right: 0 });
+  assert.equal(controller.rows.find(row => row.worktree).side, 'left');
+  assert.equal(controller.comparePacket.files.find(file => file.path === 'untracked.txt').status, 'D');
+  await send('openDiff', { token: controller.comparePacket.files.find(file => file.path === 'file.txt').id });
+  assert.deepEqual(calls.at(-1).slice(1, 3).map(uri => documents.provideTextDocumentContent(uri)), ['on disk', 'on branch']);
+  await send('openDiff', { token: controller.selectionPacket.files.find(file => file.path === 'file.txt').id });
+  assert.deepEqual(calls.at(-1).slice(1, 3).map(uri => documents.provideTextDocumentContent(uri)), ['in head', 'on disk']);
+  await send('selectAllCommits', { focusedOid: current });
+  await waitFor(() => controller.selectionPacket?.files?.length === 2, 'combined real and synthetic changes');
+  const combined = controller.selectionPacket.files.find(file => file.path === 'file.txt');
+  assert.equal(combined.apply, false);
+  assert.equal(combined.includesGap, false);
+  assert.equal(combined.repositoryVersion, true);
+  await send('openDiff', { token: combined.id });
+  assert.deepEqual(calls.at(-1).slice(1, 3).map(uri => documents.provideTextDocumentContent(uri)), ['on branch', 'on disk']);
+  await assert.rejects(controller.commitCommand('copyRevision', { ...context, gbArea: 'commit', gbGeneration: controller.generation,
+    gbRevision: controller.selectionRevision, gbOid: synthetic.oid }), { message: message('history.worktreeNotACommit') });
+
+  const newHead = await local.commit('commit the working files', { 'file.txt': 'committed' });
+  await local.write('file.txt', 'saved after commit');
+  await send('refresh');
+  await waitFor(() => controller.comparePacket?.files && controller.rows.find(row => row.worktree)?.baseOid === newHead, 'refresh pins actual HEAD');
+  assert.equal(controller.comparison.left.oid, newHead);
+  assert.equal(controller.meta().compare.stale, false);
+  assert.equal(await local.read('file.txt'), 'saved after commit');
 });
 
 test('toggling comparison sides reloads commits without replacing the branch file diff or its counts', async t => {
@@ -598,7 +637,7 @@ test('toggling comparison sides reloads commits without replacing the branch fil
   const repo = { id: local.url, root: { fsPath: local.dir }, name: 'local', actions: local.actions,
     snapshot: await local.reads.snapshot(local.dirs, false), reads: local.reads, commitCache: new Map(), filesCache: new Map() };
   const controller = new GraphController({}, { active: repo, repositories: new Map([[repo.id, repo]]),
-    onChange: () => ({ dispose() {} }) }, {}, {});
+    onChange: () => ({ dispose() {} }), refresh: async () => {} }, {}, {});
   t.after(() => controller.dispose());
   controller.view = { visible: true, webview: { postMessage: () => true } };
   controller.ready = true;
@@ -612,6 +651,10 @@ test('toggling comparison sides reloads commits without replacing the branch fil
   controller.compare(repo, ...branches);
   await waitRows([left, right], 'both');
   await waitFor(() => controller.comparePacket?.files && controller.selectionPacket?.detail, 'load comparison and commit selection');
+  assert.deepEqual(controller.displayRows().map(row => row.oid), [left, right]);
+  assert.equal(controller.selection.focus, left);
+  await send('select', { oid: right, mode: 'range' });
+  assert.deepEqual([...controller.selection.selected], [left, right]);
   const packet = controller.comparePacket;
   assert.deepEqual(packet.counts, { left: 1, right: 1 });
   const [file] = packet.files;
@@ -640,9 +683,17 @@ test('toggling comparison sides reloads commits without replacing the branch fil
   await send('toggleCompareSide', { side: 'left' });
   await waitRows([left], 'left');
   await send('swap');
-  await waitRows([right], 'left');
-  await send('recompare');
-  await waitRows([right], 'left');
+  await waitRows([left], 'right');
+  await send('refresh');
+  await waitRows([left], 'right');
+  await local.git('branch', '-f', 'main', 'topic');
+  await send('refresh');
+  await waitFor(() => controller.comparePacket?.same, 'show same-tip comparison after refresh');
+  await waitRows([], 'both');
+  assert.deepEqual(controller.comparePacket.counts, { left: 0, right: 0 });
+  assert.deepEqual(controller.comparePacket.files, []);
+  await send('toggleCompareSide', { side: 'right' });
+  assert.equal(controller.compareSide, 'both');
   await send('exitComparison');
   assert.equal(controller.compareSide, 'both');
   await send('toggleCompareSide', { side: 'left' });

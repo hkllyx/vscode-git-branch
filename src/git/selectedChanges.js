@@ -8,8 +8,8 @@ const { regularMode, pathParts, safeWorktreeFile } = require('./worktreePaths');
 
 const OPTIONS = { write: true, offline: true };
 const MAX_PATCH_FILES = 200;
-const repositoryVersion = file => file.workingTree ? file.old : file.new;
-const editableFileSide = file => file.new || file.old;
+const repositoryVersion = file => file.workingTree && !file.worktreeBefore ? file.old : file.new;
+const editableFileSide = file => file.worktreeBefore ? file.old || file.new : file.new || file.old;
 const canApply = file => !file.workingTree && !file.ambiguous && !file.includesGap && !file.partial &&
   ['A', 'C', 'D', 'M', 'R'].includes(file.status) && [file.old, file.new].filter(Boolean).every(side => regularMode(side.mode));
 

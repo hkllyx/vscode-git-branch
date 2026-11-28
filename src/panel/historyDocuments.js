@@ -25,8 +25,10 @@ class HistoryDocuments {
   }
 
   async open(repo, change, signal, isCurrent) {
-    const [before, after] = await Promise.all([repo.reads.blob(change.old, signal), change.workingTree
-      ? repo.reads.workingBlob(change, signal) : repo.reads.blob(change.new, signal)]);
+    const read = (side, working) => working ? repo.reads.workingBlob(change, signal) : repo.reads.blob(side, signal);
+    const [before, after] = await Promise.all([
+      read(change.old, change.worktreeBefore), read(change.new, change.workingTree && !change.worktreeBefore)
+    ]);
     if (!isCurrent()) return;
     const left = this.add(change.old, change.path, before);
     const right = this.add(change.new, change.path, after);

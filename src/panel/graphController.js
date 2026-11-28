@@ -20,6 +20,13 @@ const HTML_ENTITIES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "
 const escapeHtml = value => value.replace(/[&<>"']/g, char => HTML_ENTITIES[char]);
 const htmlText = key => escapeHtml(t(key));
 
+function reverseWorktreeChange(file) {
+  const { old, new: next, status } = file;
+  const { path, pathKey } = old || next;
+  return { ...file, old: next, new: old, path, pathKey,
+    status: status === 'A' ? 'D' : status === 'D' ? 'A' : status, worktreeBefore: true };
+}
+
 function installedCodiconFont(appRoot) {
   if (!appRoot) return '';
   // Webviews do not inherit the workbench font. Read only the installed Codicon font,
@@ -112,7 +119,7 @@ class GraphController {
 
   pause(except) {
     for (const kind of this.requests.keys()) {
-      if (kind !== except) this.cancel(kind);
+      if (kind !== except && !(except === 'comparison' && kind === 'worktree')) this.cancel(kind);
     }
     this.finishEdit();
   }
@@ -135,6 +142,7 @@ class GraphController {
     this.rows = [];
     this.known = new Map();
     this.layout = new GraphLayout();
+    this.sideLayouts = { left: new GraphLayout(), right: new GraphLayout() };
     this.hasMore = true;
     this.scanned = 0;
     this.pageError = undefined;
@@ -142,6 +150,7 @@ class GraphController {
     this.fileSelection.commit.clear();
     this.selectionPacket = undefined;
     if (!keepSnapshot) {
+      this.worktreeSnapshot = undefined;
       this.snapshotFiles = new Map();
       this.fileSelection.snapshot.clear();
       this.comparePacket = undefined;
@@ -201,7 +210,7 @@ class GraphController {
   }
 
   toggleCompareSide(side) {
-    if (!this.comparison || (side !== 'left' && side !== 'right')) return;
+    if (!this.comparison || (side !== 'left' && side !== 'right') || this.comparePacket?.counts?.[side] === 0) return;
     this.compareSide = this.compareSide === side ? 'both' : side;
     this.reset(Boolean(this.rows.length || this.restore), true);
   }
@@ -226,23 +235,25 @@ class GraphController {
     if (this.repo !== repo) throw new BranchError(t('repo.switched'));
     const head = repo.snapshot?.head;
     if (!head?.oid) throw new BranchError(t('branch.firstCommit'));
-    // The working tree comparison is a branch comparison whose target tip is
-    // HEAD plus one synthetic commit holding every uncommitted change.
-    this.comparison = { left, right: { ref: head.ref, name: t('history.workingTree'), oid: head.oid }, workingTree: true };
-    this.compareSide = 'both';
-    this.reset();
+    const worktree = { name: t('history.workingTree'), oid: head.oid, worktree: true };
+    this.compare(repo, left, worktree);
   }
 
   async recompare() {
-    const { repo, comparison } = this;
+    const { repo, comparison, generation } = this;
     if (!repo || !comparison) return;
-    const right = comparison.right?.ref ? repo.actions.named(comparison.right.ref)
-      : comparison.workingTree ? { ...comparison.right, oid: repo.snapshot.head.oid } : comparison.right;
-    const [left, resolved] = await Promise.all([comparison.left.ref ? repo.actions.named(comparison.left.ref) : comparison.left, right]);
-    if (repo !== this.repo || comparison !== this.comparison) return;
-    this.comparison = comparison.workingTree ? { left, right: { ...comparison.right, ...resolved, name: t('history.workingTree') }, workingTree: true }
-      : { left, right: resolved };
-    this.reset();
+    const resolve = async endpoint => {
+      if (endpoint.worktree) {
+        const { oid } = await repo.reads.head();
+        if (!oid) throw new BranchError(t('branch.firstCommit'));
+        return { ...endpoint, oid };
+      }
+      return endpoint.ref ? repo.actions.named(endpoint.ref) : endpoint;
+    };
+    const [left, right] = await Promise.all([resolve(comparison.left), resolve(comparison.right)]);
+    if (repo !== this.repo || comparison !== this.comparison || generation !== this.generation) return;
+    this.comparison = { left, right };
+    this.reset(true);
   }
 
   exitComparison() {
@@ -272,17 +283,22 @@ class GraphController {
       range: this.target?.label || 'HEAD', rangeKey: this.range, shallow: Boolean(snapshot?.shallow), head: snapshot?.head,
       message: !repo ? this.registry.noRepositoryMessage : repo.error ? t('repo.readError', { detail: repo.error }) : !snapshot ? t('repo.reading') : undefined,
       compare: comparison ? {
-        left: { label: comparison.left.name, oid: comparison.left.oid },
-        right: { label: comparison.workingTree ? t('history.workingTree') : comparison.right.name, oid: comparison.right.oid },
-        workingTree: Boolean(comparison.workingTree),
-        stale: Boolean(snapshot && [comparison.left, comparison.right].some(ref => ref?.ref && snapshot.byRef.get(ref.ref)?.oid !== ref.oid))
+        left: this.comparisonLabel(comparison.left), right: this.comparisonLabel(comparison.right),
+        workingTree: Boolean(comparison.left.worktree || comparison.right.worktree),
+        stale: Boolean(snapshot && [comparison.left, comparison.right].some(endpoint => endpoint.worktree
+          ? snapshot.head.oid !== endpoint.oid : endpoint.ref && snapshot.byRef.get(endpoint.ref)?.oid !== endpoint.oid))
       } : undefined,
       badges: [...refs]
     };
   }
 
+  comparisonLabel(endpoint) {
+    return { label: endpoint.name, oid: endpoint.oid, ...(endpoint.worktree ? { worktree: true } : {}) };
+  }
+
   pageState() {
-    return { hasMore: this.hasMore, loading: this.requests.has('page'), error: this.pageError, columns: this.layout.columns,
+    return { hasMore: this.hasMore, loading: this.requests.has('page'), error: this.pageError,
+      columns: Math.max(this.layout.columns, this.sideLayouts.left.columns, this.sideLayouts.right.columns),
       filter: this.filter, compareSide: this.compareSide };
   }
 
@@ -301,10 +317,27 @@ class GraphController {
     if (this.rows.length && (!this.selectionPacket || this.selectionPacket.loading)) void this.loadSelection();
   }
 
-  async worktreeChanges(repo, signal) {
-    // Deliberately uncached: the working tree can change without moving HEAD,
-    // so a refresh must re-read it instead of reusing a stale file list.
-    return repo.reads.worktreeFiles(repo.snapshot.head.oid, { signal });
+  async worktreeChanges(repo, comparison) {
+    const current = this.worktreeSnapshot;
+    if (current?.comparison === comparison && !current.request.signal.aborted) return current.pending;
+    const request = this.start('worktree');
+    const endpoint = comparison.left.worktree ? comparison.left : comparison.right;
+    const pending = Promise.resolve().then(() => repo.reads.worktreeFiles(endpoint.oid, { signal: request.signal }));
+    const snapshot = this.worktreeSnapshot = { comparison, request, pending };
+    try { return await pending; }
+    catch (error) {
+      if (this.worktreeSnapshot === snapshot) this.worktreeSnapshot = undefined;
+      throw error;
+    } finally {
+      if (this.active('worktree', request)) this.requests.delete('worktree');
+    }
+  }
+
+  layoutFor(row) { return this.sideLayouts[row.side] || this.layout; }
+
+  displayRows() {
+    if (!this.comparison) return this.rows;
+    return [...this.rows.filter(row => row.side === 'left'), ...this.rows.filter(row => row.side === 'right')];
   }
 
   async loadPage() {
@@ -320,27 +353,29 @@ class GraphController {
         skip: this.rows.filter(row => !row.worktree).length, scan: this.scanned, limit: 120, filter: this.filter,
         compareSide: this.compareSide, signal: request.signal });
       if (!this.active('page', request)) return;
-      const rows = commits.map(commit => ({ ...commit, shallowBoundary: repo.snapshot.shallowRoots?.has(commit.oid), graph: this.layout.append(commit) }));
-      if (first && comparison?.workingTree && this.compareSide !== 'left') {
-        const changes = await this.worktreeChanges(repo, request.signal);
+      const rows = commits.map(commit => ({ ...commit, shallowBoundary: repo.snapshot.shallowRoots?.has(commit.oid), graph: this.layoutFor(commit).append(commit) }));
+      const worktreeSide = comparison?.left.worktree ? 'left' : comparison?.right.worktree ? 'right' : undefined;
+      if (first && worktreeSide && ['both', worktreeSide].includes(this.compareSide)) {
+        // A failed working-tree read is reported by loadComparison; do not hide valid Git history.
+        const changes = await this.worktreeChanges(repo, comparison).catch(() => []);
         if (!this.active('page', request)) return;
         const subject = t('history.workingTreeCommit');
-        const text = this.filter.trim().toLowerCase();
+        const text = this.filter.toLowerCase();
         if (changes.length && (!text || subject.toLowerCase().includes(text))) {
-          rows.unshift(this.worktreeRow(repo, subject));
+          rows.unshift(this.worktreeRow(comparison[worktreeSide].oid, worktreeSide, subject));
         }
       }
       this.rows.push(...rows);
       for (const row of rows) this.known.set(row.oid, row);
       this.hasMore = hasMore;
       this.scanned = scanned ?? this.rows.length;
-      if (!hasMore && this.layout.byOid.size) {
+      if (!hasMore && [this.layout, ...Object.values(this.sideLayouts)].some(layout => layout.byOid.size)) {
         // Parents excluded from the completed range don't reserve a lane indefinitely.
         this.relayout();
         this.sendReset();
       } else this.send('append', rows);
       if (first) {
-        this.selection.restore(this.restore, rows);
+        this.selection.restore(this.restore, this.displayRows());
         this.restore = undefined;
         void this.loadSelection();
       }
@@ -354,17 +389,17 @@ class GraphController {
     }
   }
 
-  worktreeRow(repo, subject) {
-    const head = repo.snapshot.head;
+  worktreeRow(oid, side, subject) {
     // No parents and no graph geometry: the synthetic row is not part of the commit DAG.
-    return { oid: `worktree:${head.oid}`, worktree: true, parents: [], author: '', date: '', side: 'right',
+    return { oid: `worktree:${oid}`, baseOid: oid, worktree: true, parents: [], author: '', date: '', side,
       subject, shallowBoundary: false, graph: null };
   }
 
   /** Rebuilds lane geometry after the final page; synthetic rows carry no lanes. */
   relayout() {
     this.layout = new GraphLayout();
-    for (const row of this.rows) if (!row.worktree) row.graph = this.layout.append(row, this.known);
+    this.sideLayouts = { left: new GraphLayout(), right: new GraphLayout() };
+    for (const row of this.rows) if (!row.worktree) row.graph = this.layoutFor(row).append(row, this.known);
   }
 
   async readCommit(repo, oid, signal) {
@@ -426,7 +461,7 @@ class GraphController {
       this.selectionPacket = { ...state, revision, ...packet };
       this.send('selection', this.selectionPacket);
     };
-    const { repo } = this;
+    const { repo, comparison } = this;
     if (!this.canRead || !state.focus || state.selected.length > MAX_SELECTION) {
       this.cancel('selection');
       publish(state.selected.length > MAX_SELECTION ? { selectionOverLimit: MAX_SELECTION } : {});
@@ -444,8 +479,8 @@ class GraphController {
         let commit, files, parentGroups, error;
         try {
           if (row?.worktree) {
-            files = await this.worktreeChanges(repo, signal);
-            files = files.map(file => ({ ...file, baseOid: repo.snapshot.head.oid, afterOid: oid }));
+            files = await this.worktreeChanges(repo, comparison);
+            files = files.map(file => ({ ...file, baseOid: row.baseOid, afterOid: oid }));
           } else {
             commit = await this.readCommit(repo, oid, signal);
             ({ files, parentGroups } = await this.readFiles(repo, oid, commit, signal, !multi));
@@ -456,12 +491,11 @@ class GraphController {
       });
       if (!this.active('selection', request)) return;
       const focus = items.find(item => item.row.oid === state.focus);
-      const detail = multi ? undefined : focus.row.worktree
-        ? { oid: focus.row.oid, message: t('history.workingTreeCommit'), author: '', parents: [repo.snapshot.head.oid], worktree: true }
-        : { oid: focus.row.oid,
+      const detail = multi || focus.row.worktree ? undefined : { oid: focus.row.oid,
           ...(focus.commit || { message: focus.row.subject, author: focus.row.author, parents: focus.row.parents }),
           date: focus.row.date, shallowBoundary: focus.row.shallowBoundary };
-      const failures = items.filter(item => item.error).map(item => `${shortOid(item.row.oid)} · ${item.error}`);
+      const label = oid => oid.startsWith('worktree:') ? t('history.workingTree') : shortOid(oid);
+      const failures = items.filter(item => item.error).map(item => `${label(item.row.oid)} · ${item.error}`);
       const merged = multi ? await combineChanges(items.filter(item => item.files),
         oid => repo.reads.firstParentHistory(oid, { signal }), signal) : focus.files || [];
       if (!this.active('selection', request)) return;
@@ -469,7 +503,7 @@ class GraphController {
         ? await mapWithLimit(focus.parentGroups, 4, signal, async group => ({ ...group, subject: await this.parentSubject(repo, group.oid, signal) }))
         : [];
       if (!this.active('selection', request)) return;
-      const caption = file => `${file.baseOid ? shortOid(file.baseOid) : t('history.emptyTree')} → ${shortOid(file.afterOid)}`;
+      const caption = file => `${file.baseOid ? label(file.baseOid) : t('history.emptyTree')} → ${label(file.afterOid)}`;
       const files = merged.map(file => this.toClient({ ...file, partial: failures.length > 0 }, this.selectionFiles, caption(file)));
       const parentGroups = parents.map(({ oid, subject, files }) => ({ oid, subject, files: files.map(file => {
         const change = { ...file, baseOid: oid, afterOid: focus.row.oid, parentGroup: oid };
@@ -493,28 +527,32 @@ class GraphController {
     publish({ loading: true });
     const { left, right } = comparison;
     const opts = { signal: request.signal };
+    const side = left.worktree ? 'left' : right.worktree ? 'right' : undefined;
+    const other = side === 'left' ? right : left;
+    const local = side ? this.worktreeChanges(repo, comparison) : Promise.resolve([]);
+    const fileDiff = !side ? repo.reads.branchFiles(left.oid, right.oid, opts)
+      : left.oid === right.oid ? local : repo.reads.worktreeFiles(other.oid, opts);
     const [diff, counts, ancestor, changes] = await Promise.allSettled([
-      // The File Diff pane always compares the base snapshot with the visible target:
-      // the right tip, or the saved working tree for the synthetic Working Tree branch.
-      comparison.workingTree ? repo.reads.worktreeFiles(left.oid, opts) : repo.reads.branchFiles(left.oid, right.oid, opts),
-      repo.reads.divergence(left.oid, right.oid, opts), repo.reads.commonAncestor(left.oid, right.oid, opts),
-      comparison.workingTree ? this.worktreeChanges(repo, request.signal) : Promise.resolve([])
+      fileDiff, repo.reads.divergence(left.oid, right.oid, opts), repo.reads.commonAncestor(left.oid, right.oid, opts), local
     ]);
     if (!this.active('comparison', request)) return;
-    const caption = comparison.workingTree ? `${shortOid(left.oid)} → ${t('history.workingTree')}`
-      : `${shortOid(left.oid)} → ${shortOid(right.oid)}`;
-    const worktreeCommit = comparison.workingTree && changes.status === 'fulfilled' && changes.value.length > 0;
-    const counted = counts.status === 'fulfilled' ? counts.value : undefined;
-    if (counted && worktreeCommit) counted.right += 1;
+    const label = endpoint => endpoint.worktree ? endpoint.name : shortOid(endpoint.oid);
+    const caption = `${label(left)} → ${label(right)}`;
+    const counted = counts.status === 'fulfilled' ? { ...counts.value } : undefined;
+    if (counted && side && changes.status === 'fulfilled' && changes.value.length) counted[side]++;
     publish({
-      files: diff.status === 'fulfilled' ? diff.value.map(file => this.toClient(file, this.snapshotFiles, caption)) : undefined,
+      files: diff.status === 'fulfilled' ? diff.value.map(file => this.toClient(left.worktree ? reverseWorktreeChange(file) : file, this.snapshotFiles, caption)) : undefined,
       error: diff.status === 'rejected' ? errorText(diff.reason) : undefined,
-      graphError: counts.status === 'rejected' ? errorText(counts.reason) : ancestor.status === 'rejected' ? errorText(ancestor.reason) : undefined,
+      graphError: [counts, ancestor, changes].map(result => result.status === 'rejected' ? errorText(result.reason) : undefined).find(Boolean),
       counts: counted,
-      same: !worktreeCommit && left.oid === right.oid,
+      same: left.oid === right.oid && diff.status === 'fulfilled' && !diff.value.length,
       common: ancestor.status === 'fulfilled' ? ancestor.value : undefined
     });
     this.requests.delete('comparison');
+    if (this.compareSide !== 'both' && counted?.[this.compareSide] === 0) {
+      this.compareSide = 'both';
+      this.reset(true, true);
+    }
   }
 
   async openDiff(token) {
@@ -556,7 +594,7 @@ class GraphController {
     const { repo, head, check } = this.actionContext(context, 'commit');
     const rows = this.commitRows(context.gbOid);
     if (!rows.length || (rows.length > 1 && !['copyRevision', 'cherryPick', 'revert'].includes(kind))) throw new BranchError(t('history.staleAction'));
-    if (rows.some(row => row.worktree) && (rows.length > 1 || kind !== 'copyRevision')) throw new BranchError(t('history.worktreeNotACommit'));
+    if (rows.some(row => row.worktree)) throw new BranchError(t('history.worktreeNotACommit'));
     if (rows.length > MAX_SELECTION && kind !== 'copyRevision') throw new BranchError(t('history.selectionLimit', { count: MAX_SELECTION }));
     return this.ui.historyCommit(kind, repo, head, rows, check);
   }
@@ -571,12 +609,13 @@ class GraphController {
     const { gbSource: source, gbToken: token } = context;
     const tokens = this.fileTokens(source);
     const change = tokens?.get(token);
-    if (!change || change.ambiguous) throw new BranchError(t('history.staleAction'));
-    const apply = kind === 'applyFiles';
+    if (!change) throw new BranchError(t('history.staleAction'));
     if (kind === 'selectFile') {
       this.fileSelection[source] = new Set([token]);
       return this.send('fileSelection', { source, ids: [token] });
     }
+    if (change.ambiguous) throw new BranchError(t('history.staleAction'));
+    const apply = kind === 'applyFiles';
     const selection = () => this.fileSelection[source].has(token) ? [...this.fileSelection[source]] : [token];
     const selected = this.fileSelection[source];
     if (apply && selected.has(token) && selected.size > MAX_PATCH_FILES) {
@@ -653,9 +692,11 @@ class GraphController {
       case 'chooseRange': return this.ui.chooseRange();
       case 'chooseColumns': return this.chooseColumns();
       case 'refresh': {
+        const { repo, comparison } = this;
         await this.registry.refresh();
         // In a comparison, Refresh also re-pins the endpoints, replacing "Compare Again".
-        if (this.comparison) return this.recompare();
+        if (repo !== this.repo || comparison !== this.comparison) return;
+        if (comparison) return this.recompare();
         if (message.generation === this.generation) this.reset(true);
         return;
       }
@@ -665,7 +706,7 @@ class GraphController {
       case 'toggleCompareSide': return this.toggleCompareSide(message.side);
       case 'loadMore': return this.loadPage();
       case 'selectAllCommits':
-        if (this.selection.selectAll(this.rows, message.focusedOid)) return this.loadSelection();
+        if (this.selection.selectAll(this.displayRows(), message.focusedOid)) return this.loadSelection();
         return;
       case 'clearCommits':
         if (this.selection.selected.size) {
@@ -676,7 +717,7 @@ class GraphController {
       case 'select': {
         const { oid, mode } = message;
         if (!this.known.has(oid) || !['replace', 'toggle', 'range', 'extend'].includes(mode)) return;
-        if (!this.selection.select(oid, mode, this.rows)) {
+        if (!this.selection.select(oid, mode, this.displayRows())) {
           void vscode.window.showWarningMessage(t('history.selectionLimit', { count: MAX_SELECTION }));
           return;
         }
@@ -705,11 +746,11 @@ class GraphController {
       }
       case 'openDiff': return this.openDiff(message.token);
       case 'swap':
-        if (!this.comparison || this.comparison.workingTree) return;
+        if (!this.comparison) return;
         this.comparison = { left: this.comparison.right, right: this.comparison.left };
+        if (this.compareSide !== 'both') this.compareSide = this.compareSide === 'left' ? 'right' : 'left';
         this.reset(true);
         return;
-      case 'recompare': return this.recompare();
       case 'exitComparison': return this.exitComparison();
       default: return undefined;
     }
@@ -740,7 +781,6 @@ class GraphController {
   <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span><span class="refresh-label">${htmlText('command.refresh')}</span></button>
   <div id="compare-bar" class="compare-bar" hidden>
     <span id="direction" class="direction"></span>
-    <button id="compare-refresh" class="control icon" type="button" aria-label="${htmlText('history.refresh')}" title="${htmlText('history.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span><span class="icon-label refresh-label">${htmlText('history.refresh')}</span></button>
     <button id="swap" class="control icon" type="button" aria-label="${htmlText('history.swap')}" title="${htmlText('history.swap')}"><span class="codicon codicon-arrow-swap" aria-hidden="true"></span><span class="icon-label swap-label">${htmlText('history.swap')}</span></button>
     <button id="exit-compare" class="control icon" type="button" aria-label="${htmlText('history.exitCompare')}" title="${htmlText('history.exitCompare')}"><span class="codicon codicon-close" aria-hidden="true"></span><span class="icon-label exit-label">${htmlText('history.exitCompare')}</span></button>
   </div>
@@ -770,12 +810,9 @@ class GraphController {
   <section class="right-pane" aria-label="${htmlText('history.filesAndDetails')}">
     <div id="file-pane" class="file-pane">
       <div class="pane-header file-header">
-        <div id="file-tabs" class="file-tabs" hidden>
-          <button id="commit-tab" type="button" aria-pressed="false">${htmlText('history.commitFiles')}</button>
-          <button id="snapshot-tab" type="button" aria-pressed="true">${htmlText('history.fileDiff')}</button>
-        </div>
-        <span id="file-title">${htmlText('history.commitFiles')}</span><span id="file-count" class="pill"></span>
-        <button id="file-tab-toggle" class="control icon file-tab-toggle" type="button" hidden aria-label="${htmlText('history.switchFileTab')}" title="${htmlText('history.switchFileTab')}"><span class="codicon codicon-list-selection" aria-hidden="true"></span><span class="icon-label toggle-label">${htmlText('history.switchFileTab')}</span></button>
+        <span id="file-title">${htmlText('history.commitFiles')}</span>
+        <button id="file-tab-toggle" class="control icon file-tab-toggle" type="button" hidden aria-label="${htmlText('history.showCommitFiles')}" title="${htmlText('history.showCommitFiles')}"><span class="codicon codicon-list-selection" aria-hidden="true"></span><span class="icon-label toggle-label">${htmlText('history.showCommitFiles')}</span></button>
+        <span id="file-count" class="pill"></span>
         <button id="file-layout" class="control icon file-layout" type="button" aria-label="${htmlText('history.viewTree')}" title="${htmlText('history.viewTree')}"><span class="codicon codicon-list-tree" aria-hidden="true"></span><span class="icon-label layout-label">${htmlText('history.viewTree')}</span></button>
       </div>
       <div id="files" class="scroll files" tabindex="-1" data-patch-limit="${MAX_PATCH_FILES}" aria-label="${htmlText('history.changedFiles')}"></div>

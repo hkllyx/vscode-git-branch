@@ -107,7 +107,7 @@ async function combineChanges(results, readFirstParents, signal) {
       return;
     }
     open.set(key, { old: previous.old, new: entry.new, baseOid: previous.baseOid, afterOid: entry.afterOid,
-      includesGap: previous.includesGap || entry.includesGap || gap(previous.new, entry.old) });
+      workingTree: entry.workingTree, includesGap: previous.includesGap || entry.includesGap || gap(previous.new, entry.old) });
   };
 
   for (const { files } of [...results].reverse()) {
@@ -115,14 +115,15 @@ async function combineChanges(results, readFirstParents, signal) {
     for (const file of files) {
       // A copy introduces a new path but does not consume the original one.
       const change = file.status === 'C' ? { ...file, status: 'A', old: undefined } : file;
-      const base = { baseOid: change.baseOid, afterOid: change.afterOid, includesGap: Boolean(file.includesGap) };
+      const base = { baseOid: change.baseOid, afterOid: change.afterOid, workingTree: change.workingTree,
+        includesGap: Boolean(file.includesGap) };
       if (!change.old) { place({ ...base, old: undefined, new: change.new }); continue; }
       const previous = open.get(change.old.pathKey);
       if (!previous) { place({ ...base, old: change.old, new: change.new }); continue; }
       open.delete(change.old.pathKey);
       // Interior commits that never touched this path leave the blob unchanged,
       // so no note is needed; anything else means the diff spans omitted work.
-      place({ old: previous.old, new: change.new, baseOid: previous.baseOid, afterOid: change.afterOid,
+      place({ old: previous.old, new: change.new, baseOid: previous.baseOid, afterOid: change.afterOid, workingTree: base.workingTree,
         includesGap: previous.includesGap || base.includesGap || gap(previous.new, change.old) });
     }
   }
@@ -133,7 +134,8 @@ async function combineChanges(results, readFirstParents, signal) {
     if (sameSide(old, next)) continue;
     const { path, pathKey } = next || old;
     combined.push({ status: statusOf(old, next), path, pathKey, old, new: next,
-      baseOid: entry.baseOid, afterOid: entry.afterOid, includesGap: Boolean(entry.includesGap) });
+      baseOid: entry.baseOid, afterOid: entry.afterOid, includesGap: Boolean(entry.includesGap),
+      ...(entry.workingTree ? { workingTree: true } : {}) });
   }
   return combined.sort((a, b) => compareName(a.path, b.path) || compareName(a.pathKey, b.pathKey));
 }

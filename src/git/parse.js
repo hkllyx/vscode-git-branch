@@ -68,6 +68,10 @@ function parseCommit(buffer) {
   return { parents, author, message: decode(buffer.subarray(split + 2)).trimEnd() };
 }
 
+function filePath(raw) {
+  return raw.toString('utf8').replace(/[\u0000-\u001f\u007f]/g, ch => `\\x${ch.charCodeAt(0).toString(16).padStart(2, '0')}`);
+}
+
 function parseRawDiff(output) {
   const files = [];
   let i = 0;
@@ -77,9 +81,6 @@ function parseRawDiff(output) {
     const part = output.subarray(i, end);
     i = end + 1;
     return part;
-  }
-  function filePath(raw) {
-    return raw.toString('utf8').replace(/[\u0000-\u001f\u007f]/g, ch => `\\x${ch.charCodeAt(0).toString(16).padStart(2, '0')}`);
   }
   while (i < output.length) {
     const head = next().toString('ascii');
@@ -150,4 +151,4 @@ function orderRefs(refs, current) {
   return [...refs].sort((a, b) => Number(b.ref === current) - Number(a.ref === current) || compareName(a.name, b.name));
 }
 
-module.exports = { REF_FORMAT, LOG_FORMAT, parseRefs, parseLog, parseCommit, parseRawDiff, parseFetchRules, mappedTracking, mappedSources, orderRefs };
+module.exports = { REF_FORMAT, LOG_FORMAT, parseRefs, parseLog, parseCommit, parseRawDiff, filePath, parseFetchRules, mappedTracking, mappedSources, orderRefs };

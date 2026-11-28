@@ -83,7 +83,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
 .control.icon { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .has-codicons .control.icon { width: 26px; padding: 0; }
-.control[aria-pressed='true'], .compact-nav button[aria-pressed='true'], .file-tabs button[aria-pressed='true'] {
+.control[aria-pressed='true'], .compact-nav button[aria-pressed='true'] {
   color: var(--vscode-button-foreground, var(--vscode-foreground));
   background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
 }
@@ -105,7 +105,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   align-items: center;
   min-height: 22px;
   padding: 1px 7px;
-  border: 1px solid transparent;
+  border: 1px solid var(--side-accent, var(--border));
   border-radius: 4px;
   font-size: .85em;
   white-space: nowrap;
@@ -113,7 +113,9 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 }
 .compare-filter.left { --side-accent: var(--purple); }
 .compare-filter.right { --side-accent: var(--blue); }
-.compare-filter[aria-pressed='true'] {
+.compare-filter:enabled[aria-pressed='false']:hover { background: transparent; color: var(--vscode-foreground); }
+.compare-filter[aria-pressed='true'], .compare-filter:enabled[aria-pressed='true']:hover {
+  border-color: transparent;
   background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
   color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
 }
@@ -241,8 +243,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .commit-row.worktree-row .commit-message .subject { font-style: italic; }
 
 .log-header, .file-header { flex-wrap: wrap; }
-.file-tabs { min-width: 0; display: flex; align-items: center; flex-wrap: wrap; }
-.file-tabs button, .compact-nav button { border-radius: 3px; padding: 2px 7px; }
+.compact-nav button { border-radius: 3px; padding: 2px 7px; }
 .file-layout { margin-left: auto; min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
 .file-tab-toggle { min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
 .has-codicons .file-layout, .has-codicons .file-tab-toggle { width: 24px; padding: 0; }

@@ -6,7 +6,7 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { t } = require('../i18n');
 const { GitError } = require('./gitClient');
-const { parseRefs, parseLog, parseCommit, parseRawDiff, REF_FORMAT, LOG_FORMAT } = require('./parse');
+const { parseRefs, parseLog, parseCommit, parseRawDiff, filePath, REF_FORMAT, LOG_FORMAT } = require('./parse');
 const { regularMode, safeWorktreeFile } = require('./worktreePaths');
 const { isOid, shortOid, stripLineEnd, BranchError } = require('../util/format');
 
@@ -205,15 +205,37 @@ class GitReads {
   }
 
   async worktreeFiles(oid, opts) {
-    return parseRawDiff(await this.client.buffer(['diff', ...DIFF, '--no-relative', '--no-color', '--ita-invisible-in-index',
-      assertOid(oid), '--'], opts)).map(file => ({ ...file, workingTree: true }));
+    const [diff, untracked] = await Promise.all([
+      this.client.buffer(['diff', ...DIFF, '--no-relative', '--no-color', '--ita-invisible-in-index', assertOid(oid), '--'], opts),
+      this.client.buffer(['ls-files', '--others', '--exclude-standard', '-z', '--'], opts)
+    ]);
+    const files = parseRawDiff(diff).map(file => ({ ...file, workingTree: true }));
+    const byPath = new Map(files.map((file, index) => [file.pathKey, index]));
+    let start = 0;
+    while (start < untracked.length) {
+      opts?.signal?.throwIfAborted();
+      const end = untracked.indexOf(0, start);
+      if (end < 0) throw new Error(t('git.incompleteFileChange'));
+      const raw = untracked.subarray(start, end);
+      start = end + 1;
+      // ls-files represents an embedded repository as a directory, not a file.
+      if (!raw.length || raw.at(-1) === 47) continue;
+      const next = { path: filePath(raw), pathKey: raw.toString('base64'), mode: '100644' };
+      const index = byPath.get(next.pathKey);
+      const existing = files[index];
+      if (existing?.new) continue;
+      if (!existing) files.push({ path: next.path, pathKey: next.pathKey, status: 'A', new: next, workingTree: true });
+      else files[index] = { ...existing, status: 'M', new: next };
+    }
+    return files;
   }
 
   async workingBlob(change, signal) {
-    if (!change.new) return '';
-    if (!regularMode(change.new.mode)) throw new BranchError(t('git.worktreeNotRegular'));
+    const side = change.worktreeBefore ? change.old : change.new;
+    if (!side) return '';
+    if (!regularMode(side.mode)) throw new BranchError(t('git.worktreeNotRegular'));
     try {
-      const { absolute: target, stat: before } = await safeWorktreeFile(this.client.root, change.pathKey);
+      const { absolute: target, stat: before } = await safeWorktreeFile(this.client.root, side.pathKey);
       const file = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
       try {
         const opened = await file.stat();
