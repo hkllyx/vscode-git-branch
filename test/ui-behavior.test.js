@@ -328,11 +328,21 @@ test('comparison, history, checkout and push share the native ref layout but con
   await action('checkout');
   expected.push({ title: message('action.pushPick'), labels: ['Local', 'main', 'topic'], focus: 'main', shortHashes: true });
   await action('push');
-  expected.push({ title: message('action.comparePickWith', { name: 'topic' }), labels: compareLabels,
-    focus: 'main', choose: 'origin/topic', roles: { topic: 'Base' }, unavailable: 'topic' });
+  const compareWithTopic = { title: message('action.comparePickWith', { name: 'topic' }), labels: compareLabels,
+    focus: 'main', roles: { topic: 'Base' }, unavailable: 'topic' };
+  expected.push({ ...compareWithTopic, choose: 'origin/topic' });
   await action('compareWith', 'refs/heads/topic');
   assert.equal(history.comparison.left.ref, 'refs/heads/topic');
   assert.equal(history.comparison.right.ref, 'refs/remotes/origin/topic');
+  expected.push({ ...compareWithTopic, choose: 'main' });
+  await action('compareWith', 'refs/heads/topic');
+  assert.equal(history.comparison.left.ref, 'refs/heads/topic');
+  assert.equal(history.comparison.right.ref, 'refs/heads/main');
+  expected.push({ title: message('action.comparePickWith', { name: 'main' }), labels: compareLabels,
+    focus: 'topic', roles: { main: 'Base' }, unavailable: 'main', choose: 'Working Tree' });
+  await action('compareWith', 'refs/heads/main');
+  assert.equal(history.comparison.left.ref, 'refs/heads/main');
+  assert.deepEqual(history.comparison.right, { name: 'Working Tree', oid, worktree: true });
   const base = { title: message('action.comparePickBase'), labels: compareLabels, focus: 'main', choose: 'Working Tree' };
   const target = { title: message('action.comparePickTarget'), labels: compareLabels,
     focus: 'main', choose: 'topic', roles: { 'Working Tree': 'Base' }, unavailable: 'Working Tree' };
@@ -528,17 +538,16 @@ test('Branches keeps the native tree and exposes the expected menu for each bran
     const [, exactly, alternatives] = /viewItem (?:== gb-([a-z]+)|=~ \/\^gb-\(([a-z|]+)\)\$\/)$/u.exec(item.when);
     return exactly === kind || alternatives?.split('|').includes(kind);
   }).sort((a, b) => a.group.localeCompare(b.group)).map(item => item.command.slice('git-branch.'.length));
-  assert.deepEqual(menuFor('current'), ['openHistory', 'createFrom', 'compareWith', 'compareWorktree', 'newWorktree', 'pull', 'push', 'copyBranchName', 'renameBranch']);
-  assert.deepEqual(menuFor('local'), ['openHistory', 'checkout', 'createFrom', 'checkoutUpdate', 'compareWithCurrent', 'compareWith', 'compareWorktree',
+  assert.deepEqual(menuFor('current'), ['openHistory', 'createFrom', 'compareWith', 'newWorktree', 'pull', 'push', 'copyBranchName', 'renameBranch']);
+  assert.deepEqual(menuFor('local'), ['openHistory', 'checkout', 'createFrom', 'checkoutUpdate', 'compareWith',
     'mergeIntoCurrent', 'rebaseCurrent', 'newWorktree', 'pull', 'push', 'copyBranchName', 'renameBranch', 'deleteBranch']);
-  assert.deepEqual(menuFor('remote'), ['openHistory', 'checkoutRemote', 'createFrom', 'compareWithCurrent', 'compareWith', 'compareWorktree',
+  assert.deepEqual(menuFor('remote'), ['openHistory', 'checkoutRemote', 'createFrom', 'compareWith',
     'mergeIntoCurrent', 'rebaseCurrent', 'newWorktree', 'pullMerge', 'pullRebase', 'copyBranchName', 'deleteBranch']);
   assert.deepEqual(menuFor('head'), ['openHistory']);
   assert.deepEqual(menuFor('tag'), ['openHistory']);
   assert.deepEqual(menuFor('section'), []);
   const catalog = require('../package.nls.json');
   const label = command => catalog[contributes.commands.find(item => item.command === `git-branch.${command}`).title.slice(1, -1)];
-  assert.equal(label('compareWithCurrent'), 'Compare with Current');
   assert.equal(label('compareWith'), 'Compare with…');
   assert.equal(label('checkout'), 'Checkout');
   assert.equal(label('checkoutRemote'), 'Checkout');

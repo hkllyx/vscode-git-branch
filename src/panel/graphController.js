@@ -838,7 +838,7 @@ class GraphController {
   <button id="target" class="control range" type="button" title="${htmlText('history.selectTarget')}" hidden>${htmlText('history.selectTarget')} ▾</button>
   <div class="filters" role="search">
     <input id="filter-text" class="control filter-text" type="search" spellcheck="false" autocomplete="off"
-      placeholder="${htmlText('history.filterText')}" aria-label="${htmlText('history.filterText')}" title="${htmlText('history.filterTextHint')}">
+      placeholder="${htmlText('history.filterPlaceholder')}" aria-label="${htmlText('history.filterText')}" title="${htmlText('history.filterTextHint')}">
   </div>
   <button id="refresh" class="control icon" type="button" aria-label="${htmlText('command.refresh')}" title="${htmlText('command.refresh')}"><span class="codicon codicon-refresh" aria-hidden="true"></span><span class="refresh-label">${htmlText('command.refresh')}</span></button>
   <button id="start-compare" class="control icon" type="button" aria-label="${htmlText('history.startCompare')}" title="${htmlText('history.startCompare')}"><span class="codicon codicon-git-compare" aria-hidden="true"></span><span class="icon-label">${htmlText('history.startCompare')}</span></button>

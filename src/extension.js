@@ -69,9 +69,7 @@ function activate(context) {
   register('pull', node => ui.update(node));
   register('push', node => ui.push(node));
   register('compare', () => ui.chooseComparison());
-  register('compareWithCurrent', node => ui.compareWithCurrent(node));
   register('compareWith', node => ui.compareWith(node));
-  register('compareWorktree', node => ui.compareWorktree(node));
   register('mergeIntoCurrent', node => ui.integrate(node, 'merge', false));
   register('rebaseCurrent', node => ui.integrate(node, 'rebase', false));
   register('pullMerge', node => ui.integrate(node, 'merge', true));
@@ -559,27 +557,12 @@ class WorkbenchActions {
     if (target) await this.startComparison(repo, base, target);
   }
 
-  async compareWithCurrent(node) {
-    if (!node) return;
-    const repo = await this.repo(node);
-    const { ref } = await repo.reads.head();
-    if (!ref) throw new BranchError(t('action.compareDetached'));
-    if (ref === node.ref) throw new BranchError(t('action.compareSameBranch'));
-    await this.startComparison(repo, ref, node.ref);
-  }
-
   async compareWith(node) {
     if (!node) return;
     const repo = await this.repo(node);
     const base = await repo.actions.named(node.ref);
     const target = await this.pickComparisonRef(repo, 'right', { title: t('action.comparePickWith', { name: base.name }), exclude: base.ref });
     if (target) await this.startComparison(repo, base.ref, target);
-  }
-
-  async compareWorktree(node) {
-    if (!node) return;
-    const repo = await this.repo(node);
-    await this.startComparison(repo, node.ref, WORKTREE);
   }
 }
 

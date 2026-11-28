@@ -83,11 +83,10 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
   white-space: nowrap;
 }
 button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-list-hoverBackground)); }
-.control.repo, .control.range { max-width: min(43vw, 260px); overflow: hidden; text-overflow: ellipsis; }
-.control.range { display: inline-flex; align-items: center; gap: 5px; }
-.endpoint-role, .ref-chevron { flex: 0 0 auto; }
-.endpoint-role.base { border-color: var(--purple); }
-.endpoint-role.target { border-color: var(--blue); }
+.control.repo, .control.range { display: inline-flex; align-items: center; gap: 3px; min-width: 0; padding-inline: 6px; }
+.control.repo { max-width: min(42vw, 144px); }
+.control.range { max-width: min(42vw, 192px); }
+.selector-chevron { flex: 0 0 auto; }
 .control.icon { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
 .has-codicons .control.icon { width: 26px; padding: 0; }
 .control[aria-pressed='true'], .compact-nav button[aria-pressed='true'] {
@@ -95,7 +94,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   background: var(--vscode-button-background, var(--vscode-list-activeSelectionBackground));
 }
 .compare-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 0; }
-.filters { min-width: 0; flex: 0 1 245px; }
+.filters { flex: 0 1 clamp(104px, 25vw, 156px); min-width: 0; }
 .control.filter-text {
   width: 100%;
   min-width: 0;

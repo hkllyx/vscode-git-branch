@@ -332,23 +332,22 @@
     const { meta, comparison } = state;
     const ready = Boolean(meta.repository && !meta.message);
     const mode = meta.compare;
-    $('repo').textContent = `${meta.repository || t('repo.pick')} ▾`;
-    $('repo').title = meta.repositoryPath || t('repo.pick');
-    $('repo').disabled = !meta.repositoryCount;
     const comparing = Boolean(mode || meta.compareDraft);
     const picking = Boolean(meta.pickingEndpoint);
-    const refControl = (id, label, side) => {
+    const selector = (id, label, { title = label, ariaLabel = title, disabled = !ready || picking, hidden = false } = {}) => {
       const control = $(id);
-      const title = side ? t(`history.${side}Label`, { name: label }) : label;
+      control.hidden = hidden;
+      control.disabled = disabled;
       control.title = title;
-      control.setAttribute('aria-label', title);
-      control.replaceChildren(...(side ? [el('span', `pill endpoint-role ${side}`, t(`history.${side}Badge`))] : []),
-        el('span', 'ellipsis', label), codicon('chevron-down', 'ref-chevron'));
-      control.disabled = !ready || picking;
+      control.setAttribute('aria-label', ariaLabel);
+      control.replaceChildren(el('span', 'ellipsis', label), codicon('chevron-down', 'selector-chevron'));
     };
-    refControl('range', mode?.left.label ?? meta.compareDraft ?? meta.range ?? t('history.pickRange'), comparing ? 'base' : undefined);
-    refControl('target', mode?.right.label ?? t('history.selectTarget'), mode ? 'target' : undefined);
-    $('target').hidden = !comparing;
+    const repo = meta.repository || t('repo.pick');
+    const base = mode?.left.label ?? meta.compareDraft ?? meta.range ?? t('history.pickRange');
+    const target = mode?.right.label ?? t('history.selectTarget');
+    selector('repo', repo, { title: meta.repositoryPath, ariaLabel: repo, disabled: !meta.repositoryCount, hidden: comparing });
+    selector('range', base, { title: comparing ? t('history.baseLabel', { name: base }) : base });
+    selector('target', target, { title: mode ? t('history.targetLabel', { name: target }) : target, hidden: !comparing });
     filterInput.disabled = !ready;
     $('commit-columns').disabled = !state.generation;
     $('refresh').disabled = !meta.repository || picking;
