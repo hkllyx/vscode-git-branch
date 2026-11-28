@@ -613,12 +613,8 @@ class GraphController {
     const { gbSource: source, gbToken: token } = context;
     const tokens = this.fileTokens(source);
     const change = tokens?.get(token);
-    if (!change) throw new BranchError(t('history.staleAction'));
-    if (kind === 'selectFile') {
-      this.fileSelection[source] = new Set([token]);
-      return this.send('fileSelection', { source, ids: [token] });
-    }
-    if (change.ambiguous) throw new BranchError(t('history.staleAction'));
+    if (!change || change.ambiguous) throw new BranchError(t('history.staleAction'));
+    if (kind === 'showDiff') return this.openDiff(token);
     const apply = kind === 'applyFiles';
     const selection = () => this.fileSelection[source].has(token) ? [...this.fileSelection[source]] : [token];
     const selected = this.fileSelection[source];

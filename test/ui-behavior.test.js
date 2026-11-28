@@ -491,7 +491,9 @@ test('native history menus are scoped to both supported webview keys, with no co
   const keys = area => menu.filter(row => row.when === `${viewScope} && gbArea == ${area}`)
     .map(row => row.command.slice('git-branch.'.length));
   assert.deepEqual(keys('commit'), ['copyRevision', 'cherryPick', 'checkoutRevision', 'compareLocal', 'reset', 'revert', 'undo', 'editMessage', 'squash', 'drop', 'newBranch', 'newTag']);
-  assert.deepEqual(keys('file'), ['selectFile', 'editSource', 'openRepositoryVersion', 'applyFiles']);
+  assert.deepEqual(keys('file'), ['showDiff', 'editSource', 'openRepositoryVersion', 'applyFiles']);
+  assert.equal(menu.find(row => row.command === 'git-branch.showDiff').group, '1_files@0');
+  assert.equal(contributes.commands.find(row => row.command === 'git-branch.showDiff').enablement, 'gbCanShowDiff');
   assert.equal(menu.length, keys('commit').length + keys('file').length);
   for (const key of [...keys('commit'), ...keys('file')]) assert.ok(contributes.menus.commandPalette.some(row => row.command === `git-branch.${key}` && row.when === 'false'));
 });
@@ -588,11 +590,17 @@ test('history opens the working tree Diff using a host-issued file token and sav
   for (const overrides of [{ gbGeneration: scope.generation - 1 }, { gbRevision: context.gbRevision - 1 },
     { gbHeadOid: base }, { gbToken: '123456' }, { gbSource: 'commit' }]) {
     await assert.rejects(controller.fileCommand('openRepositoryVersion', { ...context, ...overrides }), stale);
+    await assert.rejects(controller.fileCommand('showDiff', { ...context, ...overrides }), stale);
   }
   assert.deepEqual(editors, []);
-  await controller.fileCommand('selectFile', context);
-  assert.deepEqual([...controller.fileSelection.snapshot], [file.id]);
   assert.equal(calls.length, 1);
+  const otherFiles = controller.comparePacket.files.filter(candidate => candidate.id !== file.id).map(candidate => candidate.id);
+  await send('selectFiles', { source: 'snapshot', ids: otherFiles });
+  await controller.fileCommand('showDiff', context);
+  assert.deepEqual([...controller.fileSelection.snapshot], otherFiles);
+  assert.equal(calls.length, 2);
+  assert.equal(calls.at(-1)[0], 'vscode.diff');
+  assert.deepEqual(calls.at(-1).slice(1, 3).map(uri => documents.provideTextDocumentContent(uri)), ['on branch', 'on disk']);
   await controller.fileCommand('openRepositoryVersion', context);
   assert.equal(documents.provideTextDocumentContent(editors[0]), 'on branch');
   await controller.onMessage({ ...scope, type: 'swap' });
@@ -735,7 +743,10 @@ test('single merge issues distinct parent Diff tokens; multi-select omits parent
   const byPath = (group, path) => group.files.find(file => file.path === path);
   const fromMain = byPath(first, combined.path);
   const fromSide = byPath(second, combined.path);
-  for (const file of [combined, fromMain, fromSide]) await send('openDiff', { token: file.id });
+  for (const file of [combined, fromMain]) await send('openDiff', { token: file.id });
+  await controller.fileCommand('showDiff', { webview: 'git-branch.log', gbArea: 'file',
+    gbGeneration: controller.generation, gbRepo: repo.id, gbRevision: controller.selectionRevision,
+    gbHeadRef: repo.snapshot.head.ref, gbHeadOid: merge, gbSource: 'commit', gbToken: fromSide.id });
   assert.equal(new Set([combined.id, fromMain.id, fromSide.id]).size, 3);
   assert.deepEqual(opened.map(change => [change.baseOid, change.afterOid]), [[main, merge], [main, merge], [side, merge]]);
   assert.equal(await local.reads.blob(opened[2].old), 'topic\n');

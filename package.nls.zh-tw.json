@@ -437,7 +437,7 @@
   "history.editMessage": "提交訊息",
   "history.cancel": "取消",
   "history.rewriteCommit": "改寫提交",
-  "command.selectFile": "選取",
+  "command.showDiff": "檢視差異",
   "history.fileDiff": "檔案差異",
   "history.workingTreeCommit": "工作樹變動",
   "history.worktreeNotACommit": "工作樹變動不是提交。"

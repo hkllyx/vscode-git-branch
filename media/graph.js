@@ -382,7 +382,8 @@
     const set = selected.has(file.id) ? selected : new Set([file.id]);
     const batch = set.size <= FILE_PATCH_LIMIT ? [...set] : [];
     return { ...baseContext('file'), gbToken: file.id, gbSource: source, gbFiles: batch.join(','),
-      gbCanEditSource: state.fileMenus.get(file.id) ?? file.sourceCandidate, gbCanOpenVersion: file.repositoryVersion,
+      gbCanShowDiff: !file.ambiguous, gbCanEditSource: state.fileMenus.get(file.id) ?? file.sourceCandidate,
+      gbCanOpenVersion: file.repositoryVersion,
       gbCanApplyFiles: batch.length > 0 && batch.every(id => {
         const candidate = state.filesById.get(id);
         return candidate?.apply && candidate.parentGroup === file.parentGroup;
@@ -394,14 +395,11 @@
     press(row, selected);
   }
 
-  function setFileSelection(source, next) {
-    state.selectedFiles[source] = next;
-    if (files.dataset.tab !== source) return;
-    for (const row of files.querySelectorAll('.file-row')) markFileSelection(row, next.has(row.dataset.fileId));
-  }
-
   function updateFileSelection(source, next) {
-    setFileSelection(source, next);
+    state.selectedFiles[source] = next;
+    if (files.dataset.tab === source) {
+      for (const row of files.querySelectorAll('.file-row')) markFileSelection(row, next.has(row.dataset.fileId));
+    }
     send('selectFiles', { source, ids: [...next] });
   }
 
@@ -852,13 +850,6 @@
           }
           return;
         case 'fileMenu': state.fileMenus.set(payload.token, payload.editSource); return;
-        case 'fileSelection': {
-          const { source, ids } = payload;
-          if (!state.selectedFiles[source]) return;
-          state.anchors[source] = ids[0];
-          setFileSelection(source, new Set(ids));
-          return;
-        }
         case 'editPrompt': renderEdit(payload); return;
         default: return;
       }

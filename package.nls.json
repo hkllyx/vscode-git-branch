@@ -437,7 +437,7 @@
   "history.editMessage": "Commit message",
   "history.cancel": "Cancel",
   "history.rewriteCommit": "Rewrite Commit",
-  "command.selectFile": "Select",
+  "command.showDiff": "Show Diff",
   "history.fileDiff": "File Diff",
   "history.workingTreeCommit": "Working Tree Changes",
   "history.worktreeNotACommit": "Working Tree changes are not a commit."

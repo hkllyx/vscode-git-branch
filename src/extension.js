@@ -92,7 +92,7 @@ function activate(context) {
   register('drop', context => history.commitCommand('drop', context));
   register('newBranch', context => history.commitCommand('newBranch', context));
   register('newTag', context => history.commitCommand('newTag', context));
-  register('selectFile', context => history.fileCommand('selectFile', context));
+  register('showDiff', context => history.fileCommand('showDiff', context));
   register('editSource', context => history.fileCommand('editSource', context));
   register('openRepositoryVersion', context => history.fileCommand('openRepositoryVersion', context));
   register('applyFiles', context => history.fileCommand('applyFiles', context));
