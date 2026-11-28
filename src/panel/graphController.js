@@ -799,7 +799,7 @@ class GraphController {
         <button id="compare-left" class="compare-filter left" type="button" aria-pressed="false"><span id="compare-left-label">${htmlText('history.baseOnly')}</span></button>
         <button id="compare-right" class="compare-filter right" type="button" aria-pressed="false"><span id="compare-right-label">${htmlText('history.targetOnly')}</span></button>
       </div>
-      <button id="commit-columns" class="control icon column-picker" type="button" aria-label="${htmlText('history.chooseColumns')}" title="${htmlText('history.chooseColumns')}"><span class="codicon codicon-settings-gear" aria-hidden="true"></span><span class="columns-label">${htmlText('history.columns')}</span></button>
+      <button id="commit-columns" class="control icon column-picker" type="button" aria-label="${htmlText('history.chooseColumns')}" title="${htmlText('history.chooseColumns')}"><span class="codicon codicon-ellipsis" aria-hidden="true"></span><span class="columns-label">${htmlText('history.columns')}</span></button>
     </div>
     <div id="commits-scroll" class="scroll log-scroll" tabindex="-1">
       <div id="top-spacer"></div><div id="commits" role="listbox" aria-label="${htmlText('history.commitList')}" aria-multiselectable="true"></div><div id="bottom-spacer"></div>
@@ -811,7 +811,10 @@ class GraphController {
     <div id="file-pane" class="file-pane">
       <div class="pane-header file-header">
         <span id="file-title">${htmlText('history.commitFiles')}</span>
-        <button id="file-tab-toggle" class="control icon file-tab-toggle" type="button" hidden aria-label="${htmlText('history.showCommitFiles')}" title="${htmlText('history.showCommitFiles')}"><span class="codicon codicon-list-selection" aria-hidden="true"></span><span class="icon-label toggle-label">${htmlText('history.showCommitFiles')}</span></button>
+        <div id="file-tabs" class="file-tabs" role="tablist" aria-label="${htmlText('history.changedFiles')}" hidden>
+          <button id="commit-tab" class="file-tab" type="button" role="tab" aria-controls="files" aria-selected="false" tabindex="-1">${htmlText('history.commitFiles')}</button>
+          <button id="snapshot-tab" class="file-tab" type="button" role="tab" aria-controls="files" aria-selected="true">${htmlText('history.fileDiff')}</button>
+        </div>
         <span id="file-count" class="pill"></span>
         <button id="file-layout" class="control icon file-layout" type="button" aria-label="${htmlText('history.viewTree')}" title="${htmlText('history.viewTree')}"><span class="codicon codicon-list-tree" aria-hidden="true"></span><span class="icon-label layout-label">${htmlText('history.viewTree')}</span></button>
       </div>

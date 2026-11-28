@@ -442,8 +442,6 @@
   "history.rewriteCommit": "改写提交",
   "command.selectFile": "选择",
   "history.fileDiff": "文件差异",
-  "history.showCommitFiles": "切换到提交文件",
-  "history.showFileDiff": "切换到文件差异",
   "history.workingTreeCommit": "工作树变动",
   "history.worktreeNotACommit": "工作树变动不是提交。"
 }

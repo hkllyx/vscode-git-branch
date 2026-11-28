@@ -24,7 +24,8 @@
   const files = $('files');
   const panes = $('panes');
   const splitter = $('splitter');
-  const tabs = [...document.querySelectorAll('.compact-nav button')];
+  const paneControls = [...document.querySelectorAll('.compact-nav button')];
+  const fileTabs = [$('commit-tab'), $('snapshot-tab')];
   const ROW = 28; // Must match --row-height in graph.css.
   const LANE = 12;
   const DRAW_LANES = 14;
@@ -227,9 +228,10 @@
   }
 
   function sectionRow(side) {
-    const line = el('div', `commit-section ${side}`);
+    const line = el('div', 'commit-section');
+    const label = state.meta.compare[side].label;
     line.setAttribute('role', 'presentation');
-    line.append(el('span', 'commit-section-label', t(side === 'left' ? 'history.baseOnly' : 'history.targetOnly')));
+    line.append(codicon('warning', 'section-warning'), el('span', 'ellipsis', label, label));
     return line;
   }
 
@@ -314,7 +316,8 @@
     $('compare-bar').hidden = !mode;
     $('log-title').textContent = t(mode ? 'history.distinct' : 'history.graph');
     $('swap').disabled = !ready;
-    $('file-tab-toggle').hidden = !mode;
+    $('file-title').hidden = Boolean(mode);
+    $('file-tabs').hidden = !mode;
     $('compare-counts').hidden = !mode || !comparison?.counts;
     for (const { control, text, side, label, countLabel } of compareControls) {
       const count = comparison?.counts?.[side];
@@ -503,11 +506,18 @@
     $('file-layout').querySelector('.layout-label').textContent = layoutLabel;
     $('file-layout').querySelector('.codicon').className = `codicon codicon-${state.filesLayout === 'tree' ? 'list-flat' : 'list-tree'}`;
     $('file-layout').disabled = Boolean(meta.message);
-    $('file-title').textContent = t(snapshot ? 'history.fileDiff' : 'history.commitFiles');
-    const tabLabel = t(snapshot ? 'history.showCommitFiles' : 'history.showFileDiff');
-    $('file-tab-toggle').title = tabLabel;
-    $('file-tab-toggle').setAttribute('aria-label', tabLabel);
-    $('file-tab-toggle').querySelector('.toggle-label').textContent = tabLabel;
+    const visibleTab = fileTabs[Number(snapshot)];
+    for (const tab of fileTabs) {
+      tab.setAttribute('aria-selected', String(tab === visibleTab));
+      tab.tabIndex = tab === visibleTab ? 0 : -1;
+    }
+    if (meta.compare) {
+      files.setAttribute('role', 'tabpanel');
+      files.setAttribute('aria-labelledby', visibleTab.id);
+    } else {
+      files.removeAttribute('role');
+      files.removeAttribute('aria-labelledby');
+    }
     $('file-count').textContent = meta.message || packet?.selectionOverLimit ? '' : multi
       ? t('history.combinedSummary', { selected: selection.selected.length, count: list.length })
       : (packet?.files ? countText('history.fileCount', list.length) : '');
@@ -555,7 +565,7 @@
     const multi = (selected?.length || 0) > 1;
     const hidden = multi || Boolean(state.meta.compare && (state.snapshot || !detail));
     $('details').hidden = hidden;
-    const detailTab = tabs.find(tab => tab.dataset.pane === 'details');
+    const detailTab = paneControls.find(tab => tab.dataset.pane === 'details');
     detailTab.hidden = hidden;
     if (hidden && panes.dataset.pane === 'details') setPane('files');
     box.replaceChildren();
@@ -577,7 +587,7 @@
   function setPane(pane) {
     panes.dataset.pane = pane;
     if (pane === 'details') $('details').open = true;
-    tabs.forEach(control => press(control, control.dataset.pane === pane));
+    paneControls.forEach(control => press(control, control.dataset.pane === pane));
     onViewport();
   }
 
@@ -683,8 +693,22 @@
     renderDetail();
   }
 
-  $('file-tab-toggle').addEventListener('click', () => showFileTab(!state.snapshot));
-  tabs.forEach(control => control.addEventListener('click', () => setPane(control.dataset.pane)));
+  for (const [index, tab] of fileTabs.entries()) {
+    tab.addEventListener('click', () => showFileTab(index === 1));
+    tab.addEventListener('keydown', event => {
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      let next;
+      if (event.key === 'Home') next = 0;
+      else if (event.key === 'End') next = fileTabs.length - 1;
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') next = 1 - index;
+      else return;
+      event.preventDefault();
+      event.stopPropagation();
+      showFileTab(next === 1);
+      fileTabs[next].focus();
+    });
+  }
+  paneControls.forEach(control => control.addEventListener('click', () => setPane(control.dataset.pane)));
   scroll.addEventListener('scroll', onViewport, { passive: true });
   new ResizeObserver(onViewport).observe(scroll);
 

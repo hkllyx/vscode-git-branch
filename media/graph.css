@@ -6,6 +6,7 @@
   --mono: var(--vscode-editor-font-family, monospace);
   --blue: var(--vscode-charts-blue, #6da7e8);
   --purple: var(--vscode-charts-purple, #b392f0);
+  --warning: var(--vscode-editorWarning-foreground, #cca700);
 }
 
 * { box-sizing: border-box; }
@@ -35,10 +36,9 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .codicon-refresh { display: none; width: 16px; font-size: 16px; }
 .codicon-close { display: none; width: 16px; font-size: 16px; }
 .codicon-arrow-swap { display: none; width: 16px; font-size: 16px; }
-.codicon-settings-gear { display: none; width: 16px; font-size: 16px; }
+.codicon-ellipsis { display: none; width: 16px; font-size: 16px; }
 .codicon-list-tree { display: none; width: 16px; font-size: 16px; }
 .codicon-list-flat { display: none; width: 16px; font-size: 16px; }
-.codicon-list-selection { display: none; width: 16px; font-size: 16px; }
 .has-codicons .codicon { font: normal normal 14px/1 'Git Branch Codicon'; }
 .has-codicons .codicon-tag::before { content: '\ea66'; }
 .has-codicons .codicon-warning::before { content: '\ea6c'; }
@@ -48,14 +48,12 @@ button:disabled { color: var(--vscode-disabledForeground, var(--muted)); cursor:
 .has-codicons .codicon-close::before { content: '\ea76'; }
 .has-codicons .codicon-arrow-swap { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-arrow-swap::before { content: '\ebcb'; }
-.has-codicons .codicon-settings-gear { display: inline-block; font-size: 16px; }
-.has-codicons .codicon-settings-gear::before { content: '\eb51'; }
+.has-codicons .codicon-ellipsis { display: inline-block; font-size: 16px; }
+.has-codicons .codicon-ellipsis::before { content: '\ea7c'; }
 .has-codicons .codicon-list-tree { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-list-tree::before { content: '\eb86'; }
 .has-codicons .codicon-list-flat { display: inline-block; font-size: 16px; }
 .has-codicons .codicon-list-flat::before { content: '\eb84'; }
-.has-codicons .codicon-list-selection { display: inline-block; font-size: 16px; }
-.has-codicons .codicon-list-selection::before { content: '\eb85'; }
 .has-codicons .refresh-label, .has-codicons .columns-label { display: none; }
 /* Icon buttons keep a text label only when the host Codicon font is unavailable. */
 .icon-label { white-space: nowrap; }
@@ -115,9 +113,8 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .compare-filter.right { --side-accent: var(--blue); }
 .compare-filter:enabled[aria-pressed='false']:hover { background: transparent; color: var(--vscode-foreground); }
 .compare-filter[aria-pressed='true'], .compare-filter:enabled[aria-pressed='true']:hover {
-  border-color: transparent;
-  background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-inactiveSelectionBackground));
-  color: var(--vscode-list-activeSelectionForeground, var(--vscode-foreground));
+  background: color-mix(in srgb, var(--side-accent) 22%, var(--panel));
+  color: var(--vscode-foreground);
 }
 .compare-filter:focus-visible { outline-offset: 1px; }
 .direction .side { max-width: min(25vw, 225px); }
@@ -223,7 +220,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .side.right { border-color: var(--blue); }
 .pill { color: var(--vscode-badge-foreground); background: var(--vscode-badge-background); }
 .pill:empty { display: none; }
-/* A grouped comparison side header replaces the per-row Base/Target badge. */
+/* Side headings use a warning accent, not the commit selection colors. */
 .commit-section {
   height: var(--row-height);
   display: flex;
@@ -234,19 +231,31 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   font-weight: 600;
   letter-spacing: .02em;
   color: var(--vscode-foreground);
-  background: var(--vscode-list-inactiveSelectionBackground, var(--vscode-list-hoverBackground));
-  box-shadow: inset 3px 0 var(--side-accent);
+  background: color-mix(in srgb, var(--warning) 13%, var(--panel));
+  box-shadow: inset 3px 0 var(--warning);
 }
-.commit-section.left { --side-accent: var(--purple); }
-.commit-section.right { --side-accent: var(--blue); }
+.section-warning { flex: 0 0 auto; color: var(--warning); }
 .commit-section + .commit-row { border-top: 1px solid var(--border); }
 .commit-row.worktree-row .commit-message .subject { font-style: italic; }
 
 .log-header, .file-header { flex-wrap: wrap; }
 .compact-nav button { border-radius: 3px; padding: 2px 7px; }
+.file-tabs { display: inline-flex; align-items: center; gap: 2px; --tab-accent: var(--vscode-panelTitle-activeBorder, var(--vscode-focusBorder)); }
+.file-tab {
+  min-height: 23px;
+  padding: 1px 6px;
+  border-bottom: 2px solid transparent;
+  border-radius: 3px 3px 0 0;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.file-tab[aria-selected='true'], .file-tab[aria-selected='true']:enabled:hover {
+  border-color: var(--tab-accent);
+  background: color-mix(in srgb, var(--tab-accent) 12%, var(--panel));
+  color: var(--vscode-foreground);
+}
 .file-layout { margin-left: auto; min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
-.file-tab-toggle { min-height: 21px; padding: 0 5px; font-size: .87em; font-weight: normal; }
-.has-codicons .file-layout, .has-codicons .file-tab-toggle { width: 24px; padding: 0; }
+.has-codicons .file-layout { width: 24px; padding: 0; }
 .link { color: var(--vscode-textLink-foreground); padding: 2px 5px; border-radius: 3px; }
 .files { flex: 1 1 0; padding: 3px 4px 6px; }
 .empty, .snapshot-caption { padding: 7px 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
