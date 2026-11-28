@@ -92,9 +92,7 @@
     const width = columns * LANE + 5, mid = ROW / 2;
     const x = lane => 8 + lane * LANE;
     const svg = svgNode('svg', { class: 'graph', width, height: ROW, 'aria-hidden': 'true' });
-    const path = (d, laneColor, dashed = false, merge = false) => svg.append(svgNode('path', {
-      d, class: `edge lane-${laneColor}${dashed ? ' boundary' : ''}${merge ? ' merge-edge' : ''}`
-    }));
+    const path = (d, laneColor, dashed = false) => svg.append(svgNode('path', { d, class: `edge lane-${laneColor}${dashed ? ' boundary' : ''}` }));
     for (const lane of through) {
       // A pending parent must not produce a line across unrelated rows.
       if (lane.column < laneLimit && state.known.has(lane.oid)) path(`M${x(lane.column)},0 V${ROW}`, lane.color);
@@ -110,14 +108,13 @@
     const start = x(column);
     if (incoming) path(`M${start},0 V${mid}`, color);
     if (row.shallowBoundary) path(`M${start},${mid + 4} v8`, color, true);
-    for (const [index, edge] of edges.entries()) {
+    for (const edge of edges) {
       const end = x(edge.column);
-      const merge = index > 0; // Keep the first-parent line at full contrast.
       if (!state.known.has(edge.oid) || edge.column >= laneLimit) {
         const stub = start + Math.sign(end - start) * 4;
-        path(`M${start},${mid} Q${start},${mid + 6} ${stub},${ROW - 2}`, edge.color, true, merge);
-      } else if (end === start) path(`M${start},${mid} V${ROW}`, edge.color, false, merge);
-      else path(`M${start},${mid} C${start},${mid + 7} ${end},${mid + 7} ${end},${ROW}`, edge.color, false, merge);
+        path(`M${start},${mid} Q${start},${mid + 6} ${stub},${ROW - 2}`, edge.color, true);
+      } else if (end === start) path(`M${start},${mid} V${ROW}`, edge.color);
+      else path(`M${start},${mid} C${start},${mid + 7} ${end},${mid + 7} ${end},${ROW}`, edge.color);
     }
     svg.append(svgNode('circle', { cx: start, cy: mid, r: 3.6, class: `dot lane-${color}${row.parents.length > 1 ? ' merge-dot' : ''}` }));
     return svg;
@@ -177,6 +174,7 @@
     const isSelected = selected.has(row.oid);
     const time = row.worktree ? { label: '', precise: '' } : commitTime(row.date);
     const line = el('div', `commit-row${focused ? ' focused' : ''}${isSelected ? ' selected' : ''}${row.worktree ? ' worktree-row' : ''}`);
+    line.classList.toggle('merge-row', row.parents.length > 1);
     line.dataset.oid = row.oid;
     line.setAttribute('role', 'presentation');
     const summary = button('commit-subject', '', event => {

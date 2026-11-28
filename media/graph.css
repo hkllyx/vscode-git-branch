@@ -171,6 +171,7 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .commit-subject > * { grid-row: 1; }
 .commit-message { grid-column: message; display: flex; align-items: center; gap: .28em; padding-inline-start: .28em; min-width: 0; overflow: hidden; }
 .date, .hash, .author { opacity: .85; }
+.merge-row :is(.subject, .author, .hash, .date) { opacity: .76; }
 .date, .hash { padding-inline-start: 1ch; }
 .date { grid-column: date; width: 17ch; max-width: 30cqw; }
 .hash { grid-column: hash; width: 9ch; max-width: 16cqw; }
@@ -178,9 +179,8 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .graph { grid-column: lane; height: var(--row-height); overflow: hidden; }
 .edge { fill: none; stroke: var(--lane); stroke-width: 1.5; }
 .edge.boundary { stroke-dasharray: 2 2; }
-.edge.merge-edge { stroke-opacity: .6; }
 .dot { fill: var(--lane); stroke: var(--panel); stroke-width: 1; }
-.dot.merge-dot { fill: var(--panel); stroke: var(--lane); stroke-width: 2; stroke-opacity: .7; }
+.dot.merge-dot { fill: var(--panel); stroke: var(--lane); stroke-width: 2; }
 .lane-overflow { fill: currentColor; }
 .lane-0 { --lane: var(--blue); }
 .lane-1 { --lane: var(--purple); }
