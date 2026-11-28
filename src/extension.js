@@ -89,6 +89,9 @@ function activate(context) {
   register('squash', context => history.commitCommand('squash', context));
   register('drop', context => history.commitCommand('drop', context));
   register('newBranch', context => history.commitCommand('newBranch', context));
+  register('commitWorktree', context => history.worktreeCommand('commit', context));
+  register('rollbackWorktree', context => history.worktreeCommand('rollback', context));
+  register('stashWorktree', context => history.worktreeCommand('stash', context));
   register('newTag', context => history.commitCommand('newTag', context));
   register('showDiff', context => history.fileCommand('showDiff', context));
   register('editSource', context => history.fileCommand('editSource', context));
@@ -531,6 +534,55 @@ class WorkbenchActions {
     } }));
     const input = repo.repository.inputBox;
     if (result?.draft && input?.value === '') input.value = result.draft;
+  }
+
+  async localChanges(kind, repo, head, guard) {
+    guard();
+    this.checkEditors(repo);
+    const actions = repo.actions.worktree;
+    const choices = await actions.choices(head);
+    guard();
+    if (!choices.files.length) throw new BranchError(t('git.worktreeSelectionEmpty'));
+    const title = { commit: t('command.commitWorktree'), rollback: t('command.rollbackWorktree'), stash: t('command.stashWorktree') }[kind];
+    const items = choices.files.map(change => ({ change, label: change.rename ? `${change.source} → ${change.file}` : change.file,
+      description: change.untracked ? t('action.worktreeUntracked') : change.xy[0] === '.' ? t('action.worktreeUnstaged')
+        : change.xy[1] === '.' ? t('action.worktreeStaged') : t('action.worktreeMixed') }));
+    const pick = await vscode.window.showQuickPick(items, { canPickMany: true, ignoreFocusOut: true,
+      title: `${title} · ${repo.name} · ${choices.branch.name}`, placeHolder: t('action.worktreePickFiles') });
+    if (!pick?.length) return;
+    guard();
+    const plan = await actions.plan(kind, choices, pick.map(item => item.change));
+    guard();
+    let message, amend = false;
+    if (kind === 'commit') {
+      const existing = await actions.amendable(plan);
+      guard();
+      if (existing) {
+        const mode = await vscode.window.showQuickPick([
+          { label: t('history.worktreeCommitButton'), amend: false },
+          { label: t('history.worktreeAmendButton'), description: shortOid(plan.base), amend: true }
+        ], { title, ignoreFocusOut: true });
+        if (!mode) return;
+        amend = mode.amend;
+      }
+      guard();
+      message = await this.history.askCommitMessage(repo, head, plan.base, amend ? existing.message : '', amend ? 'amend' : 'commit');
+      if (message === undefined) return;
+    } else if (kind === 'rollback') {
+      const shown = plan.paths.slice(0, 8).map(file => `• ${JSON.stringify(file)}`);
+      if (plan.paths.length > shown.length) shown.push(t('action.worktreeMorePaths', { count: plan.paths.length - shown.length }));
+      if (!await this.confirm(repo, t('action.worktreeRollbackConfirm'), [t('action.worktreeRollbackPolicy'), '', ...shown],
+        t('action.worktreeRollbackButton'))) return;
+    } else {
+      message = await vscode.window.showInputBox({ title: `${title} · ${repo.name}`, prompt: t('action.worktreeStashMessage'), ignoreFocusOut: true,
+        validateInput: value => /[\0\r\n]/.test(value) || Buffer.byteLength(value) > 4096 ? t('action.worktreeStashMessageInvalid') : undefined });
+      if (message === undefined) return;
+    }
+    guard();
+    return this.run(repo, title, git => git.worktree.execute(plan, { message, amend, check: () => {
+      guard();
+      this.checkEditors(repo);
+    } }));
   }
 
   async applyHistoryFiles(repo, head, files, guard) {

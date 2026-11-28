@@ -8,6 +8,7 @@ const { t } = require('../i18n');
 const { GitClient, GitError } = require('./gitClient');
 const { GitReads, ensureResult } = require('./reads');
 const { HistoryActions } = require('./historyActions');
+const { WorktreeActions } = require('./worktreeActions');
 const { parseFetchRules, mappedTracking, mappedSources } = require('./parse');
 const { HEADS, REMOTES, sameHead } = require('./refs');
 const { pathsOverlap, UpdateStash } = require('./updateChanges');
@@ -47,6 +48,7 @@ class GitActions {
     this.dirs = dirs;
     this.reads = new GitReads(client);
     this.history = new HistoryActions(this);
+    this.worktree = new WorktreeActions(this);
   }
 
   async remotes() {

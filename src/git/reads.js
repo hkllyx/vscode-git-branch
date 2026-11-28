@@ -293,24 +293,31 @@ class GitReads {
       Promise.all(markers.map(name => fileExists(path.join(gitDir, name)))), this.head()
     ]);
     const records = status.toString('utf8').split('\0');
-    const trackedPaths = [], untrackedPaths = [];
+    const trackedPaths = [], untrackedPaths = [], changes = [];
     let conflicted = false, staged = false, unstaged = false, changedGitlink = false, intentToAdd = false;
     for (let i = 0; i < records.length; i++) {
       const record = records[i];
       if (record.startsWith('u ')) conflicted = true;
-      else if (record.startsWith('? ')) untrackedPaths.push(record.slice(2));
-      else if (record.startsWith('1 ') || record.startsWith('2 ')) {
-        const rename = record[0] === '2';
-        const fields = record.split(' ', rename ? 9 : 8);
-        trackedPaths.push(record.slice(fields.join(' ').length + 1));
-        if (rename) trackedPaths.push(records[++i]);
-        staged ||= fields[1][0] !== '.';
-        unstaged ||= fields[1][1] !== '.';
-        intentToAdd ||= fields[1] === '.A';
+      else if (record.startsWith('? ')) {
+        const file = record.slice(2);
+        untrackedPaths.push(file);
+        changes.push({ file, untracked: true });
+      } else if (record.startsWith('1 ') || record.startsWith('2 ')) {
+        const renameOrCopy = record[0] === '2';
+        const fields = record.split(' ', renameOrCopy ? 9 : 8);
+        const [, xy, , headMode, indexMode, worktreeMode, , indexOid, score] = fields;
+        const file = record.slice(fields.join(' ').length + 1);
+        const source = renameOrCopy ? records[++i] : undefined;
+        trackedPaths.push(file);
+        if (source) trackedPaths.push(source);
+        changes.push({ file, source, rename: score?.startsWith('R'), xy, headMode, indexMode, worktreeMode, indexOid });
+        staged ||= xy[0] !== '.';
+        unstaged ||= xy[1] !== '.';
+        intentToAdd ||= xy === '.A';
         changedGitlink ||= fields.slice(3, 6).includes('160000');
       }
     }
-    return { head, status, trackedPaths, untrackedPaths, staged, unstaged, intentToAdd, changedGitlink, conflicted,
+    return { head, status, changes, trackedPaths, untrackedPaths, staged, unstaged, intentToAdd, changedGitlink, conflicted,
       operation: markers.find((_, i) => markersPresent[i]) };
   }
 }

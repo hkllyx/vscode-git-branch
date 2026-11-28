@@ -144,13 +144,14 @@
   }
 
   function commitActionContext(row) {
-    // The synthetic Working Tree row is not a Git object, so history rewrite commands do not apply.
-    if (row.worktree) return { ...baseContext('none') };
+    const head = state.meta.head;
+    // The virtual row can act on saved local changes, never on commit history.
+    if (row.worktree) return head?.ref && head.oid === row.baseOid
+      ? { ...baseContext('worktree'), gbOid: row.oid } : baseContext('none');
     const active = state.selectedCommits.has(row.oid);
     const selected = active ? state.selection.selected : [row.oid];
     if (selected.some(oid => state.rowsByOid.get(oid)?.worktree)) return baseContext('none');
     const single = selected.length === 1;
-    const head = state.meta.head;
     const local = Boolean(head?.ref && head.oid);
     const plain = !(active && state.selection.selectionOverLimit) && selected.every(oid => {
       const candidate = state.rowsByOid.get(oid);
@@ -646,7 +647,10 @@
     }
     if (editId === packet.id) return;
     editId = packet.id;
+    $('edit-title').textContent = packet.title;
     $('edit-context').textContent = packet.label;
+    $('edit-warning').textContent = packet.warning;
+    $('submit-edit').textContent = packet.submit;
     editMessage.value = packet.value;
     $('submit-edit').disabled = !editMessage.value.trim();
     if (!editDialog.open) editDialog.showModal();

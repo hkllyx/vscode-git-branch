@@ -48,6 +48,7 @@ async function workbench(local, window) {
       compare(_repo, left, right) { this.comparison = { left, right }; }
       async show() {}
       commitCommand(kind, { rows, guard = noop }) { return this.ui.historyCommit(kind, repo, repo.snapshot.head, rows, guard); }
+      worktreeCommand(kind, { guard = noop } = {}) { return this.ui.localChanges(kind, repo, repo.snapshot.head, guard); }
       askCommitMessage(...args) { return window.askCommitMessage(...args); }
     } },
     './panel/historyDocuments': { HistoryDocuments: class {} }
@@ -516,8 +517,91 @@ test('native history menus are scoped to both supported webview keys, with no co
   assert.deepEqual(keys('file'), ['showDiff', 'editSource', 'openRepositoryVersion', 'applyFiles']);
   assert.equal(menu.find(row => row.command === 'git-branch.showDiff').group, '1_files@0');
   assert.equal(contributes.commands.find(row => row.command === 'git-branch.showDiff').enablement, 'gbCanShowDiff');
-  assert.equal(menu.length, keys('commit').length + keys('file').length);
-  for (const key of [...keys('commit'), ...keys('file')]) assert.ok(contributes.menus.commandPalette.some(row => row.command === `git-branch.${key}` && row.when === 'false'));
+  assert.deepEqual(keys('worktree'), ['commitWorktree', 'rollbackWorktree', 'stashWorktree']);
+  const scopes = [...keys('commit'), ...keys('file'), ...keys('worktree')];
+  assert.equal(menu.length, scopes.length);
+  for (const key of scopes) assert.ok(contributes.menus.commandPalette.some(row => row.command === `git-branch.${key}` && row.when === 'false'));
+});
+
+test('Uncommitted Changes picks specific files, prompts once for Rollback, and uses the amend message form', async t => {
+  const { repo } = await fixture(t);
+  const local = await repo('worktree-menu');
+  const head = await local.commit('existing message', { 'picked.txt': 'base', 'keep.txt': 'base' });
+  await local.write('picked.txt', 'chosen');
+  await local.write('keep.txt', 'keep');
+  await local.write('new.txt', 'stash this');
+  let approveRollback = false, mode, selected = 'picked.txt', confirmations = 0;
+  const action = await workbench(local, {
+    showQuickPick: (items, options) => {
+      if (!options.canPickMany) {
+        assert.deepEqual(items.map(item => item.amend), [false, true]);
+        return items[1];
+      }
+      assert.ok(options.title.includes('worktree-menu · main'));
+      return items.filter(item => item.label === selected);
+    },
+    showWarningMessage: (_title, { modal, detail }, button) => {
+      confirmations++;
+      assert.equal(modal, true);
+      assert.match(detail, /picked\.txt/);
+      assert.doesNotMatch(detail, /keep\.txt/);
+      return approveRollback ? button : undefined;
+    },
+    askCommitMessage: (_repo, _head, oid, value, requested) => {
+      assert.equal(oid, head);
+      assert.match(value, /^existing message/);
+      mode = requested;
+      return 'updated message';
+    },
+    showInputBox: () => '', showInformationMessage: () => {}, showErrorMessage: value => assert.fail(value)
+  });
+  await action('rollbackWorktree');
+  assert.equal(await local.read('picked.txt'), 'chosen');
+  approveRollback = true;
+  await action('rollbackWorktree');
+  assert.equal(await local.read('picked.txt'), 'base');
+  assert.equal(await local.read('keep.txt'), 'keep');
+  selected = 'new.txt';
+  await action('stashWorktree');
+  assert.match(await local.git('stash', 'list'), /Selected local changes/);
+  await assert.rejects(local.read('new.txt'), { code: 'ENOENT' });
+  selected = 'keep.txt';
+  await action('commitWorktree');
+  assert.equal(mode, 'amend');
+  assert.equal((await local.reads.commit(await local.head())).message.trim(), 'updated message');
+  assert.equal(confirmations, 2, 'only rollback has a modal confirmation');
+});
+
+test('worktree commands require a current virtual row and refresh only the comparison worktree endpoint', async () => {
+  const { GraphController } = loadWithMocks(require.resolve('../src/panel/graphController'), { vscode: { workspace: { isTrusted: true } } });
+  const head = { ref: 'refs/heads/main', oid: '1'.repeat(40) };
+  const tip = '2'.repeat(40);
+  const repo = { id: 'git', root: { fsPath: '/tmp/git' }, snapshot: { head, byRef: new Map(), allRefs: [] } };
+  const registry = { active: repo, repositories: new Map([[repo.id, repo]]), onChange: () => ({ dispose() {} }) };
+  const calls = [];
+  const controller = new GraphController({}, registry, {}, { localChanges: (kind, target, expected, guard) => {
+    guard();
+    calls.push({ kind, target, expected });
+    repo.snapshot = { ...repo.snapshot, head: { ...head, oid: tip } };
+    return { message: 'done' };
+  } });
+  controller.ready = true;
+  controller.view = { visible: true };
+  controller.reset = keepSelection => assert.equal(keepSelection, true);
+  const virtual = `worktree:${head.oid}`;
+  const context = { webviewId: 'git-branch.log', gbArea: 'worktree', gbOid: virtual, gbRepo: repo.id, gbGeneration: controller.generation,
+    gbRevision: controller.selectionRevision, gbHeadRef: head.ref, gbHeadOid: head.oid };
+  controller.known.set(head.oid, { oid: head.oid });
+  controller.known.set(virtual, { oid: virtual, baseOid: head.oid, worktree: true, side: 'left' });
+  const pinned = { name: 'other', oid: '3'.repeat(40) };
+  controller.comparison = { left: { worktree: true, oid: head.oid }, right: pinned };
+  await assert.rejects(controller.worktreeCommand('commit', { ...context, gbOid: head.oid }), /changed/i);
+  await assert.rejects(controller.worktreeCommand('commit', { ...context, gbRepo: 'other' }), /changed/i);
+  await controller.worktreeCommand('commit', context);
+  assert.deepEqual(calls, [{ kind: 'commit', target: repo, expected: head }]);
+  assert.equal(controller.comparison.left.oid, tip);
+  assert.equal(controller.comparison.right, pinned);
+  await assert.rejects(controller.worktreeCommand('commit', context), /changed/i);
 });
 
 test('Branches keeps the native tree and exposes the expected menu for each branch type, in order', () => {

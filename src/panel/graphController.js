@@ -665,13 +665,14 @@ class GraphController {
     finally { if (this.active('diff', request)) this.requests.delete('diff'); }
   }
 
-  actionContext(context, area) {
+  actionContext(context, area, followSelection = true) {
     const { repo, generation, selectionRevision: revision } = this;
     const head = repo?.snapshot?.head;
     const check = () => {
-      if (!this.canRead || this.registry.active !== repo || !vscode.workspace.isTrusted || context?.webview !== 'git-branch.log' ||
+      const webview = context?.webview ?? context?.webviewId;
+      if (!this.canRead || this.registry.active !== repo || !vscode.workspace.isTrusted || webview !== 'git-branch.log' ||
         context.gbArea !== area || context.gbGeneration !== generation || this.generation !== generation || context.gbRepo !== repo.id ||
-        context.gbRevision !== revision || this.selectionRevision !== revision || (head?.ref || '') !== context.gbHeadRef ||
+        context.gbRevision !== revision || (followSelection && this.selectionRevision !== revision) || (head?.ref || '') !== context.gbHeadRef ||
         (head?.oid || '') !== context.gbHeadOid || !sameHead(repo.snapshot.head, head)) {
         throw new BranchError(t('history.staleAction'));
       }
@@ -694,6 +695,29 @@ class GraphController {
     if (rows.some(row => row.worktree)) throw new BranchError(t('history.worktreeNotACommit'));
     if (rows.length > MAX_SELECTION && kind !== 'copyRevision') throw new BranchError(t('history.selectionLimit', { count: MAX_SELECTION }));
     return this.ui.historyCommit(kind, repo, head, rows, check);
+  }
+
+  async worktreeCommand(kind, context) {
+    if (context?.gbArea !== 'worktree') return;
+    const { repo, head, check } = this.actionContext(context, 'worktree', false);
+    const row = this.known.get(context.gbOid);
+    const { comparison } = this;
+    const endpoint = comparison?.[row?.side];
+    if (!row?.worktree || !head?.ref || row.baseOid !== head.oid || (comparison && !endpoint?.worktree)) {
+      throw new BranchError(t('history.staleAction'));
+    }
+    if (this.localAction) return;
+    const pending = this.localAction = Symbol();
+    try {
+      const result = await this.ui.localChanges(kind, repo, head, check);
+      if (result && comparison && this.repo === repo && this.comparison === comparison && repo.snapshot?.head.oid) {
+        // Refresh the changed worktree without silently moving the other, pinned endpoint.
+        this.comparison = { ...comparison, [row.side]: { ...endpoint, oid: repo.snapshot.head.oid } };
+        this.reset(true);
+      }
+    } finally {
+      if (this.localAction === pending) this.localAction = undefined;
+    }
   }
 
   fileTokens(source) {
@@ -759,10 +783,14 @@ class GraphController {
     }
   }
 
-  askCommitMessage(repo, head, oid, value) {
+  askCommitMessage(repo, head, oid, value, mode = 'edit') {
     this.finishEdit();
-    const packet = { id: randomBytes(16).toString('hex'), value, label: t('history.editContext', {
-      repo: repo.name, branch: head.ref.slice('refs/heads/'.length), oid: shortOid(oid)
+    const text = mode === 'commit' ? { title: t('history.worktreeCommitButton'), submit: t('history.worktreeCommitButton'),
+      warning: t('history.worktreeCommitPolicy') } : mode === 'amend' ? { title: t('history.worktreeAmendButton'),
+      submit: t('history.worktreeAmendButton'), warning: t('history.worktreeAmendPolicy') } :
+      { title: t('history.editTitle'), submit: t('history.rewriteCommit'), warning: t('history.editWarning') };
+    const packet = { id: randomBytes(16).toString('hex'), value, ...text, label: t('history.editContext', {
+      repo: repo.name, branch: head.ref.slice(HEADS.length), oid: shortOid(oid)
     }) };
     return new Promise(resolve => {
       this.editPrompt = { packet, resolve };
@@ -925,7 +953,7 @@ class GraphController {
   <form id="edit-form">
     <h2 id="edit-title">${htmlText('history.editTitle')}</h2>
     <p id="edit-context" class="muted"></p>
-    <p class="edit-warning">${htmlText('history.editWarning')}</p>
+    <p id="edit-warning" class="edit-warning">${htmlText('history.editWarning')}</p>
     <label for="edit-message">${htmlText('history.editMessage')}</label>
     <textarea id="edit-message" rows="6" maxlength="131072" required></textarea>
     <div class="edit-actions">
