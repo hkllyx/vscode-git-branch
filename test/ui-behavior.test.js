@@ -1100,7 +1100,8 @@ test('history HTML embeds Codicons from installed VS Code assets without allowin
     assert.match(html, /class="refresh-label">[^<]+</);
     assert.match(html, /id="filter-text"[\s\S]*id="refresh"[\s\S]*id="swap"[\s\S]*id="exit-compare"[\s\S]*id="commit-columns"/);
     assert.doesNotMatch(html, /id="log-title"/);
-    assert.match(html, /id="files"[\s\S]*<footer id="snapshot-caption"[\s\S]*<section id="details"[\s\S]*<h2 id="detail-title"/);
+    assert.match(html, /id="files"[\s\S]*<footer id="snapshot-caption"[\s\S]*<section id="details" class="details"[\s\S]*<h2[^>]*><button id="detail-title"[^>]*aria-expanded="true" aria-controls="detail-content"/);
+    assert.match(html, /id="detail-content" class="detail-content scroll" tabindex="0"/);
     assert.match(html, /src="media\/historyRows\.js"[\s\S]*src="media\/graph\.js"/);
   }
 });

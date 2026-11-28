@@ -875,9 +875,9 @@ class GraphController {
       <div id="files" class="scroll files" role="tabpanel" tabindex="-1" data-patch-limit="${MAX_PATCH_FILES}" aria-labelledby="commit-tab"></div>
       <footer id="snapshot-caption" class="snapshot-caption mono" hidden></footer>
     </div>
-    <section id="details" class="details scroll" tabindex="0" aria-labelledby="detail-title">
-      <h2 id="detail-title">${htmlText('history.commitDetails')}</h2>
-      <div id="detail-content" class="detail-content"></div>
+    <section id="details" class="details" aria-labelledby="detail-title">
+      <h2 class="detail-heading"><button id="detail-title" class="detail-toggle" type="button" aria-expanded="true" aria-controls="detail-content"><span class="codicon codicon-chevron-down" aria-hidden="true"></span>${htmlText('history.commitDetails')}</button></h2>
+      <div id="detail-content" class="detail-content scroll" tabindex="0"></div>
     </section>
   </section>
 </main>

@@ -155,7 +155,6 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   color: var(--vscode-list-activeSelectionForeground);
 }
 .commit-row .commit-subject:hover { background: transparent; }
-.commit-row.focused .subject { font-weight: 600; }
 /* Optional tracks collapse when absent. Give each visible cell one space of padding. */
 #commits[data-columns~='author'] { --commit-author-width: clamp(42px, 15cqw, 112px); }
 .commit-subject {
@@ -179,8 +178,9 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .graph { grid-column: lane; height: var(--row-height); overflow: hidden; }
 .edge { fill: none; stroke: var(--lane); stroke-width: 1.5; }
 .edge.boundary { stroke-dasharray: 2 2; }
+.edge.merge-edge { stroke-opacity: .6; }
 .dot { fill: var(--lane); stroke: var(--panel); stroke-width: 1; }
-.dot.merge-dot { fill: var(--panel); stroke: var(--lane); stroke-width: 2; }
+.dot.merge-dot { fill: var(--panel); stroke: var(--lane); stroke-width: 2; stroke-opacity: .7; }
 .lane-overflow { fill: currentColor; }
 .lane-0 { --lane: var(--blue); }
 .lane-1 { --lane: var(--purple); }
@@ -257,11 +257,11 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
   padding: 2px 6px;
   border-radius: 3px;
 }
-.file-status { flex: 0 0 16px; text-align: center; font: bold .88em var(--mono); border: 1px solid var(--border); border-radius: 3px; }
-.status-A { color: var(--vscode-gitDecoration-addedResourceForeground); }
-.status-D { color: var(--vscode-gitDecoration-deletedResourceForeground); }
-.status-M { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
-.status-R, .status-C { color: var(--vscode-gitDecoration-renamedResourceForeground); }
+.file-name.status-A { color: var(--vscode-gitDecoration-addedResourceForeground); }
+.file-name.status-D { color: var(--vscode-gitDecoration-deletedResourceForeground); }
+.file-name:is(.status-M, .status-T, .status-B) { color: var(--vscode-gitDecoration-modifiedResourceForeground); }
+.file-name:is(.status-R, .status-C) { color: var(--vscode-gitDecoration-renamedResourceForeground); }
+.file-name.status-U { color: var(--vscode-gitDecoration-conflictingResourceForeground, var(--vscode-editorError-foreground)); }
 .file-label { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
 .file-label .file-name { flex: 0 1 auto; }
 .file-directory { flex: 0 20 auto; font-size: .85em; color: var(--muted); }
@@ -269,16 +269,17 @@ button.control:enabled:hover { background: var(--vscode-button-secondaryHoverBac
 .parent-group > summary { font-weight: 600; }
 .submodule { flex: 0 0 auto; font-size: .9em; color: var(--muted); }
 .file-warning { flex: 0 0 auto; color: var(--vscode-editorWarning-foreground, var(--muted)); }
-.file-row.selected { background: var(--vscode-list-inactiveSelectionBackground); color: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground)); }
+button.file-row.selected { background: var(--vscode-list-inactiveSelectionBackground); color: var(--vscode-list-inactiveSelectionForeground, var(--vscode-foreground)); }
 .file-row.selected:focus-visible { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
 .file-folder > summary { cursor: pointer; }
 .file-folder > summary::-webkit-details-marker { display: none; }
 .file-folder > summary::before { content: '▸'; color: var(--muted); }
 .file-folder[open] > summary::before { content: '▾'; }
 .file-children { margin-left: 12px; padding-left: 3px; border-left: 1px solid var(--border); }
-.details { min-height: 26px; flex: 0 0 auto; max-height: 44%; border-top: 1px solid var(--border); }
-.details > h2 { margin: 0; padding: 4px 10px; color: var(--muted); font-size: inherit; font-weight: 600; }
-.detail-content { padding: 0 10px 8px; overflow-wrap: anywhere; }
+.details { display: flex; flex-direction: column; min-height: 27px; flex: 0 0 auto; max-height: 44%; border-top: 1px solid var(--border); }
+.detail-heading { flex: 0 0 auto; margin: 0; color: var(--muted); font-size: inherit; font-weight: 600; }
+.detail-toggle { display: flex; align-items: center; gap: 4px; width: 100%; min-height: 26px; padding: 3px 8px; text-align: start; }
+.detail-content { flex: 1 1 auto; padding: 0 10px 8px; overflow-wrap: anywhere; }
 .message { white-space: pre-wrap; margin: 5px 0 8px; font: inherit; }
 .detail-meta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 3px 8px; margin: 0; }
 .detail-meta dt { color: var(--muted); }

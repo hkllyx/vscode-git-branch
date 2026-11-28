@@ -22,6 +22,9 @@
   const scroll = $('commits-scroll');
   const commits = $('commits');
   const files = $('files');
+  const details = $('details');
+  const detailTitle = $('detail-title');
+  const detailBody = $('detail-content');
   const panes = $('panes');
   const splitter = $('splitter');
   const paneControls = [...document.querySelectorAll('.compact-nav button')];
@@ -89,7 +92,9 @@
     const width = columns * LANE + 5, mid = ROW / 2;
     const x = lane => 8 + lane * LANE;
     const svg = svgNode('svg', { class: 'graph', width, height: ROW, 'aria-hidden': 'true' });
-    const path = (d, laneColor, dashed = false) => svg.append(svgNode('path', { d, class: `edge lane-${laneColor}${dashed ? ' boundary' : ''}` }));
+    const path = (d, laneColor, dashed = false, merge = false) => svg.append(svgNode('path', {
+      d, class: `edge lane-${laneColor}${dashed ? ' boundary' : ''}${merge ? ' merge-edge' : ''}`
+    }));
     for (const lane of through) {
       // A pending parent must not produce a line across unrelated rows.
       if (lane.column < laneLimit && state.known.has(lane.oid)) path(`M${x(lane.column)},0 V${ROW}`, lane.color);
@@ -105,13 +110,14 @@
     const start = x(column);
     if (incoming) path(`M${start},0 V${mid}`, color);
     if (row.shallowBoundary) path(`M${start},${mid + 4} v8`, color, true);
-    for (const edge of edges) {
+    for (const [index, edge] of edges.entries()) {
       const end = x(edge.column);
+      const merge = index > 0; // Keep the first-parent line at full contrast.
       if (!state.known.has(edge.oid) || edge.column >= laneLimit) {
         const stub = start + Math.sign(end - start) * 4;
-        path(`M${start},${mid} Q${start},${mid + 6} ${stub},${ROW - 2}`, edge.color, true);
-      } else if (end === start) path(`M${start},${mid} V${ROW}`, edge.color);
-      else path(`M${start},${mid} C${start},${mid + 7} ${end},${mid + 7} ${end},${ROW}`, edge.color);
+        path(`M${start},${mid} Q${start},${mid + 6} ${stub},${ROW - 2}`, edge.color, true, merge);
+      } else if (end === start) path(`M${start},${mid} V${ROW}`, edge.color, false, merge);
+      else path(`M${start},${mid} C${start},${mid + 7} ${end},${mid + 7} ${end},${ROW}`, edge.color, false, merge);
     }
     svg.append(svgNode('circle', { cx: start, cy: mid, r: 3.6, class: `dot lane-${color}${row.parents.length > 1 ? ' merge-dot' : ''}` }));
     return svg;
@@ -434,15 +440,14 @@
     // A single click only moves the selection; the Diff opens on double click.
     row.addEventListener('dblclick', () => { if (!file.ambiguous) send('openDiff', { token: file.id }); });
     markFileSelection(row, state.selectedFiles[source].has(file.id));
-    row.append(el('span', `file-status status-${file.status}`, file.status, label));
     const fileLabel = el('span', 'file-label');
-    fileLabel.append(el('span', 'file-name ellipsis', name));
+    fileLabel.append(el('span', `file-name ellipsis status-${file.status}`, name));
     if (!inTree && separator >= 0) fileLabel.append(el('span', 'file-directory ellipsis', file.path.slice(0, separator)));
     row.append(fileLabel);
     if (file.submodule) row.append(el('span', 'submodule', t('history.submodule')));
     if (note) row.append(codicon('warning', 'file-warning'));
-    const diffLabel = t('history.openDiffLabel', { status: label, path, commit: '' });
-    row.setAttribute('aria-label', [file.ambiguous ? path : diffLabel, note].filter(Boolean).join(' · '));
+    const diffLabel = file.ambiguous ? `${label} · ${path}` : t('history.openDiffLabel', { status: label, path, commit: '' });
+    row.setAttribute('aria-label', [diffLabel, note].filter(Boolean).join(' · '));
     rowContext(row, () => fileActionContext(file, source), () => {
       if (file.sourceCandidate && !state.fileMenus.has(file.id)) probe('probeFileMenu', { source, token: file.id });
     });
@@ -591,23 +596,27 @@
     }
   }
 
+  detailTitle.addEventListener('click', () => {
+    const expanded = detailBody.hidden;
+    detailBody.hidden = !expanded;
+    detailTitle.setAttribute('aria-expanded', String(expanded));
+    detailTitle.firstElementChild.replaceWith(codicon(expanded ? 'chevron-down' : 'chevron-right', 'detail-chevron'));
+  });
+
   function renderDetail() {
-    const box = $('detail-content');
-    const pane = $('details');
     const { detail, loading, focus, selected } = state.selection;
     const multi = (selected?.length || 0) > 1;
     const hidden = multi || Boolean(state.meta.compare && (state.snapshot || !detail));
-    const offset = pane.dataset.oid === detail?.oid ? pane.scrollTop : 0;
-    pane.dataset.oid = detail?.oid || '';
-    pane.hidden = hidden;
+    const offset = details.dataset.oid === detail?.oid ? detailBody.scrollTop : 0;
+    details.dataset.oid = detail?.oid || '';
+    details.hidden = hidden;
     const detailTab = paneControls.find(tab => tab.dataset.pane === 'details');
     detailTab.hidden = hidden;
     if (hidden && panes.dataset.pane === 'details') setPane('files');
-    box.replaceChildren();
+    detailBody.replaceChildren();
     if (hidden) return;
     if (!detail || state.meta.message) {
-      box.append(el('p', 'muted', t(focus && loading && !state.meta.message ? 'history.loadingDetails' : 'history.chooseCommit')));
-      pane.scrollTop = offset;
+      detailBody.append(el('p', 'muted', t(focus && loading && !state.meta.message ? 'history.loadingDetails' : 'history.chooseCommit')));
       return;
     }
     const props = el('dl', 'detail-meta');
@@ -616,9 +625,9 @@
       ['history.time', commitTime(detail.date).precise, 'mono'],
       ['history.parents', detail.parents.join('\n') || t(detail.shallowBoundary ? 'history.parentsMissing' : 'history.noParents'), 'mono']
     ]) props.append(el('dt', '', t(key)), el('dd', cls, value));
-    box.append(el('pre', 'message', detail.message || t('history.noMessage')), props);
-    if (detail.parents.length > 1) box.append(el('p', 'muted', t('history.mergeDiffNote')));
-    pane.scrollTop = offset;
+    detailBody.append(el('pre', 'message', detail.message || t('history.noMessage')), props);
+    if (detail.parents.length > 1) detailBody.append(el('p', 'muted', t('history.mergeDiffNote')));
+    detailBody.scrollTop = offset;
   }
 
   function setPane(pane) {
